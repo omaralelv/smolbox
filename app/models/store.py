@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.reimbursement_request import ReimbursementRequest
 
 
 class Store(Base):
@@ -24,6 +28,6 @@ class Store(Base):
         onupdate=func.now(),
     )
 
-    reimbursement_requests: Mapped[list["ReimbursementRequest"]] = relationship(
+    reimbursement_requests: Mapped[list[ReimbursementRequest]] = relationship(
         back_populates="store",
     )

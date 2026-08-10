@@ -3,11 +3,16 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, Enum, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.expense import Expense
+    from app.models.reimbursement_request import ReimbursementRequest
 
 
 class PeriodStatus(str, enum.Enum):
@@ -34,7 +39,7 @@ class Period(Base):
         onupdate=func.now(),
     )
 
-    expenses: Mapped[list["Expense"]] = relationship(back_populates="period")
-    reimbursement_requests: Mapped[list["ReimbursementRequest"]] = relationship(
+    expenses: Mapped[list[Expense]] = relationship(back_populates="period")
+    reimbursement_requests: Mapped[list[ReimbursementRequest]] = relationship(
         back_populates="period",
     )

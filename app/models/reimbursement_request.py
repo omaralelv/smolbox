@@ -4,11 +4,18 @@ import enum
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, Text, Uuid, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, Text, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.attachment import Attachment
+    from app.models.expense import Expense
+    from app.models.period import Period
+    from app.models.store import Store
 
 
 class ReimbursementRequestStatus(str, enum.Enum):
@@ -22,6 +29,13 @@ class ReimbursementRequestStatus(str, enum.Enum):
 
 class ReimbursementRequest(Base):
     __tablename__ = "reimbursement_requests"
+    __table_args__ = (
+        UniqueConstraint(
+            "store_id",
+            "period_id",
+            name="uq_reimbursement_requests_store_period",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     store_id: Mapped[uuid.UUID] = mapped_column(
@@ -53,10 +67,10 @@ class ReimbursementRequest(Base):
         onupdate=func.now(),
     )
 
-    store: Mapped["Store"] = relationship(back_populates="reimbursement_requests")
-    period: Mapped["Period"] = relationship(back_populates="reimbursement_requests")
-    expenses: Mapped[list["Expense"]] = relationship(back_populates="reimbursement_request")
-    attachments: Mapped[list["Attachment"]] = relationship(
+    store: Mapped[Store] = relationship(back_populates="reimbursement_requests")
+    period: Mapped[Period] = relationship(back_populates="reimbursement_requests")
+    expenses: Mapped[list[Expense]] = relationship(back_populates="reimbursement_request")
+    attachments: Mapped[list[Attachment]] = relationship(
         back_populates="reimbursement_request",
         cascade="all, delete-orphan",
         single_parent=True,

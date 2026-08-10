@@ -14,9 +14,11 @@ Incluye:
 - API REST versionada en `/api/v1`.
 - Modelos de tienda, periodo, solicitud de caja chica, gasto y adjunto con SQLAlchemy.
 - Persistencia en PostgreSQL usando Docker Compose.
-- Carga local de formato de caja chica, comprobantes y XML CFDI.
+- Carga local de formatos de caja chica XLSX, XLS y CSV, comprobantes y XML CFDI.
 - Parser basico de CFDI para UUID, RFCs, total, moneda y fecha.
 - Validacion inicial de CFDI contra importe, moneda y RFC receptor esperado.
+- Persistencia del XML, campos fiscales, resultado de validacion e historial CFDI.
+- Validacion de firmas reales de PDF, JPEG, PNG, XLS, XLSX y XML.
 - Resumen de validacion por solicitud para comparar total reportado, suma de gastos,
   totales por categoria y comprobantes faltantes.
 - Documentacion de alcance en `docs/etapa-1.md`.
@@ -62,8 +64,18 @@ uvicorn app.main:app --reload
 Para correr pruebas:
 
 ```bash
-pytest
+ruff check .
+pytest --cov=app --cov-report=term-missing --cov-fail-under=80
 ```
+
+La suite usa SQLite de forma predeterminada. Para comprobarla contra PostgreSQL:
+
+```bash
+SMOLBOX_TEST_DATABASE_URL=postgresql+psycopg://usuario:password@localhost:5432/smolbox_test pytest
+```
+
+Cada push y pull request ejecuta automaticamente Ruff, las pruebas API y una cobertura
+minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 
 ## Flujo minimo de prueba
 
@@ -74,6 +86,9 @@ pytest
 4. Subir el formato de caja chica en
    `POST /api/v1/reimbursement-requests/{request_id}/attachments`.
 5. Crear gastos en `POST /api/v1/expenses` usando `reimbursement_request_id`.
-6. Subir comprobantes y XML por gasto en `POST /api/v1/expenses/{expense_id}/attachments`.
-7. Revisar el cierre en
+6. Subir comprobantes por gasto en `POST /api/v1/expenses/{expense_id}/attachments`.
+7. Cargar y validar el XML en
+   `POST /api/v1/expenses/{expense_id}/cfdi/validate`; esta operacion guarda el XML y
+   el resultado en una sola transaccion.
+8. Revisar el cierre en
    `GET /api/v1/reimbursement-requests/{request_id}/validation-summary`.

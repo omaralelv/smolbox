@@ -1,3 +1,4 @@
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,16 +7,18 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.expense import Expense
-from app.models.period import Period
+from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.expense import ExpenseCreate, ExpenseRead
-
 
 router = APIRouter()
 
 
 @router.post("/", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
-def create_expense(expense_in: ExpenseCreate, db: Session = Depends(get_db)) -> Expense:
+def create_expense(
+    expense_in: ExpenseCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> Expense:
     expense_data = expense_in.model_dump()
     request_id = expense_data.get("reimbursement_request_id")
 
@@ -37,6 +40,19 @@ def create_expense(expense_in: ExpenseCreate, db: Session = Depends(get_db)) -> 
     period = db.get(Period, expense_data["period_id"])
     if period is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Period not found")
+    if period.status == PeriodStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "PERIOD_CLOSED", "message": "The reimbursement period is closed"},
+        )
+    if not period.starts_on <= expense_in.spent_on <= period.ends_on:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "EXPENSE_OUTSIDE_PERIOD",
+                "message": "The expense date is outside the reimbursement period",
+            },
+        )
 
     expense = Expense(**expense_data)
     db.add(expense)
@@ -47,11 +63,11 @@ def create_expense(expense_in: ExpenseCreate, db: Session = Depends(get_db)) -> 
 
 @router.get("/", response_model=list[ExpenseRead])
 def list_expenses(
+    db: Annotated[Session, Depends(get_db)],
     period_id: UUID | None = None,
     reimbursement_request_id: UUID | None = None,
-    limit: int = Query(default=100, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Expense]:
     statement = select(Expense).order_by(Expense.created_at.desc()).limit(limit).offset(offset)
     if period_id is not None:
@@ -62,7 +78,7 @@ def list_expenses(
 
 
 @router.get("/{expense_id}", response_model=ExpenseRead)
-def get_expense(expense_id: UUID, db: Session = Depends(get_db)) -> Expense:
+def get_expense(expense_id: UUID, db: Annotated[Session, Depends(get_db)]) -> Expense:
     expense = db.get(Expense, expense_id)
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")

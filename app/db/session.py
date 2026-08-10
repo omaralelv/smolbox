@@ -7,8 +7,14 @@ from app.core.config import get_settings
 from app.db.base import Base
 
 # Import models so SQLAlchemy metadata contains every table before create_all.
-from app.models import attachment, expense, period, reimbursement_request, store  # noqa: F401
-
+from app.models import (  # noqa: F401
+    attachment,
+    cfdi_validation,
+    expense,
+    period,
+    reimbursement_request,
+    store,
+)
 
 settings = get_settings()
 

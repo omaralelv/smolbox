@@ -1,7 +1,8 @@
 from decimal import Decimal
 
-from app.services.cfdi_parser import parse_cfdi_xml
+import pytest
 
+from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 
 CFDI_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante
@@ -31,3 +32,8 @@ def test_parse_cfdi_extracts_core_fields() -> None:
     assert result.currency == "MXN"
     assert result.issued_at is not None
     assert result.warnings == []
+
+
+def test_parse_cfdi_rejects_non_cfdi_root() -> None:
+    with pytest.raises(CfdiParseError, match="root element"):
+        parse_cfdi_xml(b"<document />")

@@ -3,11 +3,17 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.cfdi_validation import CfdiValidation
+    from app.models.expense import Expense
+    from app.models.reimbursement_request import ReimbursementRequest
 
 
 class AttachmentType(str, enum.Enum):
@@ -54,7 +60,11 @@ class Attachment(Base):
         server_default=func.now(),
     )
 
-    expense: Mapped["Expense | None"] = relationship(back_populates="attachments")
-    reimbursement_request: Mapped["ReimbursementRequest | None"] = relationship(
+    expense: Mapped[Expense | None] = relationship(back_populates="attachments")
+    reimbursement_request: Mapped[ReimbursementRequest | None] = relationship(
         back_populates="attachments",
+    )
+    cfdi_validation: Mapped[CfdiValidation | None] = relationship(
+        back_populates="attachment",
+        uselist=False,
     )

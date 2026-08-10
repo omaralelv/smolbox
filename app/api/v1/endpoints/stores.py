@@ -1,3 +1,4 @@
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,12 +10,11 @@ from app.db.session import get_db
 from app.models.store import Store
 from app.schemas.store import StoreCreate, StoreRead
 
-
 router = APIRouter()
 
 
 @router.post("/", response_model=StoreRead, status_code=status.HTTP_201_CREATED)
-def create_store(store_in: StoreCreate, db: Session = Depends(get_db)) -> Store:
+def create_store(store_in: StoreCreate, db: Annotated[Session, Depends(get_db)]) -> Store:
     store = Store(**store_in.model_dump())
     db.add(store)
     try:
@@ -31,16 +31,16 @@ def create_store(store_in: StoreCreate, db: Session = Depends(get_db)) -> Store:
 
 @router.get("/", response_model=list[StoreRead])
 def list_stores(
-    limit: int = Query(default=100, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Store]:
     statement = select(Store).order_by(Store.code).limit(limit).offset(offset)
     return list(db.scalars(statement))
 
 
 @router.get("/{store_id}", response_model=StoreRead)
-def get_store(store_id: UUID, db: Session = Depends(get_db)) -> Store:
+def get_store(store_id: UUID, db: Annotated[Session, Depends(get_db)]) -> Store:
     store = db.get(Store, store_id)
     if store is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store not found")

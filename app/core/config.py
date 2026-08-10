@@ -17,6 +17,9 @@ class Settings(BaseSettings):
         "image/png",
         "application/xml",
         "text/xml",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
     ]
     cfdi_receiver_rfc: str | None = None
 

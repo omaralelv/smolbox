@@ -4,11 +4,18 @@ import enum
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.attachment import Attachment
+    from app.models.cfdi_validation import CfdiValidation
+    from app.models.period import Period
+    from app.models.reimbursement_request import ReimbursementRequest
 
 
 class ExpenseStatus(str, enum.Enum):
@@ -58,12 +65,16 @@ class Expense(Base):
         onupdate=func.now(),
     )
 
-    period: Mapped["Period"] = relationship(back_populates="expenses")
-    reimbursement_request: Mapped["ReimbursementRequest | None"] = relationship(
+    period: Mapped[Period] = relationship(back_populates="expenses")
+    reimbursement_request: Mapped[ReimbursementRequest | None] = relationship(
         back_populates="expenses",
     )
-    attachments: Mapped[list["Attachment"]] = relationship(
+    attachments: Mapped[list[Attachment]] = relationship(
         back_populates="expense",
         cascade="all, delete-orphan",
         single_parent=True,
+    )
+    cfdi_validations: Mapped[list[CfdiValidation]] = relationship(
+        back_populates="expense",
+        cascade="all, delete-orphan",
     )

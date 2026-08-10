@@ -15,7 +15,6 @@ class AttachmentRead(BaseModel):
     attachment_type: AttachmentType
     filename: str
     content_type: str
-    storage_path: str
     size_bytes: int
     checksum_sha256: str
     uploaded_at: datetime

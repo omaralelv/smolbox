@@ -6,7 +6,6 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.session import create_database_schema
 
-
 settings = get_settings()
 
 

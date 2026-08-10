@@ -20,7 +20,7 @@ def parse_cfdi_xml(xml_bytes: bytes) -> CfdiParseResult:
 
     warnings: list[str] = []
     if _local_name(root.tag) != "Comprobante":
-        warnings.append("Root element is not cfdi:Comprobante")
+        raise CfdiParseError("CFDI XML root element is not cfdi:Comprobante")
 
     issuer = _find_first(root, "Emisor")
     receiver = _find_first(root, "Receptor")
@@ -31,13 +31,13 @@ def parse_cfdi_xml(xml_bytes: bytes) -> CfdiParseResult:
 
     return CfdiParseResult(
         version=root.attrib.get("Version") or root.attrib.get("version"),
-        uuid=_attr(stamp, "UUID"),
-        issuer_rfc=_attr(issuer, "Rfc"),
+        uuid=_upper(_attr(stamp, "UUID")),
+        issuer_rfc=_upper(_attr(issuer, "Rfc")),
         issuer_name=_attr(issuer, "Nombre"),
-        receiver_rfc=_attr(receiver, "Rfc"),
+        receiver_rfc=_upper(_attr(receiver, "Rfc")),
         receiver_name=_attr(receiver, "Nombre"),
         total=_parse_decimal(root.attrib.get("Total"), warnings),
-        currency=root.attrib.get("Moneda"),
+        currency=_upper(root.attrib.get("Moneda")),
         issued_at=_parse_datetime(root.attrib.get("Fecha"), warnings),
         payment_method=root.attrib.get("MetodoPago"),
         warnings=warnings,
@@ -59,6 +59,10 @@ def _attr(element: ElementTree.Element | None, name: str) -> str | None:
     if element is None:
         return None
     return element.attrib.get(name) or element.attrib.get(name.lower())
+
+
+def _upper(value: str | None) -> str | None:
+    return value.strip().upper() if value and value.strip() else None
 
 
 def _parse_decimal(value: str | None, warnings: list[str]) -> Decimal | None:
