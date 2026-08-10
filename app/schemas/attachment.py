@@ -10,7 +10,8 @@ class AttachmentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    expense_id: UUID
+    expense_id: UUID | None = None
+    reimbursement_request_id: UUID | None = None
     attachment_type: AttachmentType
     filename: str
     content_type: str

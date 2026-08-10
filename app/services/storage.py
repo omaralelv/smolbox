@@ -28,10 +28,20 @@ class StorageService:
         self.upload_dir = upload_dir
         self.max_bytes = max_bytes
 
-    async def save_upload(self, upload: UploadFile, *, expense_id: UUID) -> StoredAttachment:
+    async def save_upload(
+        self,
+        upload: UploadFile,
+        *,
+        expense_id: UUID | None = None,
+        reimbursement_request_id: UUID | None = None,
+    ) -> StoredAttachment:
+        owner_id = expense_id or reimbursement_request_id
+        if owner_id is None:
+            raise ValueError("expense_id or reimbursement_request_id is required")
+
         safe_filename = _sanitize_filename(upload.filename or "upload")
         stored_filename = f"{uuid4().hex}_{safe_filename}"
-        target_dir = self.upload_dir / str(expense_id)
+        target_dir = self.upload_dir / str(owner_id)
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / stored_filename
 

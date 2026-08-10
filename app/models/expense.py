@@ -28,6 +28,12 @@ class Expense(Base):
         nullable=False,
         index=True,
     )
+    reimbursement_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("reimbursement_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     merchant: Mapped[str] = mapped_column(String(255), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MXN", nullable=False)
@@ -53,7 +59,11 @@ class Expense(Base):
     )
 
     period: Mapped["Period"] = relationship(back_populates="expenses")
+    reimbursement_request: Mapped["ReimbursementRequest | None"] = relationship(
+        back_populates="expenses",
+    )
     attachments: Mapped[list["Attachment"]] = relationship(
         back_populates="expense",
         cascade="all, delete-orphan",
+        single_parent=True,
     )

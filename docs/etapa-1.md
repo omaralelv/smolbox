@@ -2,13 +2,19 @@
 
 ## Objetivo
 
-Construir una base backend pequena para manejar reembolsos de caja chica: periodos, gastos, comprobantes adjuntos y una validacion inicial de CFDI. La prioridad es tener un nucleo simple que se pueda correr localmente y extender despues.
+Construir una base backend pequena para manejar reembolsos de caja chica: tiendas,
+periodos, solicitudes de caja chica, gastos, comprobantes adjuntos y una validacion inicial
+de CFDI. La prioridad es tener un nucleo simple que refleje el proceso real de tienda y
+contabilidad, se pueda correr localmente y se pueda extender despues.
 
 ## Alcance incluido
 
 - Crear y listar periodos de reembolso.
-- Crear y listar gastos asociados a un periodo.
-- Cargar adjuntos por gasto en almacenamiento local.
+- Crear y listar tiendas.
+- Crear y listar solicitudes de caja chica asociadas a tienda y periodo.
+- Crear y listar gastos asociados a un periodo y, opcionalmente, a una solicitud de caja chica.
+- Cargar adjuntos por solicitud y por gasto en almacenamiento local.
+- Distinguir el formato de caja chica enviado por tienda de comprobantes y XML CFDI.
 - Leer datos esenciales de XML CFDI:
   - UUID fiscal.
   - RFC emisor.
@@ -21,6 +27,11 @@ Construir una base backend pequena para manejar reembolsos de caja chica: period
   - Total igual al monto del gasto.
   - Moneda igual a la moneda del gasto.
   - RFC receptor igual a `CFDI_RECEIVER_RFC` cuando este configurado.
+- Validar una solicitud de caja chica contra sus gastos:
+  - Total reportado por tienda contra suma de gastos.
+  - Suma por categoria.
+  - Gastos sin comprobante.
+  - Gastos sin XML CFDI como advertencia inicial.
 
 ## Fuera de alcance
 
@@ -34,16 +45,34 @@ Construir una base backend pequena para manejar reembolsos de caja chica: period
 
 `Period` representa una ventana de reembolso con fecha inicial, fecha final y estado.
 
-`Expense` representa un gasto capturado dentro de un periodo. Guarda importe, moneda, proveedor, fecha, categoria y campos CFDI opcionales para evolucionar la validacion.
+`Store` representa la tienda que solicita el reembolso de caja chica. Guarda codigo, nombre,
+correo de contacto y contador asignado cuando este dato exista.
 
-`Attachment` representa un archivo cargado contra un gasto. En esta etapa se guarda en disco local y registra ruta, tipo MIME, tamano y hash SHA-256.
+`ReimbursementRequest` representa la solicitud que una tienda envia para un periodo. Guarda
+tienda, periodo, total reportado, datos del reembolso anterior y notas. En Etapa 2 esta
+entidad debe convertirse en el centro del flujo de aprobacion.
+
+`Expense` representa un gasto capturado dentro de un periodo y opcionalmente dentro de una
+solicitud de caja chica. Guarda importe, moneda, proveedor, fecha, categoria y campos CFDI
+opcionales para evolucionar la validacion.
+
+`Attachment` representa un archivo cargado contra una solicitud o un gasto. En esta etapa se
+guarda en disco local y registra ruta, tipo MIME, tamano y hash SHA-256.
 
 ## Endpoints iniciales
 
 - `GET /api/v1/health`
+- `POST /api/v1/stores`
+- `GET /api/v1/stores`
+- `GET /api/v1/stores/{store_id}`
 - `POST /api/v1/periods`
 - `GET /api/v1/periods`
 - `GET /api/v1/periods/{period_id}`
+- `POST /api/v1/reimbursement-requests`
+- `GET /api/v1/reimbursement-requests`
+- `GET /api/v1/reimbursement-requests/{request_id}`
+- `GET /api/v1/reimbursement-requests/{request_id}/validation-summary`
+- `POST /api/v1/reimbursement-requests/{request_id}/attachments`
 - `POST /api/v1/expenses`
 - `GET /api/v1/expenses`
 - `GET /api/v1/expenses/{expense_id}`
@@ -64,5 +93,6 @@ Construir una base backend pequena para manejar reembolsos de caja chica: period
 1. Agregar autenticacion basica de usuarios internos.
 2. Agregar migraciones Alembic.
 3. Persistir el resultado de validacion CFDI en una tabla dedicada.
-4. Agregar estado de revision por gasto.
-5. Agregar UI minima para captura y revision.
+4. Convertir `ReimbursementRequest` en el centro del flujo de revision y aprobacion.
+5. Agregar UI minima para tienda, contador, supervisora, tesoreria y direccion.
+6. Agregar exportacion CSV/XLSX compatible con el proceso manual previo a SAP.

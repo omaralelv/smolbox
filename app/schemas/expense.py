@@ -2,13 +2,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.expense import ExpenseStatus
 
 
 class ExpenseBase(BaseModel):
-    period_id: UUID
+    period_id: UUID | None = None
+    reimbursement_request_id: UUID | None = None
     merchant: str = Field(min_length=1, max_length=255)
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     currency: str = Field(default="MXN", min_length=3, max_length=3)
@@ -29,13 +30,18 @@ class ExpenseBase(BaseModel):
 
 
 class ExpenseCreate(ExpenseBase):
-    pass
+    @model_validator(mode="after")
+    def validate_owner(self) -> "ExpenseCreate":
+        if self.period_id is None and self.reimbursement_request_id is None:
+            raise ValueError("period_id or reimbursement_request_id is required")
+        return self
 
 
 class ExpenseRead(ExpenseBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    period_id: UUID
     cfdi_uuid: str | None = None
     cfdi_issuer_rfc: str | None = None
     cfdi_receiver_rfc: str | None = None

@@ -35,3 +35,6 @@ class Period(Base):
     )
 
     expenses: Mapped[list["Expense"]] = relationship(back_populates="period")
+    reimbursement_requests: Mapped[list["ReimbursementRequest"]] = relationship(
+        back_populates="period",
+    )

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, String, Uuid, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -13,17 +13,30 @@ from app.db.base import Base
 class AttachmentType(str, enum.Enum):
     receipt = "receipt"
     cfdi_xml = "cfdi_xml"
+    cash_box_format = "cash_box_format"
     other = "other"
 
 
 class Attachment(Base):
     __tablename__ = "attachments"
+    __table_args__ = (
+        CheckConstraint(
+            "(expense_id IS NOT NULL) <> (reimbursement_request_id IS NOT NULL)",
+            name="ck_attachments_single_owner",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    expense_id: Mapped[uuid.UUID] = mapped_column(
+    expense_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("expenses.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    reimbursement_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("reimbursement_requests.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     attachment_type: Mapped[AttachmentType] = mapped_column(
@@ -41,4 +54,7 @@ class Attachment(Base):
         server_default=func.now(),
     )
 
-    expense: Mapped["Expense"] = relationship(back_populates="attachments")
+    expense: Mapped["Expense | None"] = relationship(back_populates="attachments")
+    reimbursement_request: Mapped["ReimbursementRequest | None"] = relationship(
+        back_populates="attachments",
+    )

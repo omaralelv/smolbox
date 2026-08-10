@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.expense import Expense
 from app.models.period import Period
+from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.expense import ExpenseCreate, ExpenseRead
 
 
@@ -15,11 +16,29 @@ router = APIRouter()
 
 @router.post("/", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
 def create_expense(expense_in: ExpenseCreate, db: Session = Depends(get_db)) -> Expense:
-    period = db.get(Period, expense_in.period_id)
+    expense_data = expense_in.model_dump()
+    request_id = expense_data.get("reimbursement_request_id")
+
+    if request_id is not None:
+        reimbursement_request = db.get(ReimbursementRequest, request_id)
+        if reimbursement_request is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Reimbursement request not found",
+            )
+        if expense_data.get("period_id") is None:
+            expense_data["period_id"] = reimbursement_request.period_id
+        elif expense_data["period_id"] != reimbursement_request.period_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Expense period must match the reimbursement request period",
+            )
+
+    period = db.get(Period, expense_data["period_id"])
     if period is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Period not found")
 
-    expense = Expense(**expense_in.model_dump())
+    expense = Expense(**expense_data)
     db.add(expense)
     db.commit()
     db.refresh(expense)
@@ -29,6 +48,7 @@ def create_expense(expense_in: ExpenseCreate, db: Session = Depends(get_db)) -> 
 @router.get("/", response_model=list[ExpenseRead])
 def list_expenses(
     period_id: UUID | None = None,
+    reimbursement_request_id: UUID | None = None,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -36,6 +56,8 @@ def list_expenses(
     statement = select(Expense).order_by(Expense.created_at.desc()).limit(limit).offset(offset)
     if period_id is not None:
         statement = statement.where(Expense.period_id == period_id)
+    if reimbursement_request_id is not None:
+        statement = statement.where(Expense.reimbursement_request_id == reimbursement_request_id)
     return list(db.scalars(statement))
 
 
