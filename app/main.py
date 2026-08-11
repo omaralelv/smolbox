@@ -12,14 +12,15 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    create_database_schema()
+    if settings.auto_create_schema:
+        create_database_schema()
     yield
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
-    description="Smolbox Etapa 1 MVP API.",
+    version="0.2.0",
+    description="Smolbox Etapa 2 backend API.",
     lifespan=lifespan,
 )
 

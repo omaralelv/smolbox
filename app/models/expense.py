@@ -13,6 +13,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.attachment import Attachment
+    from app.models.audit_log import AuditLog
     from app.models.cfdi_validation import CfdiValidation
     from app.models.period import Period
     from app.models.reimbursement_request import ReimbursementRequest
@@ -78,3 +79,4 @@ class Expense(Base):
         back_populates="expense",
         cascade="all, delete-orphan",
     )
+    audit_events: Mapped[list[AuditLog]] = relationship(back_populates="expense")

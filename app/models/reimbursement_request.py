@@ -13,6 +13,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.attachment import Attachment
+    from app.models.audit_log import AuditLog
     from app.models.expense import Expense
     from app.models.period import Period
     from app.models.store import Store
@@ -24,7 +25,11 @@ class ReimbursementRequestStatus(str, enum.Enum):
     under_accounting_review = "under_accounting_review"
     correction_required = "correction_required"
     accounting_approved = "accounting_approved"
+    treasury_review = "treasury_review"
+    approved_for_payment = "approved_for_payment"
+    paid = "paid"
     closed = "closed"
+    rejected = "rejected"
 
 
 class ReimbursementRequest(Base):
@@ -66,6 +71,12 @@ class ReimbursementRequest(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accounting_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    treasury_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_for_payment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     store: Mapped[Store] = relationship(back_populates="reimbursement_requests")
     period: Mapped[Period] = relationship(back_populates="reimbursement_requests")
@@ -74,4 +85,8 @@ class ReimbursementRequest(Base):
         back_populates="reimbursement_request",
         cascade="all, delete-orphan",
         single_parent=True,
+    )
+    audit_events: Mapped[list[AuditLog]] = relationship(
+        back_populates="reimbursement_request",
+        cascade="all, delete-orphan",
     )

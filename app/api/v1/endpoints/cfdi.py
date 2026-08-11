@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
+from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense
 from app.schemas.cfdi import CfdiParseResult, CfdiValidationResult
@@ -151,6 +152,21 @@ async def validate_expense_cfdi(
         expense.cfdi_receiver_rfc = parsed.receiver_rfc
         expense.cfdi_total = parsed.total
         expense.cfdi_currency = parsed.currency
+        if expense.reimbursement_request_id is not None:
+            db.add(
+                AuditLog(
+                    reimbursement_request_id=expense.reimbursement_request_id,
+                    expense_id=expense.id,
+                    actor_type=AuditActorType.system,
+                    action="expense_cfdi_validated",
+                    message="CFDI XML parsed, validated and stored.",
+                    event_payload={
+                        "is_valid": result.is_valid,
+                        "uuid": normalized_uuid,
+                        "issue_codes": [issue.code for issue in result.issues],
+                    },
+                )
+            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()

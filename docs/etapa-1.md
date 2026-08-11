@@ -86,7 +86,8 @@ guarda en disco local y registra ruta, tipo MIME, tamano y hash SHA-256.
 - SQLAlchemy 2 para modelos y persistencia.
 - PostgreSQL como base de datos desde el inicio.
 - Docker Compose para levantar API y base de datos localmente.
-- `Base.metadata.create_all` al iniciar, solo para acelerar Etapa 1. Migraciones formales deben agregarse antes de produccion.
+- `Base.metadata.create_all` al iniciar, solo para acelerar Etapa 1. Migraciones formales
+  deben agregarse antes de produccion.
 
 ## Siguientes pasos sugeridos
 

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
         "text/csv",
     ]
     cfdi_receiver_rfc: str | None = None
+    auto_create_schema: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

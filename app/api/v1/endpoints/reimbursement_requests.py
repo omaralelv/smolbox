@@ -9,14 +9,18 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
+from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest
 from app.models.store import Store
+from app.models.user import User
 from app.schemas.attachment import AttachmentRead
+from app.schemas.audit_log import AuditLogRead
 from app.schemas.reimbursement_request import (
     ReimbursementRequestCreate,
     ReimbursementRequestRead,
+    ReimbursementRequestTransition,
     ReimbursementValidationSummary,
 )
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
@@ -27,6 +31,7 @@ from app.services.storage import (
     UploadTooLarge,
     read_upload_limited,
 )
+from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
 
 router = APIRouter()
 
@@ -67,6 +72,16 @@ def create_reimbursement_request(
     reimbursement_request = ReimbursementRequest(**request_in.model_dump())
     db.add(reimbursement_request)
     try:
+        db.flush()
+        db.add(
+            AuditLog(
+                reimbursement_request_id=reimbursement_request.id,
+                actor_type=AuditActorType.system,
+                action="request_created",
+                to_status=reimbursement_request.status.value,
+                message="Reimbursement request created.",
+            )
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -124,7 +139,9 @@ def get_reimbursement_validation_summary(
     statement = (
         select(ReimbursementRequest)
         .options(
+            selectinload(ReimbursementRequest.period),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
         )
         .where(ReimbursementRequest.id == request_id)
     )
@@ -135,6 +152,89 @@ def get_reimbursement_validation_summary(
             detail="Reimbursement request not found",
         )
     return summarize_reimbursement_request(reimbursement_request)
+
+
+@router.post("/{request_id}/transition", response_model=ReimbursementRequestRead)
+def transition_request(
+    request_id: UUID,
+    transition_in: ReimbursementRequestTransition,
+    db: Annotated[Session, Depends(get_db)],
+) -> ReimbursementRequest:
+    statement = (
+        select(ReimbursementRequest)
+        .options(
+            selectinload(ReimbursementRequest.period),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+        )
+        .where(ReimbursementRequest.id == request_id)
+    )
+    reimbursement_request = db.scalars(statement).first()
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    actor = db.get(User, transition_in.actor_user_id)
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actor user not found")
+
+    summary = summarize_reimbursement_request(reimbursement_request)
+    try:
+        from_status, to_status = transition_reimbursement_request(
+            reimbursement_request,
+            actor=actor,
+            target_status=transition_in.target_status,
+            summary=summary,
+        )
+    except WorkflowTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "INVALID_WORKFLOW_TRANSITION", "message": str(exc)},
+        ) from exc
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="request_status_changed",
+            from_status=from_status.value,
+            to_status=to_status.value,
+            message=transition_in.note,
+            event_payload={
+                "ready_for_submission": summary.ready_for_submission,
+                "ready_for_accounting_approval": summary.ready_for_accounting_approval,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(reimbursement_request)
+    return reimbursement_request
+
+
+@router.get("/{request_id}/audit-events", response_model=list[AuditLogRead])
+def list_reimbursement_request_audit_events(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AuditLog]:
+    if db.get(ReimbursementRequest, request_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    statement = (
+        select(AuditLog)
+        .where(AuditLog.reimbursement_request_id == request_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(db.scalars(statement))
 
 
 @router.post(
@@ -200,6 +300,19 @@ async def upload_reimbursement_request_attachment(
         checksum_sha256=stored.checksum_sha256,
     )
     db.add(attachment)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_type=AuditActorType.system,
+            action="request_attachment_uploaded",
+            message=f"Attachment uploaded: {stored.filename}",
+            event_payload={
+                "attachment_type": attachment_type.value,
+                "size_bytes": stored.size_bytes,
+                "checksum_sha256": stored.checksum_sha256,
+            },
+        )
+    )
     try:
         db.commit()
     except Exception:

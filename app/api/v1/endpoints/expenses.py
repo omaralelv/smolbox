@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest
@@ -56,6 +57,23 @@ def create_expense(
 
     expense = Expense(**expense_data)
     db.add(expense)
+    db.flush()
+    if expense.reimbursement_request_id is not None:
+        db.add(
+            AuditLog(
+                reimbursement_request_id=expense.reimbursement_request_id,
+                expense_id=expense.id,
+                actor_type=AuditActorType.system,
+                action="expense_created",
+                message=f"Expense created for {expense.merchant}.",
+                event_payload={
+                    "amount": str(expense.amount),
+                    "currency": expense.currency,
+                    "category": expense.category,
+                    "spent_on": expense.spent_on.isoformat(),
+                },
+            )
+        )
     db.commit()
     db.refresh(expense)
     return expense

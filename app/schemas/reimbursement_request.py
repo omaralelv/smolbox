@@ -42,8 +42,20 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
 
     id: UUID
     status: ReimbursementRequestStatus
+    submitted_at: datetime | None = None
+    accounting_reviewed_at: datetime | None = None
+    treasury_reviewed_at: datetime | None = None
+    approved_for_payment_at: datetime | None = None
+    paid_at: datetime | None = None
+    closed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ReimbursementRequestTransition(BaseModel):
+    target_status: ReimbursementRequestStatus
+    actor_user_id: UUID
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class CategoryTotal(BaseModel):
@@ -67,5 +79,10 @@ class ReimbursementValidationSummary(BaseModel):
     category_totals: list[CategoryTotal]
     missing_receipt_expense_ids: list[UUID]
     missing_cfdi_expense_ids: list[UUID]
+    out_of_period_expense_ids: list[UUID]
+    duplicate_cfdi_uuids: list[str]
+    invalid_cfdi_expense_ids: list[UUID]
+    ready_for_submission: bool
+    ready_for_accounting_approval: bool
     is_balanced: bool
     issues: list[ReimbursementValidationIssue]

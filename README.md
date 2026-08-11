@@ -23,12 +23,28 @@ Incluye:
   totales por categoria y comprobantes faltantes.
 - Documentacion de alcance en `docs/etapa-1.md`.
 
+## Etapa 2 backend
+
+La segunda etapa agrega la base operativa del flujo interno sin conectores empresariales:
+
+- Migraciones Alembic para evolucionar PostgreSQL sin borrar datos locales.
+- Usuarios internos con rol `store`, `accountant`, `treasury` o `admin`.
+- Flujo de estados de solicitud: borrador, enviada, revision contable, correccion,
+  aprobacion contable, revision de tesoreria, autorizacion de pago, pagada, cerrada
+  o rechazada.
+- Endpoint de transicion de estado con validacion de rol y reglas minimas de negocio.
+- Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI y cambios de estado.
+- Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
+  invalidos y readiness para envio/aprobacion contable.
+- Descarga de adjuntos por ID.
+- Documentacion de alcance en `docs/etapa-2-backend.md`.
+
 Fuera de esta etapa:
 
 - Integraciones SAP.
-- Integraciones Azure o SSO empresarial.
+- Integraciones Azure, Active Directory o SSO empresarial.
 - Validacion en linea contra SAT.
-- Flujos avanzados de aprobacion, pagos o contabilidad.
+- Dispersion bancaria o contabilizacion final automatica.
 
 ## Ejecutar localmente
 
@@ -50,7 +66,13 @@ Fuera de esta etapa:
    http://localhost:8000/docs
    ```
 
-La API crea las tablas automaticamente al iniciar para facilitar la Etapa 1. En una etapa posterior se deberian agregar migraciones formales con Alembic.
+Docker ejecuta `alembic upgrade head` antes de iniciar FastAPI. Si ya tenias una base local
+de prueba de Etapa 1 y quieres empezar limpio:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
 
 ## Desarrollo sin Docker
 
@@ -58,6 +80,7 @@ La API crea las tablas automaticamente al iniciar para facilitar la Etapa 1. En 
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -92,3 +115,7 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
    el resultado en una sola transaccion.
 8. Revisar el cierre en
    `GET /api/v1/reimbursement-requests/{request_id}/validation-summary`.
+9. Crear usuarios internos en `POST /api/v1/users`.
+10. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
+11. Revisar auditoria con
+   `GET /api/v1/reimbursement-requests/{request_id}/audit-events`.

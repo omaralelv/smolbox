@@ -9,11 +9,13 @@ from app.db.base import Base
 # Import models so SQLAlchemy metadata contains every table before create_all.
 from app.models import (  # noqa: F401
     attachment,
+    audit_log,
     cfdi_validation,
     expense,
     period,
     reimbursement_request,
     store,
+    user,
 )
 
 settings = get_settings()

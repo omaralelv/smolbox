@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
+from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
 from app.schemas.attachment import AttachmentRead
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
@@ -74,6 +75,21 @@ async def upload_attachment(
         checksum_sha256=stored.checksum_sha256,
     )
     db.add(attachment)
+    if expense.reimbursement_request_id is not None:
+        db.add(
+            AuditLog(
+                reimbursement_request_id=expense.reimbursement_request_id,
+                expense_id=expense.id,
+                actor_type=AuditActorType.system,
+                action="expense_attachment_uploaded",
+                message=f"Attachment uploaded: {stored.filename}",
+                event_payload={
+                    "attachment_type": attachment_type.value,
+                    "size_bytes": stored.size_bytes,
+                    "checksum_sha256": stored.checksum_sha256,
+                },
+            )
+        )
     try:
         db.commit()
     except Exception:

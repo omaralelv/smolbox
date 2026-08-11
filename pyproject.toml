@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "MVP backend for petty cash reimbursement workflows."
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.13,<2.0",
+    "email-validator>=2.2,<3.0",
     "fastapi>=0.115,<1.0",
     "psycopg[binary]>=3.2,<4.0",
     "pydantic-settings>=2.6,<3.0",
