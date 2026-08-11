@@ -6,7 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, Text, Uuid, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -24,6 +24,7 @@ class ExpenseStatus(str, enum.Enum):
     submitted = "submitted"
     approved = "approved"
     rejected = "rejected"
+    removed = "removed"
 
 
 class Expense(Base):
@@ -49,6 +50,24 @@ class Expense(Base):
     category: Mapped[str | None] = mapped_column(String(120))
     description: Mapped[str | None] = mapped_column(Text)
     supplier_tax_id: Mapped[str | None] = mapped_column(String(20), index=True)
+    requires_authorization: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    authorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    authorized_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    authorization_note: Mapped[str | None] = mapped_column(Text)
+    review_note: Mapped[str | None] = mapped_column(Text)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    removal_reason: Mapped[str | None] = mapped_column(Text)
     cfdi_uuid: Mapped[str | None] = mapped_column(String(36), unique=True)
     cfdi_issuer_rfc: Mapped[str | None] = mapped_column(String(20))
     cfdi_receiver_rfc: Mapped[str | None] = mapped_column(String(20))

@@ -22,10 +22,17 @@ if TYPE_CHECKING:
 class ReimbursementRequestStatus(str, enum.Enum):
     draft = "draft"
     submitted = "submitted"
+    authorization_review = "authorization_review"
+    authorized = "authorized"
     under_accounting_review = "under_accounting_review"
     correction_required = "correction_required"
+    accounting_reviewed = "accounting_reviewed"
     accounting_approved = "accounting_approved"
+    accounting_manager_review = "accounting_manager_review"
+    accounting_manager_approved = "accounting_manager_approved"
     treasury_review = "treasury_review"
+    direction_review = "direction_review"
+    direction_approved = "direction_approved"
     approved_for_payment = "approved_for_payment"
     paid = "paid"
     closed = "closed"
@@ -72,8 +79,14 @@ class ReimbursementRequest(Base):
         onupdate=func.now(),
     )
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    authorization_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accounting_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accounting_manager_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     treasury_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    direction_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    direction_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_for_payment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

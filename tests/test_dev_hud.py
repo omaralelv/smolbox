@@ -10,6 +10,8 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Crear tienda" in TEST_HUD_HTML
     assert "Crear usuario" in TEST_HUD_HTML
     assert "Crear pago/gasto" in TEST_HUD_HTML
+    assert "Autorizar gastos" in TEST_HUD_HTML
+    assert "Aprobar dirección" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -23,31 +25,73 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     assert scenario["exists"] is True
     assert scenario["status"] == "draft"
     assert scenario["summary"]["ready_for_submission"] is True
+    assert scenario["summary"]["ready_for_authorization_approval"] is False
     assert scenario["summary"]["ready_for_accounting_approval"] is False
     assert len(scenario["expenses"]) == 2
     assert all(expense["has_receipt"] for expense in scenario["expenses"])
+    assert any(expense["requires_authorization"] for expense in scenario["expenses"])
     assert not any(expense["has_current_valid_cfdi"] for expense in scenario["expenses"])
 
     submitted = client.post("/api/v1/dev-hud/transition/submitted")
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()["to_status"] == "submitted"
 
+    authorization_review = client.post("/api/v1/dev-hud/transition/authorization_review")
+    assert authorization_review.status_code == 200, authorization_review.text
+    assert authorization_review.json()["to_status"] == "authorization_review"
+
+    blocked = client.post("/api/v1/dev-hud/transition/authorized")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+
+    authorized_expenses = client.post("/api/v1/dev-hud/authorize-expenses")
+    assert authorized_expenses.status_code == 200, authorized_expenses.text
+    assert authorized_expenses.json()["authorized"] == 1
+    assert (
+        authorized_expenses.json()["scenario"]["summary"]["ready_for_authorization_approval"]
+        is True
+    )
+
+    authorized = client.post("/api/v1/dev-hud/transition/authorized")
+    assert authorized.status_code == 200, authorized.text
+    assert authorized.json()["to_status"] == "authorized"
+
     review = client.post("/api/v1/dev-hud/transition/under_accounting_review")
     assert review.status_code == 200, review.text
     assert review.json()["to_status"] == "under_accounting_review"
 
-    blocked = client.post("/api/v1/dev-hud/transition/accounting_approved")
-    assert blocked.status_code == 409
-    assert blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+    accounting_blocked = client.post("/api/v1/dev-hud/transition/accounting_reviewed")
+    assert accounting_blocked.status_code == 409
+    assert accounting_blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
 
     completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
     assert completed_cfdi.status_code == 200, completed_cfdi.text
     assert completed_cfdi.json()["cfdi_added"] == 2
     assert completed_cfdi.json()["scenario"]["summary"]["ready_for_accounting_approval"] is True
 
-    approved = client.post("/api/v1/dev-hud/transition/accounting_approved")
-    assert approved.status_code == 200, approved.text
-    assert approved.json()["to_status"] == "accounting_approved"
+    accounting_reviewed = client.post("/api/v1/dev-hud/transition/accounting_reviewed")
+    assert accounting_reviewed.status_code == 200, accounting_reviewed.text
+    assert accounting_reviewed.json()["to_status"] == "accounting_reviewed"
+
+    manager_review = client.post("/api/v1/dev-hud/transition/accounting_manager_review")
+    assert manager_review.status_code == 200, manager_review.text
+    assert manager_review.json()["to_status"] == "accounting_manager_review"
+
+    manager_approved = client.post("/api/v1/dev-hud/transition/accounting_manager_approved")
+    assert manager_approved.status_code == 200, manager_approved.text
+    assert manager_approved.json()["to_status"] == "accounting_manager_approved"
+
+    treasury_review = client.post("/api/v1/dev-hud/transition/treasury_review")
+    assert treasury_review.status_code == 200, treasury_review.text
+    assert treasury_review.json()["to_status"] == "treasury_review"
+
+    direction_review = client.post("/api/v1/dev-hud/transition/direction_review")
+    assert direction_review.status_code == 200, direction_review.text
+    assert direction_review.json()["to_status"] == "direction_review"
+
+    direction_approved = client.post("/api/v1/dev-hud/transition/direction_approved")
+    assert direction_approved.status_code == 200, direction_approved.text
+    assert direction_approved.json()["to_status"] == "direction_approved"
 
     reset = client.post("/api/v1/dev-hud/reset-demo")
     assert reset.status_code == 200, reset.text

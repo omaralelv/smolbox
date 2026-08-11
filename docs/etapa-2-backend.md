@@ -2,31 +2,43 @@
 
 ## Objetivo
 
-Convertir la base de Etapa 1 en un flujo backend controlado para tienda, contabilidad y
-tesoreria. Esta etapa sigue siendo local y verificable; no incluye SAP, Azure, SSO ni
-validacion en linea contra SAT.
+Convertir la base de Etapa 1 en un flujo backend controlado para tienda, autorizacion,
+contabilidad, gerente de contabilidad, tesoreria y direccion. Esta etapa sigue siendo local
+y verificable; no incluye integracion real SAP, Azure, SSO ni validacion en linea contra SAT.
 
 ## Alcance incluido
 
 - Migraciones Alembic para versionar la base de datos.
 - Usuarios internos con roles operativos:
   - `store`: captura y envia solicitudes.
-  - `accountant`: revisa, pide correcciones y aprueba contablemente.
-  - `treasury`: revisa tesoreria, autoriza pago, marca pagado y cierra.
+  - `authorizer`: revisa gastos que requieren autorizacion y los autoriza.
+  - `accountant`: revisa facturas, CFDI y formato base; puede observar, editar o remover gastos.
+  - `accounting_manager`: valida la revision contable antes de tesoreria.
+  - `treasury`: revisa tesoreria, envia a direccion, autoriza pago, marca pagado y cierra.
+  - `director`: aprueba la solicitud revisada por tesoreria para liberar pago.
   - `admin`: puede ejecutar cualquier transicion soportada.
 - Flujo de estados de solicitud:
   - `draft`
   - `submitted`
+  - `authorization_review`
+  - `authorized`
   - `under_accounting_review`
   - `correction_required`
+  - `accounting_reviewed`
   - `accounting_approved`
+  - `accounting_manager_review`
+  - `accounting_manager_approved`
   - `treasury_review`
+  - `direction_review`
+  - `direction_approved`
   - `approved_for_payment`
   - `paid`
   - `closed`
   - `rejected`
 - Bitacora de auditoria para reconstruir acciones importantes.
 - Validacion ampliada de solicitudes.
+- Revision por gasto: autorizar, observar, editar durante revision contable/gerencial y
+  remover con motivo obligatorio sin borrar historial.
 - Descarga de adjuntos por identificador.
 - Edicion parcial de registros operativos mediante `PATCH`.
 - Importacion masiva de gastos desde CSV o XLSX.
@@ -73,11 +85,16 @@ El cuerpo necesita:
 Reglas principales:
 
 - La tienda puede mover `draft` o `correction_required` a `submitted`.
-- Contabilidad puede mover `submitted` a `under_accounting_review`.
-- Contabilidad puede pedir correccion o aprobar contablemente desde
-  `under_accounting_review`.
-- Tesoreria puede mover `accounting_approved` a `treasury_review`.
-- Tesoreria puede autorizar pago, marcar pagado y cerrar.
+- Autorizacion mueve `submitted` a `authorization_review`.
+- Autorizacion puede autorizar gastos individuales y luego mover la solicitud a `authorized`.
+- Contabilidad mueve `authorized` a `under_accounting_review`.
+- Contabilidad puede pedir correccion o mover a `accounting_reviewed`.
+- Gerente de contabilidad mueve `accounting_reviewed` a `accounting_manager_review` y despues
+  a `accounting_manager_approved`.
+- Tesoreria mueve `accounting_manager_approved` a `treasury_review` y luego a
+  `direction_review`.
+- Direccion mueve `direction_review` a `direction_approved`.
+- Tesoreria puede mover `direction_approved` a `approved_for_payment`, marcar `paid` y cerrar.
 - `admin` puede ejecutar las transiciones soportadas.
 
 Para enviar una solicitud, el resumen debe estar listo para envio:
@@ -91,6 +108,32 @@ Para enviar una solicitud, el resumen debe estar listo para envio:
 Para aprobacion contable, ademas se requiere que no falten XML CFDI y que no existan errores
 de CFDI persistidos. Si se edita monto, moneda o RFC de proveedor despues de validar un CFDI,
 la validacion CFDI se marca como no vigente y debe repetirse.
+
+Para autorizacion, los gastos con `requires_authorization=true` deben tener `authorized_at`.
+Los gastos que no requieren autorizacion no bloquean ese paso.
+
+## Acciones por gasto
+
+Endpoints:
+
+```text
+POST /api/v1/expenses/{expense_id}/authorize
+POST /api/v1/expenses/{expense_id}/observation
+PATCH /api/v1/expenses/{expense_id}/review
+POST /api/v1/expenses/{expense_id}/remove
+```
+
+Reglas:
+
+- `authorize` solo funciona durante `authorization_review` y con rol `authorizer`.
+- `observation` funciona en la etapa activa del rol revisor: autorizacion, contabilidad,
+  gerente contable, tesoreria o direccion.
+- `review` permite editar gastos durante `under_accounting_review` o
+  `accounting_manager_review`.
+- `remove` solo funciona durante revision contable o gerencial, exige `reason` y marca el
+  gasto como `removed` sin borrarlo fisicamente.
+- Cuando un gasto se remueve o se edita durante revision, el total reportado se recalcula para
+  mantener la solicitud balanceada y la accion queda en auditoria.
 
 ## Edicion de datos
 
@@ -126,6 +169,7 @@ Columnas aceptadas:
 - `descripcion`, `concepto`, `detalle` o `description`
 - `rfc_proveedor`, `rfc_emisor`, `rfc`, `supplier_rfc` o `supplier_tax_id`
 - `moneda` o `currency`
+- `requiere_autorizacion`, `autorizacion` o `requires_authorization`
 
 Columnas obligatorias:
 
@@ -172,6 +216,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - probar importacion CSV con `dry_run` o guardado real;
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
 - crear pagos/gastos de prueba en la solicitud HUD;
+- autorizar gastos HUD que requieren aprobacion previa;
 - limpiar solo los datos con prefijo HUD.
 
 Los endpoints auxiliares viven bajo:
@@ -190,6 +235,7 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/dev-hud/users`
 - `POST /api/v1/dev-hud/assign-user`
 - `POST /api/v1/dev-hud/payments`
+- `POST /api/v1/dev-hud/authorize-expenses`
 - `POST /api/v1/dev-hud/complete-cfdi`
 - `POST /api/v1/dev-hud/transition/{target_status}`
 - `POST /api/v1/dev-hud/reset-demo`
@@ -205,5 +251,9 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `GET /api/v1/reimbursement-requests/{request_id}/audit-events`
 - `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`
 - `PATCH /api/v1/expenses/{expense_id}`
+- `POST /api/v1/expenses/{expense_id}/authorize`
+- `POST /api/v1/expenses/{expense_id}/observation`
+- `PATCH /api/v1/expenses/{expense_id}/review`
+- `POST /api/v1/expenses/{expense_id}/remove`
 - `GET /api/v1/attachments/{attachment_id}`
 - `GET /api/v1/attachments/{attachment_id}/download`

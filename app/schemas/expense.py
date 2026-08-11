@@ -17,6 +17,7 @@ class ExpenseBase(BaseModel):
     category: str | None = Field(default=None, max_length=120)
     description: str | None = None
     supplier_tax_id: str | None = Field(default=None, max_length=20)
+    requires_authorization: bool = False
 
     @field_validator("currency")
     @classmethod
@@ -45,6 +46,7 @@ class ExpenseUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=120)
     description: str | None = None
     supplier_tax_id: str | None = Field(default=None, max_length=20)
+    requires_authorization: bool | None = None
 
     @field_validator("currency")
     @classmethod
@@ -67,6 +69,34 @@ class ExpenseRead(ExpenseBase):
     cfdi_receiver_rfc: str | None = None
     cfdi_total: Decimal | None = None
     cfdi_currency: str | None = None
+    authorized_at: datetime | None = None
+    authorized_by_user_id: UUID | None = None
+    authorization_note: str | None = None
+    review_note: str | None = None
+    removed_at: datetime | None = None
+    removed_by_user_id: UUID | None = None
+    removal_reason: str | None = None
     status: ExpenseStatus
     created_at: datetime
     updated_at: datetime
+
+
+class ExpenseAuthorization(BaseModel):
+    actor_user_id: UUID
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ExpenseObservation(BaseModel):
+    actor_user_id: UUID
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class ExpenseReviewUpdate(ExpenseUpdate):
+    actor_user_id: UUID
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ExpenseRemoval(BaseModel):
+    actor_user_id: UUID
+    reason: str = Field(min_length=1, max_length=1000)
+    adjust_reported_total: bool = True

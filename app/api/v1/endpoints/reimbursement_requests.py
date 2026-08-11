@@ -264,6 +264,7 @@ def transition_request(
             message=transition_in.note,
             event_payload={
                 "ready_for_submission": summary.ready_for_submission,
+                "ready_for_authorization_approval": summary.ready_for_authorization_approval,
                 "ready_for_accounting_approval": summary.ready_for_accounting_approval,
             },
         )
@@ -428,6 +429,7 @@ async def import_reimbursement_request_expenses(
             category=row.category,
             description=row.description,
             supplier_tax_id=row.supplier_tax_id,
+            requires_authorization=row.requires_authorization,
         )
         for row in parsed_rows
     ]

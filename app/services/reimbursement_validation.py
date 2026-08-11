@@ -41,6 +41,8 @@ def summarize_reimbursement_request(
     category_totals: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     category_counts: defaultdict[str, int] = defaultdict(int)
     missing_receipt_expense_ids: list[UUID] = []
+    missing_authorization_expense_ids: list[UUID] = []
+    removed_expense_ids: list[UUID] = []
     missing_cfdi_expense_ids: list[UUID] = []
     out_of_period_expense_ids: list[UUID] = []
     duplicate_cfdi_uuids: list[str] = []
@@ -52,7 +54,13 @@ def summarize_reimbursement_request(
     period_starts_on = getattr(period, "starts_on", None)
     period_ends_on = getattr(period, "ends_on", None)
 
+    active_expenses = []
     for expense in request.expenses:
+        if _is_removed(expense):
+            removed_expense_ids.append(expense.id)
+            continue
+
+        active_expenses.append(expense)
         amount = _money(expense.amount)
         calculated_total += amount
         category = expense.category or "uncategorized"
@@ -61,6 +69,9 @@ def summarize_reimbursement_request(
 
         if not _has_attachment_type(expense.attachments, AttachmentType.receipt):
             missing_receipt_expense_ids.append(expense.id)
+
+        if _requires_authorization(expense) and not getattr(expense, "authorized_at", None):
+            missing_authorization_expense_ids.append(expense.id)
 
         cfdi_validations = getattr(expense, "cfdi_validations", [])
         if not _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml) or not _has_current_cfdi_validation(
@@ -110,6 +121,15 @@ def summarize_reimbursement_request(
             )
         )
 
+    if missing_authorization_expense_ids:
+        issues.append(
+            ReimbursementValidationIssue(
+                code="missing_authorization",
+                message="One or more expenses still require authorization.",
+                severity="warning",
+            )
+        )
+
     if missing_cfdi_expense_ids:
         issues.append(
             ReimbursementValidationIssue(
@@ -144,13 +164,12 @@ def summarize_reimbursement_request(
         )
 
     has_error = any(issue.severity == "error" for issue in issues)
-    ready_for_submission = (
-        reported_total is not None
-        and len(request.expenses) > 0
-        and not has_error
+    ready_for_submission = reported_total is not None and len(active_expenses) > 0 and not has_error
+    ready_for_authorization_approval = (
+        ready_for_submission and not missing_authorization_expense_ids
     )
     ready_for_accounting_approval = (
-        ready_for_submission
+        ready_for_authorization_approval
         and not missing_cfdi_expense_ids
         and not invalid_cfdi_expense_ids
         and not duplicate_cfdi_uuids
@@ -162,7 +181,7 @@ def summarize_reimbursement_request(
         reported_total=reported_total,
         calculated_total=_money(calculated_total),
         difference=difference,
-        expense_count=len(request.expenses),
+        expense_count=len(active_expenses),
         category_totals=[
             CategoryTotal(
                 category=category,
@@ -171,12 +190,15 @@ def summarize_reimbursement_request(
             )
             for category, total in sorted(category_totals.items())
         ],
+        removed_expense_ids=removed_expense_ids,
+        missing_authorization_expense_ids=missing_authorization_expense_ids,
         missing_receipt_expense_ids=missing_receipt_expense_ids,
         missing_cfdi_expense_ids=missing_cfdi_expense_ids,
         out_of_period_expense_ids=out_of_period_expense_ids,
         duplicate_cfdi_uuids=sorted(set(duplicate_cfdi_uuids)),
         invalid_cfdi_expense_ids=invalid_cfdi_expense_ids,
         ready_for_submission=ready_for_submission,
+        ready_for_authorization_approval=ready_for_authorization_approval,
         ready_for_accounting_approval=ready_for_accounting_approval,
         is_balanced=not has_error,
         issues=issues,
@@ -198,6 +220,17 @@ def _has_attachment_type(attachments: list[AttachmentLike], expected: Attachment
 
 def _money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(Decimal("0.01"))
+
+
+def _is_removed(expense: ExpenseLike) -> bool:
+    if getattr(expense, "removed_at", None) is not None:
+        return True
+    status = getattr(expense, "status", None)
+    return getattr(status, "value", status) == "removed"
+
+
+def _requires_authorization(expense: ExpenseLike) -> bool:
+    return bool(getattr(expense, "requires_authorization", False))
 
 
 def _is_outside_period(

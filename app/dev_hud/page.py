@@ -452,8 +452,11 @@ TEST_HUD_HTML = """<!doctype html>
               <span>Rol</span>
               <select class="input" id="userRole">
                 <option value="store">Tienda</option>
+                <option value="authorizer">Autorización</option>
                 <option value="accountant">Contador</option>
+                <option value="accounting_manager">Gerente Conta</option>
                 <option value="treasury">Tesorería</option>
+                <option value="director">Dirección</option>
                 <option value="admin">Admin</option>
               </select>
             </label>
@@ -491,10 +494,17 @@ TEST_HUD_HTML = """<!doctype html>
           </div>
           <div class="flow">
             <button class="btn primary flow-btn" data-target="submitted">Enviar tienda</button>
+            <button class="btn flow-btn" data-target="authorization_review">Revisión autorización</button>
+            <button class="btn success" id="authorizeExpensesBtn">Autorizar gastos</button>
+            <button class="btn success flow-btn" data-target="authorized">Autorizar solicitud</button>
             <button class="btn flow-btn" data-target="under_accounting_review">Revisión contable</button>
             <button class="btn warning flow-btn" data-target="correction_required">Pedir corrección</button>
-            <button class="btn success flow-btn" data-target="accounting_approved">Aprobar contabilidad</button>
+            <button class="btn success flow-btn" data-target="accounting_reviewed">Enviar gerente</button>
+            <button class="btn flow-btn" data-target="accounting_manager_review">Revisión gerente</button>
+            <button class="btn success flow-btn" data-target="accounting_manager_approved">Aprobar gerente</button>
             <button class="btn flow-btn" data-target="treasury_review">Revisión tesorería</button>
+            <button class="btn flow-btn" data-target="direction_review">Enviar dirección</button>
+            <button class="btn success flow-btn" data-target="direction_approved">Aprobar dirección</button>
             <button class="btn success flow-btn" data-target="approved_for_payment">Aprobar pago</button>
             <button class="btn success flow-btn" data-target="paid">Marcar pagado</button>
             <button class="btn success flow-btn" data-target="closed">Cerrar</button>
@@ -543,6 +553,10 @@ TEST_HUD_HTML = """<!doctype html>
             <label class="checkline full">
               <input id="paymentBalanced" type="checkbox" checked />
               Ajustar total reportado para mantener balance
+            </label>
+            <label class="checkline full">
+              <input id="paymentRequiresAuthorization" type="checkbox" />
+              Requiere autorización previa
             </label>
           </div>
           <div class="toolbar">
@@ -667,7 +681,7 @@ TEST_HUD_HTML = """<!doctype html>
       const hasScenario = Boolean(state?.scenario?.exists);
       const hasStores = Boolean(state?.workspace?.stores?.length);
       const hasUsers = Boolean(state?.workspace?.users?.length);
-      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn").forEach((button) => {
+      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn").forEach((button) => {
         button.disabled = !hasScenario;
       });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
@@ -718,8 +732,11 @@ TEST_HUD_HTML = """<!doctype html>
         row("Tienda", `${scenario.store_code} / ${scenario.store_name}`),
         row("Periodo", scenario.period_name),
         row("Usuario tienda", scenario.users.store?.email),
+        row("Usuario autorización", scenario.users.authorizer?.email),
         row("Usuario contador", scenario.users.accountant?.email),
-        row("Usuario tesorería", scenario.users.treasury?.email)
+        row("Gerente conta", scenario.users.accounting_manager?.email),
+        row("Usuario tesorería", scenario.users.treasury?.email),
+        row("Dirección", scenario.users.director?.email)
       ].join("");
     }
 
@@ -753,8 +770,10 @@ TEST_HUD_HTML = """<!doctype html>
             <tr>
               <th>Proveedor</th>
               <th>Monto</th>
+              <th>Aut.</th>
               <th>Ticket</th>
               <th>CFDI</th>
+              <th>Estado</th>
             </tr>
           </thead>
           <tbody>
@@ -762,8 +781,10 @@ TEST_HUD_HTML = """<!doctype html>
               <tr>
                 <td>${expense.merchant}</td>
                 <td>${money(expense.amount)}</td>
+                <td>${authBadge(expense)}</td>
                 <td>${badge(expense.has_receipt)}</td>
                 <td>${badge(expense.has_current_valid_cfdi)}</td>
+                <td>${expense.is_removed ? "<span class='state bad'>Removido</span>" : "<span class='state ok'>Activo</span>"}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -774,6 +795,15 @@ TEST_HUD_HTML = """<!doctype html>
     function badge(ok) {
       return ok
         ? "<span class='state ok'>OK</span>"
+        : "<span class='state warn'>Pendiente</span>";
+    }
+
+    function authBadge(expense) {
+      if (!expense.requires_authorization) {
+        return "<span class='state ok'>No requiere</span>";
+      }
+      return expense.is_authorized
+        ? "<span class='state ok'>Autorizado</span>"
         : "<span class='state warn'>Pendiente</span>";
     }
 
@@ -792,6 +822,7 @@ TEST_HUD_HTML = """<!doctype html>
           ${row("Calculado", money(summary.calculated_total))}
           ${row("Diferencia", money(summary.difference))}
           ${row("Enviar", summary.ready_for_submission ? "Listo" : "Bloqueado")}
+          ${row("Autorización", summary.ready_for_authorization_approval ? "Listo" : "Bloqueado")}
           ${row("Contabilidad", summary.ready_for_accounting_approval ? "Listo" : "Bloqueado")}
         </div>
         <table class="table">
@@ -826,9 +857,9 @@ TEST_HUD_HTML = """<!doctype html>
       const requestId = state?.scenario?.request_id;
       const form = new FormData();
       const csv = [
-        "proveedor,importe,fecha,categoria,descripcion,rfc_proveedor,moneda",
-        "HUD Importado Uno,100.00,2026-08-15,Papeleria,Import demo,XAXX010101000,MXN",
-        "HUD Importado Dos,200.00,2026-08-16,Transporte,Import demo,XEXX010101000,MXN"
+        "proveedor,importe,fecha,categoria,descripcion,rfc_proveedor,moneda,requiere_autorizacion",
+        "HUD Importado Uno,100.00,2026-08-15,Papeleria,Import demo,XAXX010101000,MXN,no",
+        "HUD Importado Dos,200.00,2026-08-16,Transporte,Import demo,XEXX010101000,MXN,si"
       ].join("\\n");
       form.append("dry_run", dryRun ? "true" : "false");
       form.append("file", new Blob([csv], { type: "text/csv" }), "hud-import.csv");
@@ -869,6 +900,9 @@ TEST_HUD_HTML = """<!doctype html>
     $("#completeCfdiBtn").addEventListener("click", () => runAction("CFDI demo completado", () =>
       request("/dev-hud/complete-cfdi", { method: "POST" })
     ));
+    $("#authorizeExpensesBtn").addEventListener("click", () => runAction("Gastos autorizados", () =>
+      request("/dev-hud/authorize-expenses", { method: "POST" })
+    ));
     $("#importDryRunBtn").addEventListener("click", () => runAction("CSV dry run", () =>
       importDemo(true)
     ));
@@ -881,6 +915,7 @@ TEST_HUD_HTML = """<!doctype html>
         amount: $("#paymentAmount").value,
         spent_on: $("#paymentDate").value,
         category: $("#paymentCategory").value || null,
+        requires_authorization: $("#paymentRequiresAuthorization").checked,
         keep_reported_total_balanced: $("#paymentBalanced").checked
       })
     ));

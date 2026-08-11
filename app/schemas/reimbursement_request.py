@@ -56,8 +56,12 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     id: UUID
     status: ReimbursementRequestStatus
     submitted_at: datetime | None = None
+    authorization_reviewed_at: datetime | None = None
     accounting_reviewed_at: datetime | None = None
+    accounting_manager_reviewed_at: datetime | None = None
     treasury_reviewed_at: datetime | None = None
+    direction_reviewed_at: datetime | None = None
+    direction_approved_at: datetime | None = None
     approved_for_payment_at: datetime | None = None
     paid_at: datetime | None = None
     closed_at: datetime | None = None
@@ -90,12 +94,15 @@ class ReimbursementValidationSummary(BaseModel):
     difference: Decimal | None
     expense_count: int
     category_totals: list[CategoryTotal]
+    removed_expense_ids: list[UUID]
+    missing_authorization_expense_ids: list[UUID]
     missing_receipt_expense_ids: list[UUID]
     missing_cfdi_expense_ids: list[UUID]
     out_of_period_expense_ids: list[UUID]
     duplicate_cfdi_uuids: list[str]
     invalid_cfdi_expense_ids: list[UUID]
     ready_for_submission: bool
+    ready_for_authorization_approval: bool
     ready_for_accounting_approval: bool
     is_balanced: bool
     issues: list[ReimbursementValidationIssue]

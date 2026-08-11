@@ -26,6 +26,7 @@ class ExpenseImportRow:
     category: str | None = None
     description: str | None = None
     supplier_tax_id: str | None = None
+    requires_authorization: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,11 @@ COLUMN_ALIASES = {
     "rfc": "supplier_tax_id",
     "rfc_proveedor": "supplier_tax_id",
     "rfc_emisor": "supplier_tax_id",
+    "requires_authorization": "requires_authorization",
+    "requiere_autorizacion": "requires_authorization",
+    "requiere_autorización": "requires_authorization",
+    "autorizacion": "requires_authorization",
+    "autorización": "requires_authorization",
 }
 
 REQUIRED_COLUMNS = {"merchant", "amount", "spent_on"}
@@ -174,6 +180,7 @@ def _parse_row(
             category=_clean_string(values.get("category")),
             description=_clean_string(values.get("description")),
             supplier_tax_id=_clean_string(values.get("supplier_tax_id"), uppercase=True),
+            requires_authorization=_parse_bool(values.get("requires_authorization")),
         ),
         [],
     )
@@ -298,6 +305,13 @@ def _clean_string(value: object, *, uppercase: bool = False) -> str | None:
     if not cleaned:
         return None
     return cleaned.upper() if uppercase else cleaned
+
+
+def _parse_bool(value: object) -> bool:
+    cleaned = _clean_string(value)
+    if cleaned is None:
+        return False
+    return cleaned.strip().lower() in {"1", "true", "t", "yes", "y", "si", "sí", "x"}
 
 
 def _parse_amount(value: object) -> Decimal | None:

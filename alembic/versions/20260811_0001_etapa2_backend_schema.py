@@ -97,8 +97,11 @@ def _ensure_stage2_enum_types(bind) -> None:
 
     postgresql.ENUM(
         "store",
+        "authorizer",
         "accountant",
+        "accounting_manager",
         "treasury",
+        "director",
         "admin",
         name="user_role",
     ).create(bind, checkfirst=True)

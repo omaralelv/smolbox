@@ -16,8 +16,11 @@ if TYPE_CHECKING:
 
 class UserRole(str, enum.Enum):
     store = "store"
+    authorizer = "authorizer"
     accountant = "accountant"
+    accounting_manager = "accounting_manager"
     treasury = "treasury"
+    director = "director"
     admin = "admin"
 
 

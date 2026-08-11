@@ -28,14 +28,17 @@ Incluye:
 La segunda etapa agrega la base operativa del flujo interno sin conectores empresariales:
 
 - Migraciones Alembic para evolucionar PostgreSQL sin borrar datos locales.
-- Usuarios internos con rol `store`, `accountant`, `treasury` o `admin`.
-- Flujo de estados de solicitud: borrador, enviada, revision contable, correccion,
-  aprobacion contable, revision de tesoreria, autorizacion de pago, pagada, cerrada
-  o rechazada.
+- Usuarios internos con rol `store`, `authorizer`, `accountant`,
+  `accounting_manager`, `treasury`, `director` o `admin`.
+- Flujo de estados de solicitud alineado al proceso empresarial: tienda, autorizacion,
+  contabilidad, gerente de contabilidad, tesoreria, direccion, pago y cierre.
 - Endpoint de transicion de estado con validacion de rol y reglas minimas de negocio.
+- Acciones por gasto para autorizar, observar, editar durante revision contable/gerencial
+  y remover con motivo obligatorio sin borrar historial.
 - Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI y cambios de estado.
 - Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
-  invalidos y readiness para envio/aprobacion contable.
+  invalidos, autorizaciones pendientes y readiness para envio/autorizacion/aprobacion
+  contable.
 - Descarga de adjuntos por ID.
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
@@ -134,10 +137,34 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 13. Importar gastos desde Excel/CSV con
    `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`.
 
+Flujo de estados esperado:
+
+```text
+draft
+-> submitted
+-> authorization_review
+-> authorized
+-> under_accounting_review
+-> accounting_reviewed
+-> accounting_manager_review
+-> accounting_manager_approved
+-> treasury_review
+-> direction_review
+-> direction_approved
+-> approved_for_payment
+-> paid
+-> closed
+```
+
+Durante revision se puede regresar a `correction_required` o rechazar con `rejected`.
+Los gastos que tienen `requires_authorization=true` deben autorizarse antes de mover la
+solicitud a `authorized`.
+
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
-`Crear escenario`, luego prueba `Enviar tienda`, `Revision contable`, `Aprobar contabilidad`
-y `Completar CFDI demo` para ver como el backend bloquea la aprobacion contable hasta tener
-CFDI vigente.
+`Crear escenario`, luego prueba `Enviar tienda`, `Revision autorizacion`, `Autorizar gastos`,
+`Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`, `Enviar gerente`,
+`Aprobar gerente`, `Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`,
+`Aprobar pago`, `Marcar pagado` y `Cerrar`.
 
 El HUD tambien permite crear tiendas y usuarios con prefijo/dominio `HUD`, asignar un
 usuario tienda o contador a una tienda y crear un pago/gasto dentro de la solicitud demo.
@@ -150,7 +177,7 @@ El archivo debe ser `.csv` o `.xlsx`. La primera fila debe tener encabezados. Se
 nombres en espanol o ingles:
 
 ```text
-proveedor, importe, fecha, categoria, descripcion, rfc_proveedor, moneda
+proveedor, importe, fecha, categoria, descripcion, rfc_proveedor, moneda, requiere_autorizacion
 ```
 
 Columnas obligatorias:

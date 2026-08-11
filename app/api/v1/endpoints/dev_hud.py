@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
-from app.models.expense import Expense
+from app.models.expense import Expense, ExpenseStatus
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.store import Store
@@ -35,8 +35,14 @@ DEMO_RECEIPT_BYTES = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n"
 
 DEMO_USERS = {
     UserRole.store: ("hud.store@hud.smolbox.local", "HUD Usuario Tienda"),
+    UserRole.authorizer: ("hud.authorizer@hud.smolbox.local", "HUD Usuario Autorizacion"),
     UserRole.accountant: ("hud.accountant@hud.smolbox.local", "HUD Usuario Contador"),
+    UserRole.accounting_manager: (
+        "hud.accounting.manager@hud.smolbox.local",
+        "HUD Gerente Contabilidad",
+    ),
     UserRole.treasury: ("hud.treasury@hud.smolbox.local", "HUD Usuario Tesoreria"),
+    UserRole.director: ("hud.director@hud.smolbox.local", "HUD Usuario Direccion"),
     UserRole.admin: ("hud.admin@hud.smolbox.local", "HUD Usuario Admin"),
 }
 
@@ -92,6 +98,7 @@ class HudPaymentCreate(BaseModel):
     category: str | None = Field(default="hud_pago", max_length=120)
     description: str | None = None
     supplier_tax_id: str | None = Field(default="XAXX010101000", max_length=20)
+    requires_authorization: bool = False
     create_receipt: bool = True
     keep_reported_total_balanced: bool = True
 
@@ -192,6 +199,62 @@ def complete_dev_hud_cfdi(
     return {
         "message": "HUD CFDI evidence completed",
         "cfdi_added": added,
+        "scenario": _scenario_payload(db, request_id),
+    }
+
+
+@router.post("/authorize-expenses")
+def authorize_dev_hud_expenses(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    request = _load_demo_request(db)
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "HUD_SCENARIO_NOT_FOUND", "message": "Create the HUD scenario first"},
+        )
+    if request.status != ReimbursementRequestStatus.authorization_review:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_IN_AUTHORIZATION_REVIEW",
+                "message": "Move the HUD request to authorization review first",
+            },
+        )
+
+    actor = _hud_actor(db, UserRole.authorizer)
+    authorized = 0
+    for expense in request.expenses:
+        if expense.status == ExpenseStatus.removed or expense.removed_at is not None:
+            continue
+        if not expense.requires_authorization or expense.authorized_at is not None:
+            continue
+        expense.authorized_at = datetime.now(UTC)
+        expense.authorized_by_user_id = actor.id
+        expense.authorization_note = "HUD authorization approved."
+        expense.status = ExpenseStatus.approved
+        authorized += 1
+        db.add(
+            AuditLog(
+                reimbursement_request_id=request.id,
+                expense_id=expense.id,
+                actor_user_id=actor.id,
+                actor_type=AuditActorType.user,
+                action="dev_hud_expense_authorized",
+                message="HUD expense authorization approved.",
+                event_payload={"actor_role": actor.role.value},
+            )
+        )
+
+    request_id = request.id
+    db.commit()
+
+    return {
+        "message": "HUD expenses authorized",
+        "authorized": authorized,
         "scenario": _scenario_payload(db, request_id),
     }
 
@@ -403,6 +466,7 @@ def create_dev_hud_payment(
         category=payment_in.category,
         description=payment_in.description,
         supplier_tax_id=payment_in.supplier_tax_id,
+        requires_authorization=payment_in.requires_authorization,
     )
     request.expenses.append(expense)
     db.add(expense)
@@ -457,6 +521,7 @@ def _ensure_demo_dataset(db: Session, storage: StorageService) -> ReimbursementR
     if not request.expenses:
         request.expenses.extend(_create_demo_expenses(db, request))
         db.flush()
+    _ensure_demo_authorization_marker(request)
 
     for expense in request.expenses:
         _ensure_demo_receipt(db, storage, expense)
@@ -582,11 +647,19 @@ def _create_demo_expenses(db: Session, request: ReimbursementRequest) -> list[Ex
             category="transporte",
             description="Traslado local operativo.",
             supplier_tax_id="XEXX010101000",
+            requires_authorization=True,
         ),
     ]
     for expense in expenses:
         db.add(expense)
     return expenses
+
+
+def _ensure_demo_authorization_marker(request: ReimbursementRequest) -> None:
+    for expense in request.expenses:
+        if expense.merchant == "HUD Taxi Demo":
+            expense.requires_authorization = True
+            return
 
 
 def _ensure_demo_receipt(db: Session, storage: StorageService, expense: Expense) -> None:
@@ -801,6 +874,12 @@ def _expense_payload(expense: Expense) -> dict[str, Any]:
         "has_receipt": _has_attachment_type(expense, AttachmentType.receipt),
         "has_cfdi_xml": _has_attachment_type(expense, AttachmentType.cfdi_xml),
         "has_current_valid_cfdi": _has_current_valid_cfdi(expense),
+        "requires_authorization": expense.requires_authorization,
+        "is_authorized": expense.authorized_at is not None,
+        "authorization_note": expense.authorization_note,
+        "review_note": expense.review_note,
+        "is_removed": expense.status == ExpenseStatus.removed or expense.removed_at is not None,
+        "removal_reason": expense.removal_reason,
     }
 
 
@@ -823,20 +902,35 @@ def _actor_for_transition(
     if target_status == ReimbursementRequestStatus.submitted:
         role = UserRole.store
     elif target_status in {
+        ReimbursementRequestStatus.authorization_review,
+        ReimbursementRequestStatus.authorized,
+    }:
+        role = UserRole.authorizer
+    elif target_status in {
         ReimbursementRequestStatus.under_accounting_review,
-        ReimbursementRequestStatus.correction_required,
+        ReimbursementRequestStatus.accounting_reviewed,
         ReimbursementRequestStatus.accounting_approved,
     }:
         role = UserRole.accountant
-    elif target_status == ReimbursementRequestStatus.rejected:
-        role = (
-            UserRole.treasury
-            if current_status == ReimbursementRequestStatus.treasury_review
-            else UserRole.accountant
-        )
+    elif target_status in {
+        ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.accounting_manager_approved,
+    }:
+        role = UserRole.accounting_manager
+    elif target_status == ReimbursementRequestStatus.direction_approved:
+        role = UserRole.director
+    elif target_status in {
+        ReimbursementRequestStatus.correction_required,
+        ReimbursementRequestStatus.rejected,
+    }:
+        role = _review_role_for_status(current_status)
     else:
         role = UserRole.treasury
 
+    return _hud_actor(db, role)
+
+
+def _hud_actor(db: Session, role: UserRole) -> User:
     actor = db.scalar(select(User).where(User.email == DEMO_USERS[role][0]))
     if actor is None:
         raise HTTPException(
@@ -844,6 +938,18 @@ def _actor_for_transition(
             detail={"code": "HUD_ACTOR_NOT_FOUND", "message": "Seed the HUD scenario first"},
         )
     return actor
+
+
+def _review_role_for_status(status_value: ReimbursementRequestStatus) -> UserRole:
+    if status_value == ReimbursementRequestStatus.authorization_review:
+        return UserRole.authorizer
+    if status_value == ReimbursementRequestStatus.accounting_manager_review:
+        return UserRole.accounting_manager
+    if status_value == ReimbursementRequestStatus.treasury_review:
+        return UserRole.treasury
+    if status_value == ReimbursementRequestStatus.direction_review:
+        return UserRole.director
+    return UserRole.accountant
 
 
 def _delete_demo_dataset(db: Session, storage: StorageService) -> dict[str, int]:
