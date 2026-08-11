@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
@@ -103,6 +103,89 @@ class HudPaymentCreate(BaseModel):
     keep_reported_total_balanced: bool = True
 
 
+class HudScenarioExpenseCreate(BaseModel):
+    merchant: str = Field(min_length=1, max_length=255)
+    amount: Decimal = Field(gt=Decimal("0.00"))
+    currency: str = Field(default="MXN", min_length=3, max_length=3)
+    spent_on: date
+    category: str | None = Field(default=None, max_length=120)
+    description: str | None = None
+    supplier_tax_id: str | None = Field(default="XAXX010101000", max_length=20)
+    requires_authorization: bool = False
+    create_receipt: bool = True
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("supplier_tax_id")
+    @classmethod
+    def normalize_supplier_tax_id(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else value
+
+
+class HudScenarioCreate(BaseModel):
+    reset_existing: bool = False
+    store_code: str = HUD_STORE_CODE
+    store_name: str = "HUD Tienda Centro"
+    contact_email: str | None = "hud.store@hud.smolbox.local"
+    assigned_accountant: str | None = "HUD Usuario Contador"
+    period_name: str = HUD_PERIOD_NAME
+    starts_on: date = date(2026, 8, 1)
+    ends_on: date = date(2026, 8, 31)
+    reported_total: Decimal | None = Field(default=None, ge=Decimal("0.00"))
+    previous_reimbursement_starts_on: date | None = date(2026, 7, 1)
+    previous_reimbursement_ends_on: date | None = date(2026, 7, 31)
+    previous_reimbursement_amount: Decimal | None = Field(
+        default=Decimal("1400.00"),
+        ge=Decimal("0.00"),
+    )
+    notes: str | None = "Escenario local para probar el backend de Smolbox."
+    expenses: list[HudScenarioExpenseCreate] | None = None
+
+    @field_validator("store_code")
+    @classmethod
+    def normalize_store_code(cls, value: str) -> str:
+        code = value.strip().upper()
+        if not code.startswith("HUD-"):
+            raise ValueError("HUD scenario store codes must start with HUD-")
+        return code
+
+    @field_validator("contact_email")
+    @classmethod
+    def normalize_contact_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        email = value.strip().lower()
+        if email and not email.endswith(f"@{HUD_EMAIL_DOMAIN}"):
+            raise ValueError(f"HUD scenario emails must end with @{HUD_EMAIL_DOMAIN}")
+        return email or None
+
+    @field_validator("period_name")
+    @classmethod
+    def validate_period_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name.startswith("HUD "):
+            raise ValueError("HUD scenario period names must start with HUD ")
+        return name
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> HudScenarioCreate:
+        if self.ends_on < self.starts_on:
+            raise ValueError("ends_on must be on or after starts_on")
+        if (
+            self.previous_reimbursement_starts_on
+            and self.previous_reimbursement_ends_on
+            and self.previous_reimbursement_ends_on < self.previous_reimbursement_starts_on
+        ):
+            raise ValueError(
+                "previous_reimbursement_ends_on must be on or after "
+                "previous_reimbursement_starts_on"
+            )
+        return self
+
+
 @router.get("/status")
 def get_dev_hud_status(
     db: Annotated[Session, Depends(get_db)],
@@ -147,11 +230,17 @@ def get_dev_hud_status(
 def seed_dev_hud_demo(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    scenario_in: HudScenarioCreate | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
     storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
-    request = _ensure_demo_dataset(db, storage)
+    scenario = scenario_in or HudScenarioCreate()
+    if scenario.reset_existing:
+        _delete_demo_dataset(db, storage)
+        db.flush()
+    _validate_seed_expense_dates(scenario)
+    request = _ensure_demo_dataset(db, storage, scenario)
     request_id = request.id
     db.commit()
 
@@ -513,18 +602,25 @@ def _count(db: Session, model: type) -> int:
     return db.scalar(select(func.count()).select_from(model)) or 0
 
 
-def _ensure_demo_dataset(db: Session, storage: StorageService) -> ReimbursementRequest:
+def _ensure_demo_dataset(
+    db: Session,
+    storage: StorageService,
+    scenario: HudScenarioCreate,
+) -> ReimbursementRequest:
     users = {role: _get_or_create_user(db, role) for role in DEMO_USERS}
-    store = _get_or_create_store(db)
-    period = _get_or_create_period(db)
-    request = _get_or_create_request(db, store, period)
+    store = _get_or_create_store(db, scenario)
+    period = _get_or_create_period(db, scenario)
+    request = _get_or_create_request(db, store, period, scenario)
     if not request.expenses:
-        request.expenses.extend(_create_demo_expenses(db, request))
+        scenario_expenses = _scenario_expenses(scenario)
+        request.expenses.extend(_create_demo_expenses(db, request, scenario_expenses))
         db.flush()
-    _ensure_demo_authorization_marker(request)
-
-    for expense in request.expenses:
-        _ensure_demo_receipt(db, storage, expense)
+        for expense, expense_in in zip(request.expenses, scenario_expenses, strict=False):
+            if expense_in.create_receipt:
+                _ensure_demo_receipt(db, storage, expense)
+    else:
+        for expense in request.expenses:
+            _ensure_demo_receipt(db, storage, expense)
 
     db.add(
         AuditLog(
@@ -554,37 +650,37 @@ def _get_or_create_user(db: Session, role: UserRole) -> User:
     return user
 
 
-def _get_or_create_store(db: Session) -> Store:
-    store = db.scalar(select(Store).where(Store.code == HUD_STORE_CODE))
+def _get_or_create_store(db: Session, scenario: HudScenarioCreate) -> Store:
+    store = db.scalar(select(Store).where(Store.code == scenario.store_code))
     if store is not None:
-        store.name = "HUD Tienda Centro"
-        store.contact_email = "hud.store@hud.smolbox.local"
-        store.assigned_accountant = "HUD Usuario Contador"
+        store.name = scenario.store_name
+        store.contact_email = scenario.contact_email
+        store.assigned_accountant = scenario.assigned_accountant
         return store
 
     store = Store(
-        code=HUD_STORE_CODE,
-        name="HUD Tienda Centro",
-        contact_email="hud.store@hud.smolbox.local",
-        assigned_accountant="HUD Usuario Contador",
+        code=scenario.store_code,
+        name=scenario.store_name,
+        contact_email=scenario.contact_email,
+        assigned_accountant=scenario.assigned_accountant,
     )
     db.add(store)
     db.flush()
     return store
 
 
-def _get_or_create_period(db: Session) -> Period:
-    period = db.scalar(select(Period).where(Period.name == HUD_PERIOD_NAME))
+def _get_or_create_period(db: Session, scenario: HudScenarioCreate) -> Period:
+    period = db.scalar(select(Period).where(Period.name == scenario.period_name))
     if period is not None:
-        period.starts_on = date(2026, 8, 1)
-        period.ends_on = date(2026, 8, 31)
+        period.starts_on = scenario.starts_on
+        period.ends_on = scenario.ends_on
         period.status = PeriodStatus.open
         return period
 
     period = Period(
-        name=HUD_PERIOD_NAME,
-        starts_on=date(2026, 8, 1),
-        ends_on=date(2026, 8, 31),
+        name=scenario.period_name,
+        starts_on=scenario.starts_on,
+        ends_on=scenario.ends_on,
         status=PeriodStatus.open,
     )
     db.add(period)
@@ -596,6 +692,7 @@ def _get_or_create_request(
     db: Session,
     store: Store,
     period: Period,
+    scenario: HudScenarioCreate,
 ) -> ReimbursementRequest:
     request = db.scalar(
         select(ReimbursementRequest)
@@ -606,29 +703,57 @@ def _get_or_create_request(
         )
     )
     if request is not None:
-        request.reported_total = Decimal("1500.00")
-        request.notes = "Escenario local para probar el backend de Smolbox."
+        request.reported_total = _scenario_reported_total(scenario)
+        request.previous_reimbursement_starts_on = scenario.previous_reimbursement_starts_on
+        request.previous_reimbursement_ends_on = scenario.previous_reimbursement_ends_on
+        request.previous_reimbursement_amount = scenario.previous_reimbursement_amount
+        request.notes = scenario.notes
         return request
 
     request = ReimbursementRequest(
         store_id=store.id,
         period_id=period.id,
-        reported_total=Decimal("1500.00"),
-        previous_reimbursement_starts_on=date(2026, 7, 1),
-        previous_reimbursement_ends_on=date(2026, 7, 31),
-        previous_reimbursement_amount=Decimal("1400.00"),
-        notes="Escenario local para probar el backend de Smolbox.",
+        reported_total=_scenario_reported_total(scenario),
+        previous_reimbursement_starts_on=scenario.previous_reimbursement_starts_on,
+        previous_reimbursement_ends_on=scenario.previous_reimbursement_ends_on,
+        previous_reimbursement_amount=scenario.previous_reimbursement_amount,
+        notes=scenario.notes,
     )
     db.add(request)
     db.flush()
     return request
 
 
-def _create_demo_expenses(db: Session, request: ReimbursementRequest) -> list[Expense]:
+def _create_demo_expenses(
+    db: Session,
+    request: ReimbursementRequest,
+    scenario_expenses: list[HudScenarioExpenseCreate],
+) -> list[Expense]:
     expenses = [
         Expense(
             period_id=request.period_id,
             reimbursement_request_id=request.id,
+            merchant=expense_in.merchant,
+            amount=expense_in.amount,
+            currency=expense_in.currency,
+            spent_on=expense_in.spent_on,
+            category=expense_in.category,
+            description=expense_in.description,
+            supplier_tax_id=expense_in.supplier_tax_id,
+            requires_authorization=expense_in.requires_authorization,
+        )
+        for expense_in in scenario_expenses
+    ]
+    for expense in expenses:
+        db.add(expense)
+    return expenses
+
+
+def _scenario_expenses(scenario: HudScenarioCreate) -> list[HudScenarioExpenseCreate]:
+    if scenario.expenses:
+        return scenario.expenses
+    return [
+        HudScenarioExpenseCreate(
             merchant="HUD Papeleria Uno",
             amount=Decimal("1000.00"),
             currency="MXN",
@@ -637,9 +762,7 @@ def _create_demo_expenses(db: Session, request: ReimbursementRequest) -> list[Ex
             description="Hojas, toner y material de oficina.",
             supplier_tax_id="XAXX010101000",
         ),
-        Expense(
-            period_id=request.period_id,
-            reimbursement_request_id=request.id,
+        HudScenarioExpenseCreate(
             merchant="HUD Taxi Demo",
             amount=Decimal("500.00"),
             currency="MXN",
@@ -650,16 +773,30 @@ def _create_demo_expenses(db: Session, request: ReimbursementRequest) -> list[Ex
             requires_authorization=True,
         ),
     ]
-    for expense in expenses:
-        db.add(expense)
-    return expenses
 
 
-def _ensure_demo_authorization_marker(request: ReimbursementRequest) -> None:
-    for expense in request.expenses:
-        if expense.merchant == "HUD Taxi Demo":
-            expense.requires_authorization = True
-            return
+def _scenario_reported_total(scenario: HudScenarioCreate) -> Decimal:
+    if scenario.reported_total is not None:
+        return scenario.reported_total
+    total = sum((expense.amount for expense in _scenario_expenses(scenario)), Decimal("0.00"))
+    return total.quantize(Decimal("0.01"))
+
+
+def _validate_seed_expense_dates(scenario: HudScenarioCreate) -> None:
+    invalid_rows = [
+        expense.merchant
+        for expense in _scenario_expenses(scenario)
+        if expense.spent_on < scenario.starts_on or expense.spent_on > scenario.ends_on
+    ]
+    if invalid_rows:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "HUD_EXPENSE_OUTSIDE_PERIOD",
+                "message": "Scenario expenses must be inside the reimbursement period.",
+                "expenses": invalid_rows,
+            },
+        )
 
 
 def _ensure_demo_receipt(db: Session, storage: StorageService, expense: Expense) -> None:
@@ -787,10 +924,12 @@ def _load_demo_request(db: Session, request_id: UUID | None = None) -> Reimburse
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
             selectinload(ReimbursementRequest.audit_events),
         )
-        .where(Store.code == HUD_STORE_CODE, Period.name == HUD_PERIOD_NAME)
+        .order_by(ReimbursementRequest.created_at.desc())
     )
     if request_id is not None:
         statement = statement.where(ReimbursementRequest.id == request_id)
+    else:
+        statement = statement.where(Store.code.like("HUD-%"), Period.name.like("HUD %"))
     return db.scalars(statement).first()
 
 
