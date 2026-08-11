@@ -412,6 +412,81 @@ TEST_HUD_HTML = """<!doctype html>
               <button class="btn danger" id="resetBtn">Limpiar HUD</button>
             </div>
           </div>
+          <h3>Personalizar escenario</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>Código tienda</span>
+              <input class="input" id="scenarioStoreCode" value="HUD-001" />
+            </label>
+            <label class="field">
+              <span>Nombre tienda</span>
+              <input class="input" id="scenarioStoreName" value="HUD Tienda Centro" />
+            </label>
+            <label class="field full">
+              <span>Correo tienda</span>
+              <input class="input" id="scenarioStoreEmail" value="hud.store@hud.smolbox.local" />
+            </label>
+            <label class="field">
+              <span>Periodo</span>
+              <input class="input" id="scenarioPeriodName" value="HUD Agosto 2026" />
+            </label>
+            <label class="field">
+              <span>Total reportado</span>
+              <input class="input" id="scenarioReportedTotal" value="1500.00" />
+            </label>
+            <label class="field">
+              <span>Inicio</span>
+              <input class="input" id="scenarioStartsOn" type="date" value="2026-08-01" />
+            </label>
+            <label class="field">
+              <span>Fin</span>
+              <input class="input" id="scenarioEndsOn" type="date" value="2026-08-31" />
+            </label>
+            <label class="checkline full">
+              <input id="scenarioResetExisting" type="checkbox" checked />
+              Reemplazar datos HUD existentes
+            </label>
+          </div>
+
+          <h3>Gastos iniciales</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>Proveedor 1</span>
+              <input class="input" id="scenarioExpense1Merchant" value="HUD Papeleria Uno" />
+            </label>
+            <label class="field">
+              <span>Monto 1</span>
+              <input class="input" id="scenarioExpense1Amount" value="1000.00" />
+            </label>
+            <label class="field">
+              <span>Fecha 1</span>
+              <input class="input" id="scenarioExpense1Date" type="date" value="2026-08-10" />
+            </label>
+            <label class="field">
+              <span>Categoría 1</span>
+              <input class="input" id="scenarioExpense1Category" value="papeleria" />
+            </label>
+            <label class="field">
+              <span>Proveedor 2</span>
+              <input class="input" id="scenarioExpense2Merchant" value="HUD Taxi Demo" />
+            </label>
+            <label class="field">
+              <span>Monto 2</span>
+              <input class="input" id="scenarioExpense2Amount" value="500.00" />
+            </label>
+            <label class="field">
+              <span>Fecha 2</span>
+              <input class="input" id="scenarioExpense2Date" type="date" value="2026-08-11" />
+            </label>
+            <label class="field">
+              <span>Categoría 2</span>
+              <input class="input" id="scenarioExpense2Category" value="transporte" />
+            </label>
+            <label class="checkline full">
+              <input id="scenarioExpense2RequiresAuthorization" type="checkbox" checked />
+              Gasto 2 requiere autorización previa
+            </label>
+          </div>
           <div id="scenarioRows"></div>
         </section>
 
@@ -853,6 +928,44 @@ TEST_HUD_HTML = """<!doctype html>
       `;
     }
 
+    function valueOrNull(selector) {
+      const value = $(selector).value.trim();
+      return value || null;
+    }
+
+    function scenarioSeedPayload() {
+      return {
+        reset_existing: $("#scenarioResetExisting").checked,
+        store_code: $("#scenarioStoreCode").value,
+        store_name: $("#scenarioStoreName").value,
+        contact_email: valueOrNull("#scenarioStoreEmail"),
+        period_name: $("#scenarioPeriodName").value,
+        starts_on: $("#scenarioStartsOn").value,
+        ends_on: $("#scenarioEndsOn").value,
+        reported_total: valueOrNull("#scenarioReportedTotal"),
+        expenses: [
+          {
+            merchant: $("#scenarioExpense1Merchant").value,
+            amount: $("#scenarioExpense1Amount").value,
+            spent_on: $("#scenarioExpense1Date").value,
+            category: valueOrNull("#scenarioExpense1Category"),
+            supplier_tax_id: "XAXX010101000",
+            requires_authorization: false,
+            create_receipt: true
+          },
+          {
+            merchant: $("#scenarioExpense2Merchant").value,
+            amount: $("#scenarioExpense2Amount").value,
+            spent_on: $("#scenarioExpense2Date").value,
+            category: valueOrNull("#scenarioExpense2Category"),
+            supplier_tax_id: "XEXX010101000",
+            requires_authorization: $("#scenarioExpense2RequiresAuthorization").checked,
+            create_receipt: true
+          }
+        ]
+      };
+    }
+
     async function importDemo(dryRun) {
       const requestId = state?.scenario?.request_id;
       const form = new FormData();
@@ -871,7 +984,7 @@ TEST_HUD_HTML = """<!doctype html>
 
     $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
     $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", () =>
-      request("/dev-hud/seed-demo", { method: "POST" })
+      jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload())
     ));
     $("#createStoreBtn").addEventListener("click", () => runAction("Tienda creada", () =>
       jsonRequest("/dev-hud/stores", {
