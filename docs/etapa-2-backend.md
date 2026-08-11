@@ -30,6 +30,7 @@ validacion en linea contra SAT.
 - Descarga de adjuntos por identificador.
 - Edicion parcial de registros operativos mediante `PATCH`.
 - Importacion masiva de gastos desde CSV o XLSX.
+- HUD local de pruebas para recorrer el flujo desde el navegador.
 
 ## Migraciones de base de datos
 
@@ -153,8 +154,39 @@ Consulta:
 GET /api/v1/reimbursement-requests/{request_id}/audit-events
 ```
 
+## HUD local de pruebas
+
+La ruta local:
+
+```text
+http://localhost:8000/test-hud
+```
+
+sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
+
+- revisar salud de API y base de datos;
+- sembrar un escenario demo con tienda, periodo, usuarios, solicitud, gastos y tickets;
+- intentar transiciones de estado;
+- ver que contabilidad queda bloqueada si faltan CFDI vigentes;
+- completar CFDI sinteticos de prueba;
+- probar importacion CSV con `dry_run` o guardado real;
+- limpiar solo los datos con prefijo HUD.
+
+Los endpoints auxiliares viven bajo:
+
+```text
+/api/v1/dev-hud
+```
+
+Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
+
 ## Nuevos endpoints
 
+- `GET /api/v1/dev-hud/status`
+- `POST /api/v1/dev-hud/seed-demo`
+- `POST /api/v1/dev-hud/complete-cfdi`
+- `POST /api/v1/dev-hud/transition/{target_status}`
+- `POST /api/v1/dev-hud/reset-demo`
 - `POST /api/v1/users`
 - `GET /api/v1/users`
 - `GET /api/v1/users/{user_id}`

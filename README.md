@@ -39,6 +39,7 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Descarga de adjuntos por ID.
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
+- HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo.
 - Documentacion de alcance en `docs/etapa-2-backend.md`.
 
 Fuera de esta etapa:
@@ -66,6 +67,12 @@ Fuera de esta etapa:
 
    ```text
    http://localhost:8000/docs
+   ```
+
+4. Abre el HUD local de pruebas:
+
+   ```text
+   http://localhost:8000/test-hud
    ```
 
 Docker ejecuta `alembic upgrade head` antes de iniciar FastAPI. Si ya tenias una base local
@@ -124,6 +131,11 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 12. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
 13. Importar gastos desde Excel/CSV con
    `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`.
+
+Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
+`Crear escenario`, luego prueba `Enviar tienda`, `Revision contable`, `Aprobar contabilidad`
+y `Completar CFDI demo` para ver como el backend bloquea la aprobacion contable hasta tener
+CFDI vigente.
 
 ## Importacion masiva de gastos
 

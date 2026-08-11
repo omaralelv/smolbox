@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     attachment_files,
     attachments,
     cfdi,
+    dev_hud,
     expenses,
     health,
     periods,
@@ -26,3 +27,4 @@ api_router.include_router(expenses.router, prefix="/expenses", tags=["expenses"]
 api_router.include_router(attachments.router, prefix="/expenses", tags=["attachments"])
 api_router.include_router(attachment_files.router, prefix="/attachments", tags=["attachments"])
 api_router.include_router(cfdi.router, tags=["cfdi"])
+api_router.include_router(dev_hud.router, prefix="/dev-hud", tags=["dev-hud"])

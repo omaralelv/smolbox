@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import HTMLResponse
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.session import create_database_schema
+from app.dev_hud.page import TEST_HUD_HTML
 
 settings = get_settings()
 
@@ -33,4 +35,12 @@ def root() -> dict[str, str]:
         "name": settings.app_name,
         "docs": "/docs",
         "health": f"{settings.api_v1_prefix}/health",
+        "test_hud": "/test-hud",
     }
+
+
+@app.get("/test-hud", response_class=HTMLResponse, include_in_schema=False)
+def test_hud() -> HTMLResponse:
+    if settings.environment.lower() == "production":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return HTMLResponse(TEST_HUD_HTML)
