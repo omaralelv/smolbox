@@ -28,6 +28,8 @@ validacion en linea contra SAT.
 - Bitacora de auditoria para reconstruir acciones importantes.
 - Validacion ampliada de solicitudes.
 - Descarga de adjuntos por identificador.
+- Edicion parcial de registros operativos mediante `PATCH`.
+- Importacion masiva de gastos desde CSV o XLSX.
 
 ## Migraciones de base de datos
 
@@ -86,7 +88,52 @@ Para enviar una solicitud, el resumen debe estar listo para envio:
 - gastos dentro del periodo.
 
 Para aprobacion contable, ademas se requiere que no falten XML CFDI y que no existan errores
-de CFDI persistidos.
+de CFDI persistidos. Si se edita monto, moneda o RFC de proveedor despues de validar un CFDI,
+la validacion CFDI se marca como no vigente y debe repetirse.
+
+## Edicion de datos
+
+La API permite corregir datos antes de enviar o cuando la solicitud esta en correccion:
+
+- `PATCH /api/v1/stores/{store_id}`
+- `PATCH /api/v1/periods/{period_id}`
+- `PATCH /api/v1/reimbursement-requests/{request_id}`
+- `PATCH /api/v1/expenses/{expense_id}`
+- `PATCH /api/v1/users/{user_id}`
+- `POST /api/v1/users/{user_id}/deactivate`
+
+Las solicitudes y gastos se bloquean despues de `submitted` para evitar cambios silenciosos
+mientras contabilidad o tesoreria revisan.
+
+## Importacion masiva
+
+Endpoint:
+
+```text
+POST /api/v1/reimbursement-requests/{request_id}/expenses/import
+```
+
+Acepta archivos `.csv` y `.xlsx`. XLS binario queda fuera por ahora; se debe guardar como
+XLSX o CSV antes de importar.
+
+Columnas aceptadas:
+
+- `proveedor`, `merchant`, `comercio` o `establecimiento`
+- `importe`, `monto`, `total` o `amount`
+- `fecha` o `spent_on`
+- `categoria` o `category`
+- `descripcion`, `concepto`, `detalle` o `description`
+- `rfc_proveedor`, `rfc_emisor`, `rfc`, `supplier_rfc` o `supplier_tax_id`
+- `moneda` o `currency`
+
+Columnas obligatorias:
+
+- proveedor/merchant
+- importe/amount
+- fecha/spent_on
+
+Se puede mandar `dry_run=true` para validar el archivo sin guardar datos ni adjuntos.
+Si una fila falla, no se guarda ninguna fila del archivo.
 
 ## Auditoria
 
@@ -97,6 +144,8 @@ Se registran eventos en `audit_logs` para:
 - adjunto subido;
 - CFDI validado;
 - cambio de estado.
+- gastos importados masivamente;
+- solicitud o gasto actualizado.
 
 Consulta:
 
@@ -109,7 +158,14 @@ GET /api/v1/reimbursement-requests/{request_id}/audit-events
 - `POST /api/v1/users`
 - `GET /api/v1/users`
 - `GET /api/v1/users/{user_id}`
+- `PATCH /api/v1/users/{user_id}`
+- `POST /api/v1/users/{user_id}/deactivate`
+- `PATCH /api/v1/stores/{store_id}`
+- `PATCH /api/v1/periods/{period_id}`
+- `PATCH /api/v1/reimbursement-requests/{request_id}`
 - `POST /api/v1/reimbursement-requests/{request_id}/transition`
 - `GET /api/v1/reimbursement-requests/{request_id}/audit-events`
+- `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`
+- `PATCH /api/v1/expenses/{expense_id}`
 - `GET /api/v1/attachments/{attachment_id}`
 - `GET /api/v1/attachments/{attachment_id}/download`

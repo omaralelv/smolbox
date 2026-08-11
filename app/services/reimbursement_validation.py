@@ -61,7 +61,11 @@ def summarize_reimbursement_request(
 
         if not _has_attachment_type(expense.attachments, AttachmentType.receipt):
             missing_receipt_expense_ids.append(expense.id)
-        if not _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml):
+
+        cfdi_validations = getattr(expense, "cfdi_validations", [])
+        if not _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml) or not _has_current_cfdi_validation(
+            cfdi_validations
+        ):
             missing_cfdi_expense_ids.append(expense.id)
 
         spent_on = getattr(expense, "spent_on", None)
@@ -76,7 +80,7 @@ def summarize_reimbursement_request(
             else:
                 seen_cfdi_uuids[normalized_uuid] = expense.id
 
-        if _has_invalid_current_cfdi_validation(getattr(expense, "cfdi_validations", [])):
+        if _has_invalid_current_cfdi_validation(cfdi_validations):
             invalid_cfdi_expense_ids.append(expense.id)
 
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
@@ -210,5 +214,12 @@ def _is_outside_period(
 def _has_invalid_current_cfdi_validation(validations: list[CfdiValidationLike]) -> bool:
     for validation in validations:
         if validation.is_current and not validation.is_valid:
+            return True
+    return False
+
+
+def _has_current_cfdi_validation(validations: list[CfdiValidationLike]) -> bool:
+    for validation in validations:
+        if validation.is_current:
             return True
     return False

@@ -22,6 +22,13 @@ class PeriodCreate(PeriodBase):
     pass
 
 
+class PeriodUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    status: PeriodStatus | None = None
+
+
 class PeriodRead(PeriodBase):
     model_config = ConfigDict(from_attributes=True)
 

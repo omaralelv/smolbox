@@ -20,6 +20,18 @@ class StoreCreate(StoreBase):
     pass
 
 
+class StoreUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=40)
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    contact_email: str | None = Field(default=None, max_length=255)
+    assigned_accountant: str | None = Field(default=None, max_length=160)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value else value
+
+
 class StoreRead(StoreBase):
     model_config = ConfigDict(from_attributes=True)
 

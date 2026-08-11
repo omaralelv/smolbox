@@ -37,6 +37,19 @@ class ReimbursementRequestCreate(ReimbursementRequestBase):
     pass
 
 
+class ReimbursementRequestUpdate(BaseModel):
+    reported_total: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    previous_reimbursement_starts_on: date | None = None
+    previous_reimbursement_ends_on: date | None = None
+    previous_reimbursement_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=2,
+    )
+    notes: str | None = None
+
+
 class ReimbursementRequestRead(ReimbursementRequestBase):
     model_config = ConfigDict(from_attributes=True)
 

@@ -7,11 +7,17 @@ from app.services.reimbursement_validation import summarize_reimbursement_reques
 
 
 def _expense(amount: str, category: str, attachment_types: list[AttachmentType]):
+    has_valid_cfdi = AttachmentType.cfdi_xml in attachment_types
     return SimpleNamespace(
         id=uuid4(),
         amount=Decimal(amount),
         category=category,
         attachments=[SimpleNamespace(attachment_type=kind) for kind in attachment_types],
+        cfdi_validations=[
+            SimpleNamespace(is_current=True, is_valid=True)
+        ]
+        if has_valid_cfdi
+        else [],
     )
 
 

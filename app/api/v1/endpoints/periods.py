@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.period import Period
-from app.schemas.period import PeriodCreate, PeriodRead
+from app.schemas.period import PeriodCreate, PeriodRead, PeriodUpdate
 
 router = APIRouter()
 
@@ -36,4 +36,31 @@ def get_period(period_id: UUID, db: Annotated[Session, Depends(get_db)]) -> Peri
     period = db.get(Period, period_id)
     if period is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Period not found")
+    return period
+
+
+@router.patch("/{period_id}", response_model=PeriodRead)
+def update_period(
+    period_id: UUID,
+    period_in: PeriodUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> Period:
+    period = db.get(Period, period_id)
+    if period is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Period not found")
+
+    updates = period_in.model_dump(exclude_unset=True)
+    starts_on = updates.get("starts_on", period.starts_on)
+    ends_on = updates.get("ends_on", period.ends_on)
+    if ends_on < starts_on:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="ends_on must be on or after starts_on",
+        )
+
+    for field, value in updates.items():
+        setattr(period, field, value)
+
+    db.commit()
+    db.refresh(period)
     return period

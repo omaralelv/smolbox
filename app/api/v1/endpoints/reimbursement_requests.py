@@ -12,17 +12,20 @@ from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
 from app.models.period import Period, PeriodStatus
-from app.models.reimbursement_request import ReimbursementRequest
+from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.store import Store
 from app.models.user import User
 from app.schemas.attachment import AttachmentRead
 from app.schemas.audit_log import AuditLogRead
+from app.schemas.expense_import import ExpenseImportErrorRead, ExpenseImportResult
 from app.schemas.reimbursement_request import (
     ReimbursementRequestCreate,
     ReimbursementRequestRead,
     ReimbursementRequestTransition,
+    ReimbursementRequestUpdate,
     ReimbursementValidationSummary,
 )
+from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.storage import (
@@ -34,6 +37,11 @@ from app.services.storage import (
 from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
 
 router = APIRouter()
+
+EDITABLE_REQUEST_STATUSES = {
+    ReimbursementRequestStatus.draft,
+    ReimbursementRequestStatus.correction_required,
+}
 
 
 @router.post("/", response_model=ReimbursementRequestRead, status_code=status.HTTP_201_CREATED)
@@ -128,6 +136,57 @@ def get_reimbursement_request(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Reimbursement request not found",
         )
+    return reimbursement_request
+
+
+@router.patch("/{request_id}", response_model=ReimbursementRequestRead)
+def update_reimbursement_request(
+    request_id: UUID,
+    request_in: ReimbursementRequestUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> ReimbursementRequest:
+    reimbursement_request = db.get(ReimbursementRequest, request_id)
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    _ensure_request_editable(reimbursement_request)
+    updates = request_in.model_dump(exclude_unset=True)
+    starts_on = updates.get(
+        "previous_reimbursement_starts_on",
+        reimbursement_request.previous_reimbursement_starts_on,
+    )
+    ends_on = updates.get(
+        "previous_reimbursement_ends_on",
+        reimbursement_request.previous_reimbursement_ends_on,
+    )
+    if starts_on and ends_on and ends_on < starts_on:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "previous_reimbursement_ends_on must be on or after "
+                "previous_reimbursement_starts_on"
+            ),
+        )
+
+    changed_fields = sorted(updates)
+    for field, value in updates.items():
+        setattr(reimbursement_request, field, value)
+
+    if changed_fields:
+        db.add(
+            AuditLog(
+                reimbursement_request_id=reimbursement_request.id,
+                actor_type=AuditActorType.system,
+                action="request_updated",
+                message="Reimbursement request updated.",
+                event_payload={"changed_fields": changed_fields},
+            )
+        )
+    db.commit()
+    db.refresh(reimbursement_request)
     return reimbursement_request
 
 
@@ -238,6 +297,180 @@ def list_reimbursement_request_audit_events(
 
 
 @router.post(
+    "/{request_id}/expenses/import",
+    response_model=ExpenseImportResult,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_reimbursement_request_expenses(
+    request_id: UUID,
+    file: Annotated[UploadFile, File()],
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    dry_run: Annotated[bool, Form()] = False,
+) -> ExpenseImportResult:
+    statement = (
+        select(ReimbursementRequest)
+        .options(selectinload(ReimbursementRequest.period))
+        .where(ReimbursementRequest.id == request_id)
+    )
+    reimbursement_request = db.scalars(statement).first()
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    _ensure_request_editable(reimbursement_request)
+    if reimbursement_request.period.status == PeriodStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "PERIOD_CLOSED", "message": "The reimbursement period is closed"},
+        )
+
+    try:
+        content = await read_upload_limited(file, settings.max_upload_bytes)
+    except EmptyUpload as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UploadTooLarge as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        content_type = detect_attachment_content_type(
+            file.filename or "expense-import.xlsx",
+            content,
+            AttachmentType.cash_box_format,
+        )
+        parsed_rows, row_errors = parse_expense_import(content, file.filename or "expense-import.xlsx")
+    except InvalidAttachment as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=str(exc),
+        ) from exc
+    except ExpenseImportUnsupported as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "IMPORT_FILE_NOT_READABLE", "message": str(exc)},
+        ) from exc
+
+    errors = [
+        ExpenseImportErrorRead(
+            row_number=error.row_number,
+            field=error.field,
+            message=error.message,
+        )
+        for error in row_errors
+    ]
+    for row in parsed_rows:
+        if not reimbursement_request.period.starts_on <= row.spent_on <= reimbursement_request.period.ends_on:
+            errors.append(
+                ExpenseImportErrorRead(
+                    row_number=row.row_number,
+                    field="spent_on",
+                    message="Expense date is outside the reimbursement period",
+                )
+            )
+
+    if not parsed_rows and not errors:
+        errors.append(
+            ExpenseImportErrorRead(
+                row_number=1,
+                field="file",
+                message="No expense rows found",
+            )
+        )
+
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "IMPORT_VALIDATION_FAILED",
+                "message": "The file contains rows that cannot be imported",
+                "errors": [error.model_dump(mode="json") for error in errors],
+            },
+        )
+
+    if dry_run:
+        return ExpenseImportResult(
+            request_id=reimbursement_request.id,
+            imported_count=len(parsed_rows),
+            dry_run=True,
+            attachment_id=None,
+            expenses=[],
+            errors=[],
+        )
+
+    storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
+    stored = storage.save_bytes(
+        content,
+        filename=file.filename or "expense-import.xlsx",
+        reimbursement_request_id=request_id,
+    )
+    attachment = Attachment(
+        reimbursement_request_id=reimbursement_request.id,
+        attachment_type=AttachmentType.cash_box_format,
+        filename=stored.filename,
+        content_type=content_type,
+        storage_path=stored.storage_path,
+        size_bytes=stored.size_bytes,
+        checksum_sha256=stored.checksum_sha256,
+    )
+    expenses = [
+        Expense(
+            period_id=reimbursement_request.period_id,
+            reimbursement_request_id=reimbursement_request.id,
+            merchant=row.merchant,
+            amount=row.amount,
+            currency=row.currency,
+            spent_on=row.spent_on,
+            category=row.category,
+            description=row.description,
+            supplier_tax_id=row.supplier_tax_id,
+        )
+        for row in parsed_rows
+    ]
+
+    try:
+        db.add(attachment)
+        for expense in expenses:
+            db.add(expense)
+        db.flush()
+        db.add(
+            AuditLog(
+                reimbursement_request_id=reimbursement_request.id,
+                actor_type=AuditActorType.system,
+                action="expenses_imported",
+                message=f"{len(expenses)} expenses imported from {stored.filename}.",
+                event_payload={
+                    "attachment_id": str(attachment.id),
+                    "filename": stored.filename,
+                    "imported_count": len(expenses),
+                },
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        storage.delete(stored.storage_path)
+        raise
+
+    db.refresh(attachment)
+    for expense in expenses:
+        db.refresh(expense)
+
+    return ExpenseImportResult(
+        request_id=reimbursement_request.id,
+        imported_count=len(expenses),
+        dry_run=False,
+        attachment_id=attachment.id,
+        expenses=expenses,
+        errors=[],
+    )
+
+
+@router.post(
     "/{request_id}/attachments",
     response_model=AttachmentRead,
     status_code=status.HTTP_201_CREATED,
@@ -321,3 +554,14 @@ async def upload_reimbursement_request_attachment(
         raise
     db.refresh(attachment)
     return attachment
+
+
+def _ensure_request_editable(reimbursement_request: ReimbursementRequest) -> None:
+    if reimbursement_request.status not in EDITABLE_REQUEST_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_EDITABLE",
+                "message": "Requests can only be edited while draft or in correction.",
+            },
+        )

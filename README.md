@@ -37,6 +37,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
   invalidos y readiness para envio/aprobacion contable.
 - Descarga de adjuntos por ID.
+- Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
+- Importacion masiva de gastos desde CSV o XLSX con validacion previa.
 - Documentacion de alcance en `docs/etapa-2-backend.md`.
 
 Fuera de esta etapa:
@@ -119,3 +121,29 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 10. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
 11. Revisar auditoria con
    `GET /api/v1/reimbursement-requests/{request_id}/audit-events`.
+12. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
+13. Importar gastos desde Excel/CSV con
+   `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`.
+
+## Importacion masiva de gastos
+
+El archivo debe ser `.csv` o `.xlsx`. La primera fila debe tener encabezados. Se aceptan
+nombres en espanol o ingles:
+
+```text
+proveedor, importe, fecha, categoria, descripcion, rfc_proveedor, moneda
+```
+
+Columnas obligatorias:
+
+- `proveedor` o `merchant`
+- `importe`, `monto`, `total` o `amount`
+- `fecha` o `spent_on`
+
+Formato recomendado de fecha:
+
+```text
+2026-08-10
+```
+
+El endpoint tambien acepta `dry_run=true` para revisar el archivo sin guardar gastos.

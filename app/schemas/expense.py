@@ -37,6 +37,26 @@ class ExpenseCreate(ExpenseBase):
         return self
 
 
+class ExpenseUpdate(BaseModel):
+    merchant: str | None = Field(default=None, min_length=1, max_length=255)
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    spent_on: date | None = None
+    category: str | None = Field(default=None, max_length=120)
+    description: str | None = None
+    supplier_tax_id: str | None = Field(default=None, max_length=20)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str | None) -> str | None:
+        return value.upper() if value else value
+
+    @field_validator("supplier_tax_id")
+    @classmethod
+    def normalize_tax_id(cls, value: str | None) -> str | None:
+        return value.upper() if value else value
+
+
 class ExpenseRead(ExpenseBase):
     model_config = ConfigDict(from_attributes=True)
 

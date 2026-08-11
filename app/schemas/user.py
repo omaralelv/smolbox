@@ -13,6 +13,13 @@ class UserCreate(BaseModel):
     is_active: bool = True
 
 
+class UserUpdate(BaseModel):
+    email: EmailStr | None = None
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
 class UserRead(UserCreate):
     model_config = ConfigDict(from_attributes=True)
 
