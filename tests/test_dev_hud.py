@@ -10,6 +10,8 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Crear tienda" in TEST_HUD_HTML
     assert "Crear usuario" in TEST_HUD_HTML
     assert "Crear pago/gasto" in TEST_HUD_HTML
+    assert "Personalizar escenario" in TEST_HUD_HTML
+    assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML
 
@@ -152,3 +154,54 @@ def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
     assert scenario["summary"]["calculated_total"] == "1750.00"
     assert len(scenario["expenses"]) == 3
     assert any(expense["merchant"] == "HUD Pago Manual" for expense in scenario["expenses"])
+
+
+def test_dev_hud_seeds_custom_scenario(client: TestClient) -> None:
+    seeded = client.post(
+        "/api/v1/dev-hud/seed-demo",
+        json={
+            "reset_existing": True,
+            "store_code": "HUD-CUSTOM",
+            "store_name": "HUD Tienda Custom",
+            "contact_email": "hud.custom@hud.smolbox.local",
+            "period_name": "HUD Septiembre 2026",
+            "starts_on": "2026-09-01",
+            "ends_on": "2026-09-30",
+            "reported_total": "333.00",
+            "expenses": [
+                {
+                    "merchant": "HUD Cafe Custom",
+                    "amount": "111.00",
+                    "spent_on": "2026-09-05",
+                    "category": "comida",
+                    "supplier_tax_id": "XAXX010101000",
+                    "requires_authorization": False,
+                },
+                {
+                    "merchant": "HUD Taxi Custom",
+                    "amount": "222.00",
+                    "spent_on": "2026-09-06",
+                    "category": "transporte",
+                    "supplier_tax_id": "XEXX010101000",
+                    "requires_authorization": True,
+                },
+            ],
+        },
+    )
+    assert seeded.status_code == 201, seeded.text
+
+    scenario = seeded.json()["scenario"]
+    assert scenario["store_code"] == "HUD-CUSTOM"
+    assert scenario["store_name"] == "HUD Tienda Custom"
+    assert scenario["period_name"] == "HUD Septiembre 2026"
+    assert scenario["summary"]["reported_total"] == "333.00"
+    assert scenario["summary"]["calculated_total"] == "333.00"
+    assert [expense["merchant"] for expense in scenario["expenses"]] == [
+        "HUD Cafe Custom",
+        "HUD Taxi Custom",
+    ]
+    assert scenario["summary"]["ready_for_authorization_approval"] is False
+
+    status = client.get("/api/v1/dev-hud/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["scenario"]["store_code"] == "HUD-CUSTOM"
