@@ -40,6 +40,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
 - HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo.
+- Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
+  y agregar pagos/gastos de prueba.
 - Documentacion de alcance en `docs/etapa-2-backend.md`.
 
 Fuera de esta etapa:
@@ -136,6 +138,11 @@ Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Prim
 `Crear escenario`, luego prueba `Enviar tienda`, `Revision contable`, `Aprobar contabilidad`
 y `Completar CFDI demo` para ver como el backend bloquea la aprobacion contable hasta tener
 CFDI vigente.
+
+El HUD tambien permite crear tiendas y usuarios con prefijo/dominio `HUD`, asignar un
+usuario tienda o contador a una tienda y crear un pago/gasto dentro de la solicitud demo.
+Esa asignacion es operativa para pruebas; el modelo formal de permisos por tienda queda para
+una etapa posterior.
 
 ## Importacion masiva de gastos
 

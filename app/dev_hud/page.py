@@ -230,6 +230,49 @@ TEST_HUD_HTML = """<!doctype html>
       gap: 8px;
     }
 
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+    }
+
+    .field span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .input {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .checkline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
     .table {
       width: 100%;
       border-collapse: collapse;
@@ -332,7 +375,8 @@ TEST_HUD_HTML = """<!doctype html>
       }
 
       .stats,
-      .flow {
+      .flow,
+      .form-grid {
         grid-template-columns: 1fr 1fr;
       }
 
@@ -374,6 +418,73 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
+              <h2>Crear y asignar</h2>
+              <p class="subtle">Herramientas locales para tiendas y usuarios HUD.</p>
+            </div>
+          </div>
+
+          <h3>Tienda</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>Código</span>
+              <input class="input" id="storeCode" value="HUD-002" />
+            </label>
+            <label class="field">
+              <span>Nombre</span>
+              <input class="input" id="storeName" value="HUD Sucursal Norte" />
+            </label>
+            <label class="field full">
+              <span>Correo tienda</span>
+              <input class="input" id="storeEmail" value="hud.sucursal.norte@hud.smolbox.local" />
+            </label>
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="createStoreBtn">Crear tienda</button>
+          </div>
+
+          <h3 style="margin-top: 16px;">Usuario</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>Nombre</span>
+              <input class="input" id="userName" value="HUD Usuario Nuevo" />
+            </label>
+            <label class="field">
+              <span>Rol</span>
+              <select class="input" id="userRole">
+                <option value="store">Tienda</option>
+                <option value="accountant">Contador</option>
+                <option value="treasury">Tesorería</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label class="field full">
+              <span>Correo</span>
+              <input class="input" id="userEmail" value="hud.usuario.nuevo@hud.smolbox.local" />
+            </label>
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="createUserBtn">Crear usuario</button>
+          </div>
+
+          <h3 style="margin-top: 16px;">Asignación</h3>
+          <div class="form-grid">
+            <label class="field">
+              <span>Tienda</span>
+              <select class="input" id="assignStoreId"></select>
+            </label>
+            <label class="field">
+              <span>Usuario</span>
+              <select class="input" id="assignUserId"></select>
+            </label>
+          </div>
+          <div class="toolbar">
+            <button class="btn" id="assignUserBtn">Asignar usuario</button>
+          </div>
+        </section>
+
+        <section class="card panel">
+          <div class="panel-head">
+            <div>
               <h2>Flujo</h2>
               <p class="subtle">Transiciones con usuarios demo por rol.</p>
             </div>
@@ -403,6 +514,40 @@ TEST_HUD_HTML = """<!doctype html>
             </div>
           </div>
           <div id="expenses"></div>
+        </section>
+
+        <section class="card panel">
+          <div class="panel-head">
+            <div>
+              <h2>Crear pago/gasto</h2>
+              <p class="subtle">Agrega un movimiento a la solicitud HUD en borrador.</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Proveedor</span>
+              <input class="input" id="paymentMerchant" value="HUD Proveedor Pago" />
+            </label>
+            <label class="field">
+              <span>Monto</span>
+              <input class="input" id="paymentAmount" value="250.00" />
+            </label>
+            <label class="field">
+              <span>Fecha</span>
+              <input class="input" id="paymentDate" type="date" value="2026-08-17" />
+            </label>
+            <label class="field">
+              <span>Categoría</span>
+              <input class="input" id="paymentCategory" value="hud_pago" />
+            </label>
+            <label class="checkline full">
+              <input id="paymentBalanced" type="checkbox" checked />
+              Ajustar total reportado para mantener balance
+            </label>
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="createPaymentBtn">Crear pago/gasto</button>
+          </div>
         </section>
       </div>
 
@@ -447,6 +592,7 @@ TEST_HUD_HTML = """<!doctype html>
   <script>
     const api = "/api/v1";
     let state = null;
+    let busy = false;
 
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -478,6 +624,14 @@ TEST_HUD_HTML = """<!doctype html>
       return payload;
     }
 
+    function jsonRequest(path, payload) {
+      return request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    }
+
     async function loadStatus() {
       try {
         state = await request("/dev-hud/status");
@@ -497,25 +651,36 @@ TEST_HUD_HTML = """<!doctype html>
         writeConsole(`${label} falló`, error);
       } finally {
         setBusy(false);
+        applyButtonState();
       }
     }
 
     function setBusy(isBusy) {
+      busy = isBusy;
       $$("button").forEach((button) => {
         button.disabled = isBusy;
       });
     }
 
+    function applyButtonState() {
+      if (busy) return;
+      const hasScenario = Boolean(state?.scenario?.exists);
+      const hasStores = Boolean(state?.workspace?.stores?.length);
+      const hasUsers = Boolean(state?.workspace?.users?.length);
+      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn").forEach((button) => {
+        button.disabled = !hasScenario;
+      });
+      $("#assignUserBtn").disabled = !hasStores || !hasUsers;
+    }
+
     function render() {
       renderStats();
       renderScenario();
+      renderWorkspaceSelectors();
       renderExpenses();
       renderValidation();
       renderAudit();
-      const hasScenario = Boolean(state?.scenario?.exists);
-      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn").forEach((button) => {
-        button.disabled = !hasScenario;
-      });
+      applyButtonState();
     }
 
     function renderStats() {
@@ -556,6 +721,24 @@ TEST_HUD_HTML = """<!doctype html>
         row("Usuario contador", scenario.users.accountant?.email),
         row("Usuario tesorería", scenario.users.treasury?.email)
       ].join("");
+    }
+
+    function renderWorkspaceSelectors() {
+      const stores = state?.workspace?.stores || [];
+      const users = state?.workspace?.users || [];
+      const selectedStore = $("#assignStoreId").value || state?.scenario?.store_id || "";
+      const selectedUser = $("#assignUserId").value || state?.scenario?.users?.store?.id || "";
+
+      $("#assignStoreId").innerHTML = stores.map((store) => `
+        <option value="${store.id}" ${store.id === selectedStore ? "selected" : ""}>
+          ${store.code} / ${store.name}
+        </option>
+      `).join("");
+      $("#assignUserId").innerHTML = users.map((user) => `
+        <option value="${user.id}" ${user.id === selectedUser ? "selected" : ""}>
+          ${user.role} / ${user.email}
+        </option>
+      `).join("");
     }
 
     function renderExpenses() {
@@ -659,6 +842,26 @@ TEST_HUD_HTML = """<!doctype html>
     $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", () =>
       request("/dev-hud/seed-demo", { method: "POST" })
     ));
+    $("#createStoreBtn").addEventListener("click", () => runAction("Tienda creada", () =>
+      jsonRequest("/dev-hud/stores", {
+        code: $("#storeCode").value,
+        name: $("#storeName").value,
+        contact_email: $("#storeEmail").value || null
+      })
+    ));
+    $("#createUserBtn").addEventListener("click", () => runAction("Usuario creado", () =>
+      jsonRequest("/dev-hud/users", {
+        email: $("#userEmail").value,
+        full_name: $("#userName").value,
+        role: $("#userRole").value
+      })
+    ));
+    $("#assignUserBtn").addEventListener("click", () => runAction("Usuario asignado", () =>
+      jsonRequest("/dev-hud/assign-user", {
+        store_id: $("#assignStoreId").value,
+        user_id: $("#assignUserId").value
+      })
+    ));
     $("#resetBtn").addEventListener("click", () => {
       if (!confirm("Limpiar solo datos HUD?")) return;
       runAction("HUD limpiado", () => request("/dev-hud/reset-demo", { method: "POST" }));
@@ -671,6 +874,15 @@ TEST_HUD_HTML = """<!doctype html>
     ));
     $("#importRealBtn").addEventListener("click", () => runAction("CSV importado", () =>
       importDemo(false)
+    ));
+    $("#createPaymentBtn").addEventListener("click", () => runAction("Pago/gasto creado", () =>
+      jsonRequest("/dev-hud/payments", {
+        merchant: $("#paymentMerchant").value,
+        amount: $("#paymentAmount").value,
+        spent_on: $("#paymentDate").value,
+        category: $("#paymentCategory").value || null,
+        keep_reported_total_balanced: $("#paymentBalanced").checked
+      })
     ));
     $$(".flow-btn").forEach((button) => {
       button.addEventListener("click", () => runAction(`Transición ${button.dataset.target}`, () =>

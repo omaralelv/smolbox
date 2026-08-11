@@ -170,6 +170,8 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - ver que contabilidad queda bloqueada si faltan CFDI vigentes;
 - completar CFDI sinteticos de prueba;
 - probar importacion CSV con `dry_run` o guardado real;
+- crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
+- crear pagos/gastos de prueba en la solicitud HUD;
 - limpiar solo los datos con prefijo HUD.
 
 Los endpoints auxiliares viven bajo:
@@ -184,6 +186,10 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 
 - `GET /api/v1/dev-hud/status`
 - `POST /api/v1/dev-hud/seed-demo`
+- `POST /api/v1/dev-hud/stores`
+- `POST /api/v1/dev-hud/users`
+- `POST /api/v1/dev-hud/assign-user`
+- `POST /api/v1/dev-hud/payments`
 - `POST /api/v1/dev-hud/complete-cfdi`
 - `POST /api/v1/dev-hud/transition/{target_status}`
 - `POST /api/v1/dev-hud/reset-demo`

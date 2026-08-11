@@ -6,8 +6,9 @@ from typing import Annotated, Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
@@ -38,6 +39,61 @@ DEMO_USERS = {
     UserRole.treasury: ("hud.treasury@hud.smolbox.local", "HUD Usuario Tesoreria"),
     UserRole.admin: ("hud.admin@hud.smolbox.local", "HUD Usuario Admin"),
 }
+
+
+class HudStoreCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=160)
+    contact_email: str | None = Field(default=None, max_length=255)
+    assigned_accountant: str | None = Field(default=None, max_length=160)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_hud_code(cls, value: str) -> str:
+        code = value.strip().upper()
+        if not code.startswith("HUD-"):
+            raise ValueError("HUD store codes must start with HUD-")
+        return code
+
+    @field_validator("contact_email")
+    @classmethod
+    def normalize_hud_contact_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        email = value.strip().lower()
+        if email and not email.endswith(f"@{HUD_EMAIL_DOMAIN}"):
+            raise ValueError(f"HUD store emails must end with @{HUD_EMAIL_DOMAIN}")
+        return email or None
+
+
+class HudUserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    full_name: str = Field(min_length=1, max_length=255)
+    role: UserRole
+
+    @field_validator("email")
+    @classmethod
+    def normalize_hud_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if not email.endswith(f"@{HUD_EMAIL_DOMAIN}"):
+            raise ValueError(f"HUD user emails must end with @{HUD_EMAIL_DOMAIN}")
+        return email
+
+
+class HudAssignmentCreate(BaseModel):
+    store_id: UUID
+    user_id: UUID
+
+
+class HudPaymentCreate(BaseModel):
+    merchant: str = Field(min_length=1, max_length=255)
+    amount: Decimal = Field(gt=Decimal("0.00"))
+    spent_on: date = date(2026, 8, 17)
+    category: str | None = Field(default="hud_pago", max_length=120)
+    description: str | None = None
+    supplier_tax_id: str | None = Field(default="XAXX010101000", max_length=20)
+    create_receipt: bool = True
+    keep_reported_total_balanced: bool = True
 
 
 @router.get("/status")
@@ -76,6 +132,7 @@ def get_dev_hud_status(
         "environment": settings.environment,
         "counts": counts,
         "scenario": _scenario_payload(db),
+        "workspace": _workspace_payload(db),
     }
 
 
@@ -209,6 +266,177 @@ def reset_dev_hud_demo(
         "message": "HUD demo data deleted",
         "deleted": deleted,
         "scenario": {"exists": False},
+    }
+
+
+@router.post("/stores", status_code=status.HTTP_201_CREATED)
+def create_dev_hud_store(
+    store_in: HudStoreCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    store = Store(**store_in.model_dump())
+    db.add(store)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DUPLICATE_STORE_CODE", "message": "Store code already exists"},
+        ) from exc
+    db.refresh(store)
+    return {"message": "HUD store created", "store": _store_payload(store)}
+
+
+@router.post("/users", status_code=status.HTTP_201_CREATED)
+def create_dev_hud_user(
+    user_in: HudUserCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    user = User(**user_in.model_dump(), is_active=True)
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DUPLICATE_USER_EMAIL", "message": "User email already exists"},
+        ) from exc
+    db.refresh(user)
+    return {"message": "HUD user created", "user": _user_payload(user)}
+
+
+@router.post("/assign-user")
+def assign_dev_hud_user(
+    assignment_in: HudAssignmentCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    store = db.get(Store, assignment_in.store_id)
+    if store is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store not found")
+
+    user = db.get(User, assignment_in.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "INACTIVE_USER", "message": "Cannot assign an inactive user"},
+        )
+
+    if user.role == UserRole.store:
+        store.contact_email = user.email
+        assigned_field = "contact_email"
+    elif user.role == UserRole.accountant:
+        store.assigned_accountant = user.full_name
+        assigned_field = "assigned_accountant"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "UNSUPPORTED_HUD_ASSIGNMENT",
+                "message": "HUD assignment supports store and accountant users for now",
+            },
+        )
+
+    db.commit()
+    db.refresh(store)
+    return {
+        "message": "HUD user assigned to store",
+        "assigned_field": assigned_field,
+        "store": _store_payload(store),
+        "user": _user_payload(user),
+    }
+
+
+@router.post("/payments", status_code=status.HTTP_201_CREATED)
+def create_dev_hud_payment(
+    payment_in: HudPaymentCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    request = _load_demo_request(db)
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "HUD_SCENARIO_NOT_FOUND", "message": "Create the HUD scenario first"},
+        )
+    if request.status not in {
+        ReimbursementRequestStatus.draft,
+        ReimbursementRequestStatus.correction_required,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_EDITABLE",
+                "message": "Create HUD payments while the request is draft or in correction",
+            },
+        )
+    if not request.period.starts_on <= payment_in.spent_on <= request.period.ends_on:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "PAYMENT_OUTSIDE_PERIOD",
+                "message": "Payment date is outside the HUD reimbursement period",
+            },
+        )
+
+    expense = Expense(
+        period_id=request.period_id,
+        reimbursement_request_id=request.id,
+        merchant=payment_in.merchant,
+        amount=payment_in.amount,
+        currency="MXN",
+        spent_on=payment_in.spent_on,
+        category=payment_in.category,
+        description=payment_in.description,
+        supplier_tax_id=payment_in.supplier_tax_id,
+    )
+    request.expenses.append(expense)
+    db.add(expense)
+    db.flush()
+
+    if payment_in.create_receipt:
+        storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
+        _ensure_demo_receipt(db, storage, expense)
+
+    if payment_in.keep_reported_total_balanced:
+        request.reported_total = (request.reported_total or Decimal("0.00")) + payment_in.amount
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id,
+            actor_type=AuditActorType.system,
+            action="dev_hud_payment_created",
+            message=f"HUD payment created for {expense.merchant}.",
+            event_payload={
+                "amount": str(expense.amount),
+                "spent_on": expense.spent_on.isoformat(),
+                "reported_total_adjusted": payment_in.keep_reported_total_balanced,
+            },
+        )
+    )
+    request_id = request.id
+    expense_id = expense.id
+    db.commit()
+
+    return {
+        "message": "HUD payment created",
+        "expense_id": expense_id,
+        "scenario": _scenario_payload(db, request_id),
     }
 
 
@@ -528,6 +756,25 @@ def _scenario_payload(db: Session, request_id: UUID | None = None) -> dict[str, 
             }
             for event in audit_events[:10]
         ],
+    }
+
+
+def _workspace_payload(db: Session) -> dict[str, Any]:
+    stores = list(db.scalars(select(Store).order_by(Store.code).limit(100)))
+    users = list(db.scalars(select(User).order_by(User.created_at.desc()).limit(100)))
+    return {
+        "stores": [_store_payload(store) for store in stores],
+        "users": [_user_payload(user) for user in users],
+    }
+
+
+def _store_payload(store: Store) -> dict[str, Any]:
+    return {
+        "id": store.id,
+        "code": store.code,
+        "name": store.name,
+        "contact_email": store.contact_email,
+        "assigned_accountant": store.assigned_accountant,
     }
 
 

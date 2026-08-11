@@ -7,6 +7,9 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Smolbox Dev HUD" in TEST_HUD_HTML
     assert "/api/v1" in TEST_HUD_HTML
     assert "/dev-hud/status" in TEST_HUD_HTML
+    assert "Crear tienda" in TEST_HUD_HTML
+    assert "Crear usuario" in TEST_HUD_HTML
+    assert "Crear pago/gasto" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -53,3 +56,55 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     final_status = client.get("/api/v1/dev-hud/status")
     assert final_status.status_code == 200, final_status.text
     assert final_status.json()["scenario"]["exists"] is False
+
+
+def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
+    seeded = client.post("/api/v1/dev-hud/seed-demo")
+    assert seeded.status_code == 201, seeded.text
+
+    store = client.post(
+        "/api/v1/dev-hud/stores",
+        json={
+            "code": "HUD-099",
+            "name": "HUD Tienda Asignable",
+            "contact_email": "hud.tienda.asignable@hud.smolbox.local",
+        },
+    )
+    assert store.status_code == 201, store.text
+    store_id = store.json()["store"]["id"]
+
+    user = client.post(
+        "/api/v1/dev-hud/users",
+        json={
+            "email": "hud.contador.asignable@hud.smolbox.local",
+            "full_name": "HUD Contador Asignable",
+            "role": "accountant",
+        },
+    )
+    assert user.status_code == 201, user.text
+    user_id = user.json()["user"]["id"]
+
+    assignment = client.post(
+        "/api/v1/dev-hud/assign-user",
+        json={"store_id": store_id, "user_id": user_id},
+    )
+    assert assignment.status_code == 200, assignment.text
+    assert assignment.json()["assigned_field"] == "assigned_accountant"
+    assert assignment.json()["store"]["assigned_accountant"] == "HUD Contador Asignable"
+
+    payment = client.post(
+        "/api/v1/dev-hud/payments",
+        json={
+            "merchant": "HUD Pago Manual",
+            "amount": "250.00",
+            "spent_on": "2026-08-17",
+            "category": "comida",
+            "keep_reported_total_balanced": True,
+        },
+    )
+    assert payment.status_code == 201, payment.text
+    scenario = payment.json()["scenario"]
+    assert scenario["summary"]["reported_total"] == "1750.00"
+    assert scenario["summary"]["calculated_total"] == "1750.00"
+    assert len(scenario["expenses"]) == 3
+    assert any(expense["merchant"] == "HUD Pago Manual" for expense in scenario["expenses"])
