@@ -49,7 +49,8 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
 - Descarga de adjuntos por identificador.
 - Edicion parcial de registros operativos mediante `PATCH`.
 - Importacion masiva de gastos desde CSV o XLSX.
-- HUD local de pruebas para recorrer el flujo desde el navegador.
+- HUD local de pruebas para recorrer el flujo desde el navegador, incluyendo una vista
+  guiada por rol parecida al uso final.
 
 ## Migraciones de base de datos
 
@@ -335,6 +336,8 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - ver que contabilidad queda bloqueada si faltan CFDI vigentes;
 - completar CFDI sinteticos de prueba;
 - probar importacion CSV con `dry_run` o guardado real;
+- recorrer la seccion `Flujo usuario final`, agrupada por tienda, sistema, autorizacion,
+  contabilidad, gerente, tesoreria y direccion;
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
 - crear pagos/gastos de prueba en la solicitud HUD;
 - autorizar gastos HUD que requieren aprobacion previa;

@@ -230,6 +230,48 @@ TEST_HUD_HTML = """<!doctype html>
       gap: 8px;
     }
 
+    .user-flow {
+      display: grid;
+      gap: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .user-flow-row {
+      display: grid;
+      grid-template-columns: 150px minmax(180px, 1fr) minmax(240px, 1.5fr);
+      gap: 12px;
+      align-items: start;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .user-flow-row:last-child {
+      border-bottom: 0;
+    }
+
+    .role {
+      display: grid;
+      gap: 5px;
+    }
+
+    .role strong {
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .role span,
+    .task {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
     .form-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -376,8 +418,13 @@ TEST_HUD_HTML = """<!doctype html>
 
       .stats,
       .flow,
+      .user-flow-row,
       .form-grid {
         grid-template-columns: 1fr 1fr;
+      }
+
+      .user-flow-row .actions {
+        grid-column: 1 / -1;
       }
 
       .row {
@@ -488,6 +535,100 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
           </div>
           <div id="scenarioRows"></div>
+        </section>
+
+        <section class="card panel">
+          <div class="panel-head">
+            <div>
+              <h2>Flujo usuario final</h2>
+              <p class="subtle">Recorrido por rol con acciones equivalentes al proceso real.</p>
+            </div>
+          </div>
+          <div class="user-flow">
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Tienda</strong>
+                <span>Captura caja chica</span>
+              </div>
+              <div class="task">Crea la solicitud, carga gastos y la envía para revisión.</div>
+              <div class="actions">
+                <button class="btn primary user-flow-btn" data-action="seed-scenario">Crear solicitud</button>
+                <button class="btn user-flow-btn" data-action="transition:submitted">Enviar solicitud</button>
+              </div>
+            </div>
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Sistema</strong>
+                <span>Validación automática</span>
+              </div>
+              <div class="task">Revisa comprobantes, CFDI, total, periodo, alertas y datos SAP.</div>
+              <div class="actions">
+                <button class="btn user-flow-btn" data-action="automated-review">Revisar automáticamente</button>
+                <button class="btn success user-flow-btn" data-action="complete-cfdi">Simular CFDI</button>
+              </div>
+            </div>
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Autorización</strong>
+                <span>Decisión por producto</span>
+              </div>
+              <div class="task">Aprueba o rechaza solo los gastos que requieren autorización.</div>
+              <div class="actions">
+                <button class="btn user-flow-btn" data-action="transition:authorization_review">Abrir revisión</button>
+                <button class="btn success user-flow-btn" data-action="authorize-expenses">Autorizar producto</button>
+                <button class="btn warning user-flow-btn" data-action="reject-product">Rechazar producto</button>
+                <button class="btn success user-flow-btn" data-action="transition:authorized">Enviar a contabilidad</button>
+              </div>
+            </div>
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Contabilidad</strong>
+                <span>Revisión documental</span>
+              </div>
+              <div class="task">Revisa factura, CFDI, formato, observaciones y prepara póliza SAP.</div>
+              <div class="actions">
+                <button class="btn user-flow-btn" data-action="transition:under_accounting_review">Tomar revisión</button>
+                <button class="btn warning user-flow-btn" data-action="transition:correction_required">Pedir corrección</button>
+                <button class="btn success user-flow-btn" data-action="transition:accounting_reviewed">Cerrar revisión</button>
+                <button class="btn success user-flow-btn" data-action="prepare-sap-policy">Preparar póliza SAP</button>
+              </div>
+            </div>
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Gerente conta</strong>
+                <span>Aprobación contable</span>
+              </div>
+              <div class="task">Recibe solicitud revisada y aprueba antes de tesorería.</div>
+              <div class="actions">
+                <button class="btn user-flow-btn" data-action="transition:accounting_manager_review">Recibir solicitud</button>
+                <button class="btn success user-flow-btn" data-action="transition:accounting_manager_approved">Aprobar gerente</button>
+              </div>
+            </div>
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Tesorería</strong>
+                <span>Pago y cierre</span>
+              </div>
+              <div class="task">Revisa pago, envía a dirección, confirma pago y cierra solicitud.</div>
+              <div class="actions">
+                <button class="btn user-flow-btn" data-action="transition:treasury_review">Revisar pago</button>
+                <button class="btn user-flow-btn" data-action="transition:direction_review">Enviar a dirección</button>
+                <button class="btn success user-flow-btn" data-action="transition:approved_for_payment">Liberar pago</button>
+                <button class="btn success user-flow-btn" data-action="transition:paid">Confirmar pago</button>
+                <button class="btn success user-flow-btn" data-action="transition:closed">Cerrar solicitud</button>
+              </div>
+            </div>
+            <div class="user-flow-row">
+              <div class="role">
+                <strong>Dirección</strong>
+                <span>Aprobación final</span>
+              </div>
+              <div class="task">Aprueba que tesorería realice el pago.</div>
+              <div class="actions">
+                <button class="btn success user-flow-btn" data-action="transition:direction_approved">Aprobar dirección</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="card panel">
@@ -762,6 +903,9 @@ TEST_HUD_HTML = """<!doctype html>
       $$(".flow-btn, #importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, #prepareSapPolicyBtn").forEach((button) => {
         button.disabled = !hasScenario;
       });
+      $$(".user-flow-btn").forEach((button) => {
+        button.disabled = !hasScenario && button.dataset.action !== "seed-scenario";
+      });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
     }
 
@@ -999,6 +1143,26 @@ TEST_HUD_HTML = """<!doctype html>
       });
     }
 
+    function executeUserFlowAction(action) {
+      if (action.startsWith("transition:")) {
+        const target = action.split(":")[1];
+        return request(`/dev-hud/transition/${target}`, { method: "POST" });
+      }
+      const actions = {
+        "seed-scenario": () => jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload()),
+        "automated-review": () => request("/dev-hud/automated-review", { method: "POST" }),
+        "complete-cfdi": () => request("/dev-hud/complete-cfdi", { method: "POST" }),
+        "authorize-expenses": () => request("/dev-hud/authorize-expenses", { method: "POST" }),
+        "reject-product": () => request("/dev-hud/reject-authorization-expense", { method: "POST" }),
+        "prepare-sap-policy": () => request("/dev-hud/prepare-sap-policy", { method: "POST" })
+      };
+      const handler = actions[action];
+      if (!handler) {
+        throw { status: 400, payload: { message: `Acción no soportada: ${action}` } };
+      }
+      return handler();
+    }
+
     $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
     $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", () =>
       jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload())
@@ -1062,6 +1226,11 @@ TEST_HUD_HTML = """<!doctype html>
       button.addEventListener("click", () => runAction(`Transición ${button.dataset.target}`, () =>
         request(`/dev-hud/transition/${button.dataset.target}`, { method: "POST" })
       ));
+    });
+    $$(".user-flow-btn").forEach((button) => {
+      button.addEventListener("click", () =>
+        runAction(button.textContent.trim(), () => executeUserFlowAction(button.dataset.action))
+      );
     });
 
     loadStatus();

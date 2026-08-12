@@ -11,9 +11,14 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Crear usuario" in TEST_HUD_HTML
     assert "Crear pago/gasto" in TEST_HUD_HTML
     assert "Personalizar escenario" in TEST_HUD_HTML
+    assert "Flujo usuario final" in TEST_HUD_HTML
+    assert "Crear solicitud" in TEST_HUD_HTML
+    assert "Revisar automáticamente" in TEST_HUD_HTML
     assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
     assert "Rechazar producto" in TEST_HUD_HTML
+    assert "Confirmar pago" in TEST_HUD_HTML
+    assert "executeUserFlowAction" in TEST_HUD_HTML
     assert "Ejecutar automaticos" in TEST_HUD_HTML
     assert "Preparar póliza SAP" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML

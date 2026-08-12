@@ -46,7 +46,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Descarga de adjuntos por ID.
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
-- HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo.
+- HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo con una
+  vista guiada por rol cercana al usuario final.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
   y agregar pagos/gastos de prueba.
 - Placeholder auditable de poliza SAP antes de enviar la solicitud a gerente de contabilidad.
