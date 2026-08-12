@@ -15,6 +15,14 @@ def _create_user(client: TestClient, role: str) -> str:
     return response.json()["id"]
 
 
+def _assign_user_to_store(client: TestClient, store_id: str, user_id: str, role: str) -> None:
+    response = client.post(
+        f"/api/v1/stores/{store_id}/users",
+        json={"user_id": user_id, "role": role},
+    )
+    assert response.status_code == 201, response.text
+
+
 def _transition(
     client: TestClient,
     request_id: str,
@@ -47,6 +55,9 @@ def test_request_moves_through_submission_and_accounting_review(
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
     accountant_user_id = _create_user(client, "accountant")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
 
     submitted = _transition(
         client,
@@ -128,6 +139,8 @@ def test_required_expense_authorization_blocks_request(
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
 
     submitted = _transition(
         client,
@@ -188,6 +201,9 @@ def test_accounting_can_remove_expense_with_reason(
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
     accountant_user_id = _create_user(client, "accountant")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
 
     assert _transition(
         client,

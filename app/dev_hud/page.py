@@ -574,8 +574,9 @@ TEST_HUD_HTML = """<!doctype html>
             <button class="btn success flow-btn" data-target="authorized">Autorizar solicitud</button>
             <button class="btn flow-btn" data-target="under_accounting_review">Revisión contable</button>
             <button class="btn warning flow-btn" data-target="correction_required">Pedir corrección</button>
-            <button class="btn success flow-btn" data-target="accounting_reviewed">Enviar gerente</button>
-            <button class="btn flow-btn" data-target="accounting_manager_review">Revisión gerente</button>
+            <button class="btn success flow-btn" data-target="accounting_reviewed">Cerrar contabilidad</button>
+            <button class="btn success" id="prepareSapPolicyBtn">Preparar póliza SAP</button>
+            <button class="btn flow-btn" data-target="accounting_manager_review">Enviar gerente</button>
             <button class="btn success flow-btn" data-target="accounting_manager_approved">Aprobar gerente</button>
             <button class="btn flow-btn" data-target="treasury_review">Revisión tesorería</button>
             <button class="btn flow-btn" data-target="direction_review">Enviar dirección</button>
@@ -756,7 +757,7 @@ TEST_HUD_HTML = """<!doctype html>
       const hasScenario = Boolean(state?.scenario?.exists);
       const hasStores = Boolean(state?.workspace?.stores?.length);
       const hasUsers = Boolean(state?.workspace?.users?.length);
-      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn").forEach((button) => {
+      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #prepareSapPolicyBtn").forEach((button) => {
         button.disabled = !hasScenario;
       });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
@@ -806,6 +807,7 @@ TEST_HUD_HTML = """<!doctype html>
         row("Estado", `<span class="state">${scenario.status}</span>`),
         row("Tienda", `${scenario.store_code} / ${scenario.store_name}`),
         row("Periodo", scenario.period_name),
+        row("Póliza SAP", scenario.sap_policy?.is_prepared ? scenario.sap_policy.reference : "Pendiente"),
         row("Usuario tienda", scenario.users.store?.email),
         row("Usuario autorización", scenario.users.authorizer?.email),
         row("Usuario contador", scenario.users.accountant?.email),
@@ -1015,6 +1017,9 @@ TEST_HUD_HTML = """<!doctype html>
     ));
     $("#authorizeExpensesBtn").addEventListener("click", () => runAction("Gastos autorizados", () =>
       request("/dev-hud/authorize-expenses", { method: "POST" })
+    ));
+    $("#prepareSapPolicyBtn").addEventListener("click", () => runAction("Póliza SAP preparada", () =>
+      request("/dev-hud/prepare-sap-policy", { method: "POST" })
     ));
     $("#importDryRunBtn").addEventListener("click", () => runAction("CSV dry run", () =>
       importDemo(true)

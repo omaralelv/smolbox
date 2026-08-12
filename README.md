@@ -30,6 +30,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Migraciones Alembic para evolucionar PostgreSQL sin borrar datos locales.
 - Usuarios internos con rol `store`, `authorizer`, `accountant`,
   `accounting_manager`, `treasury`, `director` o `admin`.
+- Login basico con contrasena y token Bearer local.
+- Asignacion formal usuario-tienda para roles que operan una tienda especifica.
 - Flujo de estados de solicitud alineado al proceso empresarial: tienda, autorizacion,
   contabilidad, gerente de contabilidad, tesoreria, direccion, pago y cierre.
 - Endpoint de transicion de estado con validacion de rol y reglas minimas de negocio.
@@ -45,11 +47,13 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
   y agregar pagos/gastos de prueba.
+- Placeholder auditable de poliza SAP antes de enviar la solicitud a gerente de contabilidad.
 - Documentacion de alcance en `docs/etapa-2-backend.md`.
 
 Fuera de esta etapa:
 
 - Integraciones SAP.
+- Generacion real de poliza SAP; por ahora solo existe el punto de extension.
 - Integraciones Azure, Active Directory o SSO empresarial.
 - Validacion en linea contra SAT.
 - Dispersion bancaria o contabilizacion final automatica.
@@ -130,11 +134,14 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 8. Revisar el cierre en
    `GET /api/v1/reimbursement-requests/{request_id}/validation-summary`.
 9. Crear usuarios internos en `POST /api/v1/users`.
-10. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
-11. Revisar auditoria con
+10. Asignar usuarios a tienda con `POST /api/v1/stores/{store_id}/users`.
+11. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
+12. Preparar la poliza SAP placeholder con
+   `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`.
+13. Revisar auditoria con
    `GET /api/v1/reimbursement-requests/{request_id}/audit-events`.
-12. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
-13. Importar gastos desde Excel/CSV con
+14. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
+15. Importar gastos desde Excel/CSV con
    `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`.
 
 Flujo de estados esperado:
@@ -146,6 +153,7 @@ draft
 -> authorized
 -> under_accounting_review
 -> accounting_reviewed
+-> preparar poliza SAP placeholder
 -> accounting_manager_review
 -> accounting_manager_approved
 -> treasury_review
@@ -162,14 +170,13 @@ solicitud a `authorized`.
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
 `Crear escenario`, luego prueba `Enviar tienda`, `Revision autorizacion`, `Autorizar gastos`,
-`Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`, `Enviar gerente`,
-`Aprobar gerente`, `Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`,
-`Aprobar pago`, `Marcar pagado` y `Cerrar`.
+`Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`, `Cerrar contabilidad`,
+`Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`, `Revision tesoreria`,
+`Enviar direccion`, `Aprobar direccion`, `Aprobar pago`, `Marcar pagado` y `Cerrar`.
 
 El HUD tambien permite crear tiendas y usuarios con prefijo/dominio `HUD`, asignar un
 usuario tienda o contador a una tienda y crear un pago/gasto dentro de la solicitud demo.
-Esa asignacion es operativa para pruebas; el modelo formal de permisos por tienda queda para
-una etapa posterior.
+Esa asignacion ya se respalda con el modelo formal `store_user_assignments`.
 
 ## Importacion masiva de gastos
 

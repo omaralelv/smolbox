@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -96,3 +97,44 @@ def test_authorization_requires_authorized_expenses() -> None:
             target_status=ReimbursementRequestStatus.authorized,
             summary=summary,
         )
+
+
+def test_manager_review_requires_sap_policy_placeholder() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.accounting_reviewed)
+    actor = User(
+        email="gerente@example.com",
+        full_name="Gerente Demo",
+        role=UserRole.accounting_manager,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError):
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.accounting_manager_review,
+            summary=_summary(),
+        )
+
+
+def test_manager_review_allows_prepared_sap_policy_placeholder() -> None:
+    request = ReimbursementRequest(
+        status=ReimbursementRequestStatus.accounting_reviewed,
+        sap_policy_generated_at=datetime.now(UTC),
+    )
+    actor = User(
+        email="gerente.preparado@example.com",
+        full_name="Gerente Preparado",
+        role=UserRole.accounting_manager,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.accounting_manager_review,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.accounting_reviewed
+    assert to_status == ReimbursementRequestStatus.accounting_manager_review

@@ -12,6 +12,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.audit_log import AuditLog
+    from app.models.store import StoreUserAssignment
 
 
 class UserRole(str, enum.Enum):
@@ -30,6 +31,7 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role"),
         nullable=False,
@@ -43,3 +45,4 @@ class User(Base):
     )
 
     audit_events: Mapped[list[AuditLog]] = relationship(back_populates="actor_user")
+    store_assignments: Mapped[list[StoreUserAssignment]] = relationship(back_populates="user")

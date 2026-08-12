@@ -6,7 +6,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -87,6 +99,15 @@ class ReimbursementRequest(Base):
     treasury_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     direction_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     direction_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sap_policy_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sap_policy_generated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    sap_policy_reference: Mapped[str | None] = mapped_column(String(120))
+    sap_policy_payload: Mapped[dict | None] = mapped_column(JSON)
     approved_for_payment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

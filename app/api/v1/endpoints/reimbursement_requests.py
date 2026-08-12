@@ -24,10 +24,14 @@ from app.schemas.reimbursement_request import (
     ReimbursementRequestTransition,
     ReimbursementRequestUpdate,
     ReimbursementValidationSummary,
+    SapPolicyPrepare,
+    SapPolicyRead,
 )
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.storage import (
     EmptyUpload,
     StorageService,
@@ -238,6 +242,14 @@ def transition_request(
     actor = db.get(User, transition_in.actor_user_id)
     if actor is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actor user not found")
+    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store for this transition",
+            },
+        )
 
     summary = summarize_reimbursement_request(reimbursement_request)
     try:
@@ -272,6 +284,68 @@ def transition_request(
     db.commit()
     db.refresh(reimbursement_request)
     return reimbursement_request
+
+
+@router.post("/{request_id}/sap-policy/prepare", response_model=SapPolicyRead)
+def prepare_reimbursement_request_sap_policy(
+    request_id: UUID,
+    policy_in: SapPolicyPrepare,
+    db: Annotated[Session, Depends(get_db)],
+) -> SapPolicyRead:
+    reimbursement_request = db.get(ReimbursementRequest, request_id)
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    actor = db.get(User, policy_in.actor_user_id)
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actor user not found")
+    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store for this action",
+            },
+        )
+
+    try:
+        payload = prepare_sap_policy_placeholder(
+            reimbursement_request,
+            actor=actor,
+            reference=policy_in.reference,
+        )
+    except SapPolicyPreparationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
+        ) from exc
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="sap_policy_placeholder_prepared",
+            message=policy_in.note or "SAP policy placeholder prepared.",
+            event_payload={
+                "reference": reimbursement_request.sap_policy_reference,
+                "payload": payload,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(reimbursement_request)
+    return SapPolicyRead(
+        request_id=reimbursement_request.id,
+        status="prepared",
+        reference=reimbursement_request.sap_policy_reference or "",
+        generated_at=reimbursement_request.sap_policy_generated_at,
+        generated_by_user_id=actor.id,
+        payload=reimbursement_request.sap_policy_payload or {},
+    )
 
 
 @router.get("/{request_id}/audit-events", response_model=list[AuditLogRead])

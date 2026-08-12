@@ -19,9 +19,10 @@ from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense, ExpenseStatus
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
-from app.models.store import Store
+from app.models.store import Store, StoreUserAssignment
 from app.models.user import User, UserRole
 from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.storage import StorageService
 from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
 
@@ -348,6 +349,49 @@ def authorize_dev_hud_expenses(
     }
 
 
+@router.post("/prepare-sap-policy")
+def prepare_dev_hud_sap_policy(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    request = _load_demo_request(db)
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "HUD_SCENARIO_NOT_FOUND", "message": "Create the HUD scenario first"},
+        )
+
+    actor = _hud_actor(db, UserRole.accountant)
+    try:
+        payload = prepare_sap_policy_placeholder(request, actor=actor)
+    except SapPolicyPreparationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
+        ) from exc
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="dev_hud_sap_policy_prepared",
+            message="HUD SAP policy placeholder prepared.",
+            event_payload={"reference": request.sap_policy_reference, "payload": payload},
+        )
+    )
+    request_id = request.id
+    db.commit()
+
+    return {
+        "message": "HUD SAP policy placeholder prepared",
+        "reference": request.sap_policy_reference,
+        "scenario": _scenario_payload(db, request_id),
+    }
+
+
 @router.post("/transition/{target_status}")
 def transition_dev_hud_request(
     target_status: ReimbursementRequestStatus,
@@ -610,6 +654,8 @@ def _ensure_demo_dataset(
     users = {role: _get_or_create_user(db, role) for role in DEMO_USERS}
     store = _get_or_create_store(db, scenario)
     period = _get_or_create_period(db, scenario)
+    for role, user in users.items():
+        _ensure_store_user_assignment(db, store, user, role)
     request = _get_or_create_request(db, store, period, scenario)
     if not request.expenses:
         scenario_expenses = _scenario_expenses(scenario)
@@ -686,6 +732,34 @@ def _get_or_create_period(db: Session, scenario: HudScenarioCreate) -> Period:
     db.add(period)
     db.flush()
     return period
+
+
+def _ensure_store_user_assignment(
+    db: Session,
+    store: Store,
+    user: User,
+    role: UserRole,
+) -> StoreUserAssignment:
+    assignment = db.scalar(
+        select(StoreUserAssignment).where(
+            StoreUserAssignment.store_id == store.id,
+            StoreUserAssignment.user_id == user.id,
+        )
+    )
+    if assignment is not None:
+        assignment.role = role
+        assignment.is_active = True
+        return assignment
+
+    assignment = StoreUserAssignment(
+        store_id=store.id,
+        user_id=user.id,
+        role=role,
+        is_active=True,
+    )
+    db.add(assignment)
+    db.flush()
+    return assignment
 
 
 def _get_or_create_request(
@@ -954,6 +1028,13 @@ def _scenario_payload(db: Session, request_id: UUID | None = None) -> dict[str, 
         "store_name": request.store.name,
         "period_id": request.period_id,
         "period_name": request.period.name,
+        "sap_policy": {
+            "is_prepared": request.sap_policy_generated_at is not None,
+            "reference": request.sap_policy_reference,
+            "generated_at": request.sap_policy_generated_at,
+            "generated_by_user_id": request.sap_policy_generated_by_user_id,
+            "payload": request.sap_policy_payload,
+        },
         "users": users,
         "summary": summary.model_dump(mode="json"),
         "expenses": [_expense_payload(expense) for expense in request.expenses],
@@ -1141,6 +1222,11 @@ def _delete_demo_dataset(db: Session, storage: StorageService) -> dict[str, int]
         "cfdi_validations": _delete_where(db, CfdiValidation, CfdiValidation.expense_id, expense_ids),
         "attachments": len(attachments),
         "audit_events": _delete_audit_events(db, request_ids, expense_ids, hud_user_ids),
+        "store_user_assignments": _delete_store_user_assignments(
+            db,
+            hud_store_ids,
+            hud_user_ids,
+        ),
     }
 
     if attachments:
@@ -1192,4 +1278,20 @@ def _delete_audit_events(
     if not filters:
         return 0
     result = db.execute(delete(AuditLog).where(or_(*filters)))
+    return result.rowcount or 0
+
+
+def _delete_store_user_assignments(
+    db: Session,
+    store_ids: list[UUID],
+    user_ids: list[UUID],
+) -> int:
+    filters = []
+    if store_ids:
+        filters.append(StoreUserAssignment.store_id.in_(store_ids))
+    if user_ids:
+        filters.append(StoreUserAssignment.user_id.in_(user_ids))
+    if not filters:
+        return 0
+    result = db.execute(delete(StoreUserAssignment).where(or_(*filters)))
     return result.rowcount or 0

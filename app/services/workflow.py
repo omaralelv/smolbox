@@ -173,6 +173,14 @@ def transition_reimbursement_request(
     ):
         raise WorkflowTransitionError("Request is not ready for accounting review completion")
 
+    if (
+        target_status == ReimbursementRequestStatus.accounting_manager_review
+        and request.sap_policy_generated_at is None
+    ):
+        raise WorkflowTransitionError(
+            "SAP policy placeholder must be prepared before manager review"
+        )
+
     request.status = target_status
     _stamp_transition(request, target_status)
     return current_status, target_status

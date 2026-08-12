@@ -77,6 +77,12 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
     )
     assert user.status_code == 201, user.text
 
+    assignment = client.post(
+        f"/api/v1/stores/{base_records['store_id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+
     submitted = client.post(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
         json={

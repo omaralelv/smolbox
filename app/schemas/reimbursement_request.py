@@ -62,6 +62,10 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     treasury_reviewed_at: datetime | None = None
     direction_reviewed_at: datetime | None = None
     direction_approved_at: datetime | None = None
+    sap_policy_generated_at: datetime | None = None
+    sap_policy_generated_by_user_id: UUID | None = None
+    sap_policy_reference: str | None = None
+    sap_policy_payload: dict | None = None
     approved_for_payment_at: datetime | None = None
     paid_at: datetime | None = None
     closed_at: datetime | None = None
@@ -73,6 +77,21 @@ class ReimbursementRequestTransition(BaseModel):
     target_status: ReimbursementRequestStatus
     actor_user_id: UUID
     note: str | None = Field(default=None, max_length=1000)
+
+
+class SapPolicyPrepare(BaseModel):
+    actor_user_id: UUID
+    reference: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class SapPolicyRead(BaseModel):
+    request_id: UUID
+    status: str
+    reference: str
+    generated_at: datetime
+    generated_by_user_id: UUID
+    payload: dict
 
 
 class CategoryTotal(BaseModel):

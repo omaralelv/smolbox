@@ -5,6 +5,7 @@
 Convertir la base de Etapa 1 en un flujo backend controlado para tienda, autorizacion,
 contabilidad, gerente de contabilidad, tesoreria y direccion. Esta etapa sigue siendo local
 y verificable; no incluye integracion real SAP, Azure, SSO ni validacion en linea contra SAT.
+Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar a gerente.
 
 ## Alcance incluido
 
@@ -36,9 +37,12 @@ y verificable; no incluye integracion real SAP, Azure, SSO ni validacion en line
   - `closed`
   - `rejected`
 - Bitacora de auditoria para reconstruir acciones importantes.
+- Login basico con contrasena y token Bearer local.
+- Asignacion formal usuario-tienda mediante `store_user_assignments`.
 - Validacion ampliada de solicitudes.
 - Revision por gasto: autorizar, observar, editar durante revision contable/gerencial y
   remover con motivo obligatorio sin borrar historial.
+- Placeholder de poliza SAP despues de revision contable y antes de gerente.
 - Descarga de adjuntos por identificador.
 - Edicion parcial de registros operativos mediante `PATCH`.
 - Importacion masiva de gastos desde CSV o XLSX.
@@ -89,8 +93,10 @@ Reglas principales:
 - Autorizacion puede autorizar gastos individuales y luego mover la solicitud a `authorized`.
 - Contabilidad mueve `authorized` a `under_accounting_review`.
 - Contabilidad puede pedir correccion o mover a `accounting_reviewed`.
-- Gerente de contabilidad mueve `accounting_reviewed` a `accounting_manager_review` y despues
-  a `accounting_manager_approved`.
+- Despues de `accounting_reviewed`, contabilidad debe preparar la poliza SAP placeholder.
+- Gerente de contabilidad recibe la solicitud en `accounting_manager_review` solo si la
+  poliza SAP placeholder ya fue preparada, y despues puede mover a
+  `accounting_manager_approved`.
 - Tesoreria mueve `accounting_manager_approved` a `treasury_review` y luego a
   `direction_review`.
 - Direccion mueve `direction_review` a `direction_approved`.
@@ -111,6 +117,82 @@ la validacion CFDI se marca como no vigente y debe repetirse.
 
 Para autorizacion, los gastos con `requires_authorization=true` deben tener `authorized_at`.
 Los gastos que no requieren autorizacion no bloquean ese paso.
+
+## Login y permisos por tienda
+
+Los usuarios pueden crearse con contrasena opcional:
+
+```json
+{
+  "email": "contador@example.com",
+  "full_name": "Contador Demo",
+  "role": "accountant",
+  "password": "secret-password"
+}
+```
+
+Login:
+
+```text
+POST /api/v1/auth/login
+```
+
+```json
+{
+  "email": "contador@example.com",
+  "password": "secret-password"
+}
+```
+
+La respuesta devuelve `access_token` y puede probarse con:
+
+```text
+GET /api/v1/auth/me
+Authorization: Bearer <token>
+```
+
+Para que tienda, autorizacion, contabilidad o gerente puedan mover una solicitud, el usuario
+debe estar asignado a la tienda:
+
+```text
+POST /api/v1/stores/{store_id}/users
+```
+
+```json
+{
+  "user_id": "00000000-0000-0000-0000-000000000000",
+  "role": "accountant"
+}
+```
+
+Tesoreria, direccion y admin siguen siendo roles transversales por ahora.
+
+## Placeholder de poliza SAP
+
+Este punto esta listo para recibir despues el codigo real que genere la poliza para SAP.
+Por ahora no llama a SAP ni genera polizas reales; solamente deja una marca auditable en la
+solicitud:
+
+```text
+POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare
+```
+
+```json
+{
+  "actor_user_id": "00000000-0000-0000-0000-000000000000",
+  "reference": "SAP-POL-0001",
+  "note": "Poliza preparada por contabilidad"
+}
+```
+
+Reglas:
+
+- solo funciona cuando la solicitud esta en `accounting_reviewed`;
+- solo puede ejecutarlo `accountant` o `admin`;
+- el usuario debe estar asignado a la tienda, salvo `admin`;
+- guarda `sap_policy_generated_at`, `sap_policy_generated_by_user_id`,
+  `sap_policy_reference` y `sap_policy_payload`;
+- bloquea `accounting_manager_review` hasta que este paso exista.
 
 ## Acciones por gasto
 
@@ -217,6 +299,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
 - crear pagos/gastos de prueba en la solicitud HUD;
 - autorizar gastos HUD que requieren aprobacion previa;
+- preparar la poliza SAP placeholder antes de mandar a gerente;
 - limpiar solo los datos con prefijo HUD.
 
 Los endpoints auxiliares viven bajo:
@@ -237,17 +320,23 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/dev-hud/payments`
 - `POST /api/v1/dev-hud/authorize-expenses`
 - `POST /api/v1/dev-hud/complete-cfdi`
+- `POST /api/v1/dev-hud/prepare-sap-policy`
 - `POST /api/v1/dev-hud/transition/{target_status}`
 - `POST /api/v1/dev-hud/reset-demo`
+- `POST /api/v1/auth/login`
+- `GET /api/v1/auth/me`
 - `POST /api/v1/users`
 - `GET /api/v1/users`
 - `GET /api/v1/users/{user_id}`
 - `PATCH /api/v1/users/{user_id}`
 - `POST /api/v1/users/{user_id}/deactivate`
 - `PATCH /api/v1/stores/{store_id}`
+- `POST /api/v1/stores/{store_id}/users`
+- `GET /api/v1/stores/{store_id}/users`
 - `PATCH /api/v1/periods/{period_id}`
 - `PATCH /api/v1/reimbursement-requests/{request_id}`
 - `POST /api/v1/reimbursement-requests/{request_id}/transition`
+- `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`
 - `GET /api/v1/reimbursement-requests/{request_id}/audit-events`
 - `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`
 - `PATCH /api/v1/expenses/{expense_id}`

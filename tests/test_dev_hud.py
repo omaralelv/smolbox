@@ -13,6 +13,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Personalizar escenario" in TEST_HUD_HTML
     assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
+    assert "Preparar póliza SAP" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML
 
 
@@ -74,6 +75,15 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     accounting_reviewed = client.post("/api/v1/dev-hud/transition/accounting_reviewed")
     assert accounting_reviewed.status_code == 200, accounting_reviewed.text
     assert accounting_reviewed.json()["to_status"] == "accounting_reviewed"
+
+    manager_blocked = client.post("/api/v1/dev-hud/transition/accounting_manager_review")
+    assert manager_blocked.status_code == 409
+    assert manager_blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+
+    sap_policy = client.post("/api/v1/dev-hud/prepare-sap-policy")
+    assert sap_policy.status_code == 200, sap_policy.text
+    assert sap_policy.json()["reference"].startswith("SAP-POLICY-PENDING-")
+    assert sap_policy.json()["scenario"]["sap_policy"]["is_prepared"] is True
 
     manager_review = client.post("/api/v1/dev-hud/transition/accounting_manager_review")
     assert manager_review.status_code == 200, manager_review.text

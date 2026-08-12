@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     attachment_files,
     attachments,
+    auth,
     cfdi,
     dev_hud,
     expenses,
@@ -15,6 +16,7 @@ from app.api.v1.endpoints import (
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(stores.router, prefix="/stores", tags=["stores"])
 api_router.include_router(periods.router, prefix="/periods", tags=["periods"])
