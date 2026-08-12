@@ -86,8 +86,17 @@ class ExpenseAuthorization(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class AuthenticatedExpenseAuthorization(BaseModel):
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class ExpenseRejection(BaseModel):
     actor_user_id: UUID
+    reason: str = Field(min_length=1, max_length=1000)
+    adjust_reported_total: bool = True
+
+
+class AuthenticatedExpenseRejection(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
     adjust_reported_total: bool = True
 
@@ -97,12 +106,25 @@ class ExpenseObservation(BaseModel):
     note: str = Field(min_length=1, max_length=1000)
 
 
+class AuthenticatedExpenseObservation(BaseModel):
+    note: str = Field(min_length=1, max_length=1000)
+
+
 class ExpenseReviewUpdate(ExpenseUpdate):
     actor_user_id: UUID
     note: str | None = Field(default=None, max_length=1000)
 
 
+class AuthenticatedExpenseReviewUpdate(ExpenseUpdate):
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class ExpenseRemoval(BaseModel):
     actor_user_id: UUID
+    reason: str = Field(min_length=1, max_length=1000)
+    adjust_reported_total: bool = True
+
+
+class AuthenticatedExpenseRemoval(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
     adjust_reported_total: bool = True

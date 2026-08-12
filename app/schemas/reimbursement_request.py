@@ -79,8 +79,18 @@ class ReimbursementRequestTransition(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class AuthenticatedReimbursementRequestTransition(BaseModel):
+    target_status: ReimbursementRequestStatus
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class SapPolicyPrepare(BaseModel):
     actor_user_id: UUID
+    reference: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AuthenticatedSapPolicyPrepare(BaseModel):
     reference: str | None = Field(default=None, max_length=120)
     note: str | None = Field(default=None, max_length=1000)
 

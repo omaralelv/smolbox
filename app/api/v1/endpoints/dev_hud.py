@@ -24,6 +24,7 @@ from app.models.user import User, UserRole
 from app.services.automation_review import build_automated_review
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
+from app.services.security import hash_password
 from app.services.storage import StorageService
 from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
 
@@ -31,21 +32,22 @@ router = APIRouter()
 
 HUD_STORE_CODE = "HUD-001"
 HUD_PERIOD_NAME = "HUD Agosto 2026"
-HUD_EMAIL_DOMAIN = "hud.smolbox.local"
+HUD_EMAIL_DOMAIN = "hud.smolbox.example.com"
+HUD_DEMO_PASSWORD = "hud-password"
 
 DEMO_RECEIPT_BYTES = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n"
 
 DEMO_USERS = {
-    UserRole.store: ("hud.store@hud.smolbox.local", "HUD Usuario Tienda"),
-    UserRole.authorizer: ("hud.authorizer@hud.smolbox.local", "HUD Usuario Autorizacion"),
-    UserRole.accountant: ("hud.accountant@hud.smolbox.local", "HUD Usuario Contador"),
+    UserRole.store: ("hud.store@hud.smolbox.example.com", "HUD Usuario Tienda"),
+    UserRole.authorizer: ("hud.authorizer@hud.smolbox.example.com", "HUD Usuario Autorizacion"),
+    UserRole.accountant: ("hud.accountant@hud.smolbox.example.com", "HUD Usuario Contador"),
     UserRole.accounting_manager: (
-        "hud.accounting.manager@hud.smolbox.local",
+        "hud.accounting.manager@hud.smolbox.example.com",
         "HUD Gerente Contabilidad",
     ),
-    UserRole.treasury: ("hud.treasury@hud.smolbox.local", "HUD Usuario Tesoreria"),
-    UserRole.director: ("hud.director@hud.smolbox.local", "HUD Usuario Direccion"),
-    UserRole.admin: ("hud.admin@hud.smolbox.local", "HUD Usuario Admin"),
+    UserRole.treasury: ("hud.treasury@hud.smolbox.example.com", "HUD Usuario Tesoreria"),
+    UserRole.director: ("hud.director@hud.smolbox.example.com", "HUD Usuario Direccion"),
+    UserRole.admin: ("hud.admin@hud.smolbox.example.com", "HUD Usuario Admin"),
 }
 
 
@@ -131,7 +133,7 @@ class HudScenarioCreate(BaseModel):
     reset_existing: bool = False
     store_code: str = HUD_STORE_CODE
     store_name: str = "HUD Tienda Centro"
-    contact_email: str | None = "hud.store@hud.smolbox.local"
+    contact_email: str | None = "hud.store@hud.smolbox.example.com"
     assigned_accountant: str | None = "HUD Usuario Contador"
     period_name: str = HUD_PERIOD_NAME
     starts_on: date = date(2026, 8, 1)
@@ -617,7 +619,11 @@ def create_dev_hud_user(
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    user = User(**user_in.model_dump(), is_active=True)
+    user = User(
+        **user_in.model_dump(),
+        is_active=True,
+        password_hash=hash_password(HUD_DEMO_PASSWORD),
+    )
     db.add(user)
     try:
         db.commit()
@@ -810,9 +816,16 @@ def _get_or_create_user(db: Session, role: UserRole) -> User:
         user.full_name = full_name
         user.role = role
         user.is_active = True
+        user.password_hash = hash_password(HUD_DEMO_PASSWORD)
         return user
 
-    user = User(email=email, full_name=full_name, role=role, is_active=True)
+    user = User(
+        email=email,
+        full_name=full_name,
+        role=role,
+        is_active=True,
+        password_hash=hash_password(HUD_DEMO_PASSWORD),
+    )
     db.add(user)
     db.flush()
     return user
@@ -1227,6 +1240,8 @@ def _expense_payload(expense: Expense) -> dict[str, Any]:
         "status": expense.status.value,
         "has_receipt": _has_attachment_type(expense, AttachmentType.receipt),
         "has_cfdi_xml": _has_attachment_type(expense, AttachmentType.cfdi_xml),
+        "receipt_attachment_id": _attachment_id(expense, AttachmentType.receipt),
+        "cfdi_attachment_id": _attachment_id(expense, AttachmentType.cfdi_xml),
         "has_current_valid_cfdi": _has_current_valid_cfdi(expense),
         "requires_authorization": expense.requires_authorization,
         "is_authorized": expense.authorized_at is not None,
@@ -1240,6 +1255,13 @@ def _expense_payload(expense: Expense) -> dict[str, Any]:
 
 def _has_attachment_type(expense: Expense, attachment_type: AttachmentType) -> bool:
     return any(attachment.attachment_type == attachment_type for attachment in expense.attachments)
+
+
+def _attachment_id(expense: Expense, attachment_type: AttachmentType) -> UUID | None:
+    for attachment in expense.attachments:
+        if attachment.attachment_type == attachment_type:
+            return attachment.id
+    return None
 
 
 def _has_current_valid_cfdi(expense: Expense) -> bool:

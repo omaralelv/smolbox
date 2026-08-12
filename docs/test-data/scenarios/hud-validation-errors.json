@@ -2,7 +2,7 @@
   "reset_existing": true,
   "store_code": "HUD-ERRORES",
   "store_name": "HUD Tienda Errores",
-  "contact_email": "hud.store@hud.smolbox.local",
+  "contact_email": "hud.store@hud.smolbox.example.com",
   "assigned_accountant": "HUD Usuario Contador",
   "period_name": "HUD Agosto 2026 Errores",
   "starts_on": "2026-08-01",

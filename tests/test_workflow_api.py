@@ -9,6 +9,7 @@ def _create_user(client: TestClient, role: str) -> str:
             "email": f"{role}@example.com",
             "full_name": f"{role.title()} Demo",
             "role": role,
+            "password": "secret-password",
         },
     )
     assert response.status_code == 201, response.text
@@ -38,6 +39,15 @@ def _transition(
             "note": f"Move to {target_status}",
         },
     )
+
+
+def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "secret-password"},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def test_request_moves_through_submission_and_accounting_review(
@@ -353,3 +363,147 @@ def test_accounting_can_remove_expense_with_reason(
     )
     assert audit_events.status_code == 200
     assert "expense_removed_from_request" in {event["action"] for event in audit_events.json()}
+
+
+def test_authenticated_transition_uses_token_user_and_blocks_wrong_role(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    receipt = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    store_headers = _auth_headers(client, "store@example.com")
+    submitted = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=store_headers,
+        json={"target_status": "submitted", "note": "Store submits with token"},
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    wrong_role = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=store_headers,
+        json={"target_status": "authorization_review", "note": "Store cannot authorize"},
+    )
+    assert wrong_role.status_code == 409
+    assert wrong_role.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+
+    authorizer_headers = _auth_headers(client, "authorizer@example.com")
+    authorized_review = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=authorizer_headers,
+        json={
+            "target_status": "authorization_review",
+            "actor_user_id": store_user_id,
+            "note": "Body actor_user_id must be ignored",
+        },
+    )
+    assert authorized_review.status_code == 200, authorized_review.text
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200
+    transition_events = [
+        event for event in audit_events.json() if event["action"] == "request_status_changed"
+    ]
+    assert any(
+        event["to_status"] == "authorization_review"
+        and event["actor_user_id"] == authorizer_user_id
+        for event in transition_events
+    )
+
+
+def test_authenticated_actions_require_store_assignment_and_role(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Producto con Autorizacion",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    receipt = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    assigned_authorizer_id = _create_user(client, "authorizer")
+    unassigned_authorizer = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "unassigned.authorizer@example.com",
+            "full_name": "Unassigned Authorizer",
+            "role": "authorizer",
+            "password": "secret-password",
+        },
+    )
+    assert unassigned_authorizer.status_code == 201, unassigned_authorizer.text
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        assigned_authorizer_id,
+        "authorizer",
+    )
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    ).status_code == 200
+
+    unassigned_headers = _auth_headers(client, "unassigned.authorizer@example.com")
+    blocked_assignment = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=unassigned_headers,
+        json={"target_status": "authorization_review"},
+    )
+    assert blocked_assignment.status_code == 403
+    assert blocked_assignment.json()["detail"]["code"] == "STORE_ASSIGNMENT_REQUIRED"
+
+    assigned_headers = _auth_headers(client, "authorizer@example.com")
+    assert client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=assigned_headers,
+        json={"target_status": "authorization_review"},
+    ).status_code == 200
+
+    store_headers = _auth_headers(client, "store@example.com")
+    wrong_role = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/authorize/me",
+        headers=store_headers,
+        json={"note": "Store should not authorize"},
+    )
+    assert wrong_role.status_code == 409
+    assert wrong_role.json()["detail"]["code"] == "ROLE_NOT_ALLOWED"
+
+    authorized = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/authorize/me",
+        headers=assigned_headers,
+        json={"note": "Authorized with token"},
+    )
+    assert authorized.status_code == 200, authorized.text
+    assert authorized.json()["authorized_by_user_id"] == assigned_authorizer_id

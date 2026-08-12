@@ -31,6 +31,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Usuarios internos con rol `store`, `authorizer`, `accountant`,
   `accounting_manager`, `treasury`, `director` o `admin`.
 - Login basico con contrasena y token Bearer local.
+- Rutas autenticadas `/me` para que el frontend real ejecute transiciones y acciones
+  usando el usuario del token, no un `actor_user_id` editable desde la pantalla.
 - Asignacion formal usuario-tienda para roles que operan una tienda especifica.
 - Flujo de estados de solicitud alineado al proceso empresarial: tienda, autorizacion,
   contabilidad, gerente de contabilidad, tesoreria, direccion, pago y cierre.
@@ -50,6 +52,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   vista guiada por rol cercana al usuario final.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
   y agregar pagos/gastos de prueba.
+- Panel de sesion en el HUD para iniciar como tienda, autorizacion, contabilidad, gerente,
+  tesoreria, direccion o admin, y probar rutas autenticadas con token.
 - Placeholder auditable de poliza SAP antes de enviar la solicitud a gerente de contabilidad.
 - Documentacion de alcance en `docs/etapa-2-backend.md`.
 

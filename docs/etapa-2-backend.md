@@ -187,6 +187,25 @@ GET /api/v1/auth/me
 Authorization: Bearer <token>
 ```
 
+Para el frontend real, las acciones humanas deben usar las rutas autenticadas con sufijo
+`/me`. En esas rutas el backend toma el usuario desde el token Bearer y no acepta que la
+pantalla decida el `actor_user_id`.
+
+Ejemplos:
+
+```text
+POST /api/v1/reimbursement-requests/{request_id}/transition/me
+POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare/me
+POST /api/v1/expenses/{expense_id}/authorize/me
+POST /api/v1/expenses/{expense_id}/reject/me
+POST /api/v1/expenses/{expense_id}/observation/me
+PATCH /api/v1/expenses/{expense_id}/review/me
+POST /api/v1/expenses/{expense_id}/remove/me
+```
+
+Las rutas antiguas que reciben `actor_user_id` se conservan para pruebas tecnicas y
+compatibilidad temporal del HUD.
+
 Para que tienda, autorizacion, contabilidad o gerente puedan mover una solicitud, el usuario
 debe estar asignado a la tienda:
 
@@ -338,6 +357,10 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - probar importacion CSV con `dry_run` o guardado real;
 - recorrer la seccion `Flujo usuario final`, agrupada por tienda, sistema, autorizacion,
   contabilidad, gerente, tesoreria y direccion;
+- iniciar sesion como rol HUD con token local y ejecutar acciones autenticadas similares a
+  las que usara el frontend final;
+- probar errores controlados como gasto fuera de periodo y archivo inexistente;
+- descargar recibos demo por medio del endpoint de adjuntos;
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
 - crear pagos/gastos de prueba en la solicitud HUD;
 - autorizar gastos HUD que requieren aprobacion previa;
@@ -381,14 +404,21 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `PATCH /api/v1/reimbursement-requests/{request_id}`
 - `POST /api/v1/reimbursement-requests/{request_id}/automated-review`
 - `POST /api/v1/reimbursement-requests/{request_id}/transition`
+- `POST /api/v1/reimbursement-requests/{request_id}/transition/me`
 - `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`
+- `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare/me`
 - `GET /api/v1/reimbursement-requests/{request_id}/audit-events`
 - `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`
 - `PATCH /api/v1/expenses/{expense_id}`
 - `POST /api/v1/expenses/{expense_id}/authorize`
+- `POST /api/v1/expenses/{expense_id}/authorize/me`
 - `POST /api/v1/expenses/{expense_id}/reject`
+- `POST /api/v1/expenses/{expense_id}/reject/me`
 - `POST /api/v1/expenses/{expense_id}/observation`
+- `POST /api/v1/expenses/{expense_id}/observation/me`
 - `PATCH /api/v1/expenses/{expense_id}/review`
+- `PATCH /api/v1/expenses/{expense_id}/review/me`
 - `POST /api/v1/expenses/{expense_id}/remove`
+- `POST /api/v1/expenses/{expense_id}/remove/me`
 - `GET /api/v1/attachments/{attachment_id}`
 - `GET /api/v1/attachments/{attachment_id}/download`

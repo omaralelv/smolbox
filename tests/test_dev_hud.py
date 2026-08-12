@@ -12,9 +12,14 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Crear pago/gasto" in TEST_HUD_HTML
     assert "Personalizar escenario" in TEST_HUD_HTML
     assert "Flujo usuario final" in TEST_HUD_HTML
+    assert "Sesión de prueba" in TEST_HUD_HTML
     assert "Crear solicitud" in TEST_HUD_HTML
     assert "Revisar automáticamente" in TEST_HUD_HTML
+    assert "Transición con sesión" in TEST_HUD_HTML
+    assert "Probar fuera de periodo" in TEST_HUD_HTML
+    assert "Descargar recibo" in TEST_HUD_HTML
     assert "scenarioSeedPayload" in TEST_HUD_HTML
+    assert "jsonAuthRequest" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
     assert "Rechazar producto" in TEST_HUD_HTML
     assert "Confirmar pago" in TEST_HUD_HTML
@@ -95,10 +100,22 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     assert manager_blocked.status_code == 409
     assert manager_blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
 
-    sap_policy = client.post("/api/v1/dev-hud/prepare-sap-policy")
+    accountant_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "hud.accountant@hud.smolbox.example.com", "password": "hud-password"},
+    )
+    assert accountant_login.status_code == 200, accountant_login.text
+
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{scenario['request_id']}/sap-policy/prepare/me",
+        headers={"Authorization": f"Bearer {accountant_login.json()['access_token']}"},
+        json={"reference": "HUD-SAP-TOKEN", "note": "Preparado con token."},
+    )
     assert sap_policy.status_code == 200, sap_policy.text
-    assert sap_policy.json()["reference"].startswith("SAP-POLICY-PENDING-")
-    assert sap_policy.json()["scenario"]["sap_policy"]["is_prepared"] is True
+    assert sap_policy.json()["reference"] == "HUD-SAP-TOKEN"
+    status_after_sap = client.get("/api/v1/dev-hud/status")
+    assert status_after_sap.status_code == 200, status_after_sap.text
+    assert status_after_sap.json()["scenario"]["sap_policy"]["is_prepared"] is True
 
     manager_review = client.post("/api/v1/dev-hud/transition/accounting_manager_review")
     assert manager_review.status_code == 200, manager_review.text
@@ -150,6 +167,27 @@ def test_dev_hud_can_reject_one_authorization_expense(client: TestClient) -> Non
     assert final_status.json()["scenario"]["status"] == "authorized"
 
 
+def test_dev_hud_demo_users_can_login_and_exposes_attachment_ids(
+    client: TestClient,
+) -> None:
+    seeded = client.post("/api/v1/dev-hud/seed-demo")
+    assert seeded.status_code == 201, seeded.text
+    scenario = seeded.json()["scenario"]
+    assert scenario["users"]["store"]["email"] == "hud.store@hud.smolbox.example.com"
+    assert scenario["expenses"][0]["receipt_attachment_id"] is not None
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "hud.store@hud.smolbox.example.com", "password": "hud-password"},
+    )
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
+
+    me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200, me.text
+    assert me.json()["role"] == "store"
+
+
 def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
     seeded = client.post("/api/v1/dev-hud/seed-demo")
     assert seeded.status_code == 201, seeded.text
@@ -159,7 +197,7 @@ def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
         json={
             "code": "HUD-099",
             "name": "HUD Tienda Asignable",
-            "contact_email": "hud.tienda.asignable@hud.smolbox.local",
+            "contact_email": "hud.tienda.asignable@hud.smolbox.example.com",
         },
     )
     assert store.status_code == 201, store.text
@@ -168,7 +206,7 @@ def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
     user = client.post(
         "/api/v1/dev-hud/users",
         json={
-            "email": "hud.contador.asignable@hud.smolbox.local",
+            "email": "hud.contador.asignable@hud.smolbox.example.com",
             "full_name": "HUD Contador Asignable",
             "role": "accountant",
         },
@@ -209,7 +247,7 @@ def test_dev_hud_seeds_custom_scenario(client: TestClient) -> None:
             "reset_existing": True,
             "store_code": "HUD-CUSTOM",
             "store_name": "HUD Tienda Custom",
-            "contact_email": "hud.custom@hud.smolbox.local",
+            "contact_email": "hud.custom@hud.smolbox.example.com",
             "period_name": "HUD Septiembre 2026",
             "starts_on": "2026-09-01",
             "ends_on": "2026-09-30",

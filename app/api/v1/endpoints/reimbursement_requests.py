@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.dependencies.auth import get_current_user
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
@@ -19,6 +20,8 @@ from app.schemas.attachment import AttachmentRead
 from app.schemas.audit_log import AuditLogRead
 from app.schemas.expense_import import ExpenseImportErrorRead, ExpenseImportResult
 from app.schemas.reimbursement_request import (
+    AuthenticatedReimbursementRequestTransition,
+    AuthenticatedSapPolicyPrepare,
     AutomatedReviewRead,
     ReimbursementRequestCreate,
     ReimbursementRequestRead,
@@ -272,67 +275,34 @@ def transition_request(
     transition_in: ReimbursementRequestTransition,
     db: Annotated[Session, Depends(get_db)],
 ) -> ReimbursementRequest:
-    statement = (
-        select(ReimbursementRequest)
-        .options(
-            selectinload(ReimbursementRequest.period),
-            selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
-            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
-        )
-        .where(ReimbursementRequest.id == request_id)
-    )
-    reimbursement_request = db.scalars(statement).first()
-    if reimbursement_request is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reimbursement request not found",
-        )
-
     actor = db.get(User, transition_in.actor_user_id)
     if actor is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actor user not found")
-    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "STORE_ASSIGNMENT_REQUIRED",
-                "message": "Actor must be assigned to the request store for this transition",
-            },
-        )
-
-    summary = summarize_reimbursement_request(reimbursement_request)
-    try:
-        from_status, to_status = transition_reimbursement_request(
-            reimbursement_request,
-            actor=actor,
-            target_status=transition_in.target_status,
-            summary=summary,
-        )
-    except WorkflowTransitionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "INVALID_WORKFLOW_TRANSITION", "message": str(exc)},
-        ) from exc
-
-    db.add(
-        AuditLog(
-            reimbursement_request_id=reimbursement_request.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="request_status_changed",
-            from_status=from_status.value,
-            to_status=to_status.value,
-            message=transition_in.note,
-            event_payload={
-                "ready_for_submission": summary.ready_for_submission,
-                "ready_for_authorization_approval": summary.ready_for_authorization_approval,
-                "ready_for_accounting_approval": summary.ready_for_accounting_approval,
-            },
-        )
+    return _transition_request_with_actor(
+        request_id,
+        actor=actor,
+        target_status=transition_in.target_status,
+        note=transition_in.note,
+        authenticated=False,
+        db=db,
     )
-    db.commit()
-    db.refresh(reimbursement_request)
-    return reimbursement_request
+
+
+@router.post("/{request_id}/transition/me", response_model=ReimbursementRequestRead)
+def transition_request_as_current_user(
+    request_id: UUID,
+    transition_in: AuthenticatedReimbursementRequestTransition,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ReimbursementRequest:
+    return _transition_request_with_actor(
+        request_id,
+        actor=current_user,
+        target_status=transition_in.target_status,
+        note=transition_in.note,
+        authenticated=True,
+        db=db,
+    )
 
 
 @router.post("/{request_id}/sap-policy/prepare", response_model=SapPolicyRead)
@@ -394,6 +364,29 @@ def prepare_reimbursement_request_sap_policy(
         generated_at=reimbursement_request.sap_policy_generated_at,
         generated_by_user_id=actor.id,
         payload=reimbursement_request.sap_policy_payload or {},
+    )
+
+
+@router.post("/{request_id}/sap-policy/prepare/me", response_model=SapPolicyRead)
+def prepare_reimbursement_request_sap_policy_as_current_user(
+    request_id: UUID,
+    policy_in: AuthenticatedSapPolicyPrepare,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> SapPolicyRead:
+    reimbursement_request = db.get(ReimbursementRequest, request_id)
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+    return _prepare_sap_policy_with_actor(
+        reimbursement_request,
+        actor=current_user,
+        reference=policy_in.reference,
+        note=policy_in.note,
+        authenticated=True,
+        db=db,
     )
 
 
@@ -679,6 +672,132 @@ async def upload_reimbursement_request_attachment(
         raise
     db.refresh(attachment)
     return attachment
+
+
+def _transition_request_with_actor(
+    request_id: UUID,
+    *,
+    actor: User,
+    target_status: ReimbursementRequestStatus,
+    note: str | None,
+    authenticated: bool,
+    db: Session,
+) -> ReimbursementRequest:
+    statement = (
+        select(ReimbursementRequest)
+        .options(
+            selectinload(ReimbursementRequest.period),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+        )
+        .where(ReimbursementRequest.id == request_id)
+    )
+    reimbursement_request = db.scalars(statement).first()
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store for this transition",
+            },
+        )
+
+    summary = summarize_reimbursement_request(reimbursement_request)
+    try:
+        from_status, to_status = transition_reimbursement_request(
+            reimbursement_request,
+            actor=actor,
+            target_status=target_status,
+            summary=summary,
+        )
+    except WorkflowTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "INVALID_WORKFLOW_TRANSITION", "message": str(exc)},
+        ) from exc
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="request_status_changed",
+            from_status=from_status.value,
+            to_status=to_status.value,
+            message=note,
+            event_payload={
+                "ready_for_submission": summary.ready_for_submission,
+                "ready_for_authorization_approval": summary.ready_for_authorization_approval,
+                "ready_for_accounting_approval": summary.ready_for_accounting_approval,
+                "authenticated": authenticated,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(reimbursement_request)
+    return reimbursement_request
+
+
+def _prepare_sap_policy_with_actor(
+    reimbursement_request: ReimbursementRequest,
+    *,
+    actor: User,
+    reference: str | None,
+    note: str | None,
+    authenticated: bool,
+    db: Session,
+) -> SapPolicyRead:
+    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store for this action",
+            },
+        )
+
+    try:
+        payload = prepare_sap_policy_placeholder(
+            reimbursement_request,
+            actor=actor,
+            reference=reference,
+        )
+    except SapPolicyPreparationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
+        ) from exc
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="sap_policy_placeholder_prepared",
+            message=note or "SAP policy placeholder prepared.",
+            event_payload={
+                "reference": reimbursement_request.sap_policy_reference,
+                "payload": payload,
+                "authenticated": authenticated,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(reimbursement_request)
+    return SapPolicyRead(
+        request_id=reimbursement_request.id,
+        status="prepared",
+        reference=reimbursement_request.sap_policy_reference or "",
+        generated_at=reimbursement_request.sap_policy_generated_at,
+        generated_by_user_id=actor.id,
+        payload=reimbursement_request.sap_policy_payload or {},
+    )
 
 
 def _ensure_request_editable(reimbursement_request: ReimbursementRequest) -> None:

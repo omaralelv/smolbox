@@ -2,7 +2,7 @@
   "reset_existing": true,
   "store_code": "HUD-RECHAZO",
   "store_name": "HUD Tienda Rechazo Producto",
-  "contact_email": "hud.store@hud.smolbox.local",
+  "contact_email": "hud.store@hud.smolbox.example.com",
   "assigned_accountant": "HUD Usuario Contador",
   "period_name": "HUD Agosto 2026 Rechazo",
   "starts_on": "2026-08-01",

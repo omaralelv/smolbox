@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.api.dependencies.auth import get_current_user
 from app.db.session import get_db
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
@@ -15,6 +16,11 @@ from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.user import User, UserRole
 from app.schemas.expense import (
+    AuthenticatedExpenseAuthorization,
+    AuthenticatedExpenseObservation,
+    AuthenticatedExpenseRejection,
+    AuthenticatedExpenseRemoval,
+    AuthenticatedExpenseReviewUpdate,
     ExpenseAuthorization,
     ExpenseCreate,
     ExpenseObservation,
@@ -24,6 +30,7 @@ from app.schemas.expense import (
     ExpenseReviewUpdate,
     ExpenseUpdate,
 )
+from app.services.permissions import user_can_transition_store_request
 
 router = APIRouter()
 
@@ -149,38 +156,31 @@ def authorize_expense(
     db: Annotated[Session, Depends(get_db)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
-    reimbursement_request = _attached_request_or_conflict(expense)
-    if reimbursement_request.status != ReimbursementRequestStatus.authorization_review:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "REQUEST_NOT_IN_AUTHORIZATION_REVIEW",
-                "message": "Expenses can only be authorized during authorization review.",
-            },
-        )
     actor = _get_actor_or_404(authorization_in.actor_user_id, db)
-    _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
-    _ensure_expense_not_excluded(expense)
-
-    expense.requires_authorization = True
-    expense.authorized_at = datetime.now(UTC)
-    expense.authorized_by_user_id = actor.id
-    expense.authorization_note = authorization_in.note
-    expense.status = ExpenseStatus.approved
-    db.add(
-        AuditLog(
-            reimbursement_request_id=expense.reimbursement_request_id,
-            expense_id=expense.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="expense_authorized",
-            message=authorization_in.note,
-            event_payload={"actor_role": actor.role.value},
-        )
+    return _authorize_expense_with_actor(
+        expense,
+        actor=actor,
+        note=authorization_in.note,
+        require_store_assignment=False,
+        db=db,
     )
-    db.commit()
-    db.refresh(expense)
-    return expense
+
+
+@router.post("/{expense_id}/authorize/me", response_model=ExpenseRead)
+def authorize_expense_as_current_user(
+    expense_id: UUID,
+    authorization_in: AuthenticatedExpenseAuthorization,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Expense:
+    expense = _get_expense_or_404(expense_id, db)
+    return _authorize_expense_with_actor(
+        expense,
+        actor=current_user,
+        note=authorization_in.note,
+        require_store_assignment=True,
+        db=db,
+    )
 
 
 @router.post("/{expense_id}/reject", response_model=ExpenseRead)
@@ -190,50 +190,33 @@ def reject_expense_authorization(
     db: Annotated[Session, Depends(get_db)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
-    reimbursement_request = _attached_request_or_conflict(expense)
-    if reimbursement_request.status != ReimbursementRequestStatus.authorization_review:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "REQUEST_NOT_IN_AUTHORIZATION_REVIEW",
-                "message": "Expenses can only be rejected during authorization review.",
-            },
-        )
     actor = _get_actor_or_404(rejection_in.actor_user_id, db)
-    _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
-    _ensure_expense_not_excluded(expense)
-    if expense.authorized_at is not None or expense.status == ExpenseStatus.approved:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "EXPENSE_ALREADY_AUTHORIZED",
-                "message": "Authorized expenses cannot be rejected.",
-            },
-        )
-
-    expense.requires_authorization = True
-    expense.status = ExpenseStatus.rejected
-    expense.authorization_note = rejection_in.reason
-    if rejection_in.adjust_reported_total:
-        reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
-
-    db.add(
-        AuditLog(
-            reimbursement_request_id=expense.reimbursement_request_id,
-            expense_id=expense.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="expense_authorization_rejected",
-            message=rejection_in.reason,
-            event_payload={
-                "actor_role": actor.role.value,
-                "reported_total": str(reimbursement_request.reported_total),
-            },
-        )
+    return _reject_expense_with_actor(
+        expense,
+        actor=actor,
+        reason=rejection_in.reason,
+        adjust_reported_total=rejection_in.adjust_reported_total,
+        require_store_assignment=False,
+        db=db,
     )
-    db.commit()
-    db.refresh(expense)
-    return expense
+
+
+@router.post("/{expense_id}/reject/me", response_model=ExpenseRead)
+def reject_expense_authorization_as_current_user(
+    expense_id: UUID,
+    rejection_in: AuthenticatedExpenseRejection,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Expense:
+    expense = _get_expense_or_404(expense_id, db)
+    return _reject_expense_with_actor(
+        expense,
+        actor=current_user,
+        reason=rejection_in.reason,
+        adjust_reported_total=rejection_in.adjust_reported_total,
+        require_store_assignment=True,
+        db=db,
+    )
 
 
 @router.post("/{expense_id}/observation", response_model=ExpenseRead)
@@ -243,29 +226,31 @@ def add_expense_observation(
     db: Annotated[Session, Depends(get_db)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
-    reimbursement_request = _attached_request_or_conflict(expense)
     actor = _get_actor_or_404(observation_in.actor_user_id, db)
-    _ensure_actor_can(actor, OBSERVATION_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
-    _ensure_expense_not_excluded(expense)
-
-    expense.review_note = observation_in.note
-    db.add(
-        AuditLog(
-            reimbursement_request_id=expense.reimbursement_request_id,
-            expense_id=expense.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="expense_observation_added",
-            message=observation_in.note,
-            event_payload={
-                "actor_role": actor.role.value,
-                "request_status": reimbursement_request.status.value,
-            },
-        )
+    return _add_observation_with_actor(
+        expense,
+        actor=actor,
+        note=observation_in.note,
+        require_store_assignment=False,
+        db=db,
     )
-    db.commit()
-    db.refresh(expense)
-    return expense
+
+
+@router.post("/{expense_id}/observation/me", response_model=ExpenseRead)
+def add_expense_observation_as_current_user(
+    expense_id: UUID,
+    observation_in: AuthenticatedExpenseObservation,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Expense:
+    expense = _get_expense_or_404(expense_id, db)
+    return _add_observation_with_actor(
+        expense,
+        actor=current_user,
+        note=observation_in.note,
+        require_store_assignment=True,
+        db=db,
+    )
 
 
 @router.patch("/{expense_id}/review", response_model=ExpenseRead)
@@ -275,40 +260,38 @@ def review_update_expense(
     db: Annotated[Session, Depends(get_db)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
-    reimbursement_request = _attached_request_or_conflict(expense)
     actor = _get_actor_or_404(expense_in.actor_user_id, db)
-    _ensure_actor_can(actor, REVIEW_EDIT_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
-    _ensure_expense_not_excluded(expense)
+    updates = expense_in.model_dump(exclude_unset=True)
+    updates.pop("actor_user_id", None)
+    note = updates.pop("note", None)
+    return _review_update_expense_with_actor(
+        expense,
+        actor=actor,
+        updates=updates,
+        note=note,
+        require_store_assignment=False,
+        db=db,
+    )
 
+
+@router.patch("/{expense_id}/review/me", response_model=ExpenseRead)
+def review_update_expense_as_current_user(
+    expense_id: UUID,
+    expense_in: AuthenticatedExpenseReviewUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Expense:
+    expense = _get_expense_or_404(expense_id, db)
     updates = expense_in.model_dump(exclude_unset=True)
     note = updates.pop("note", None)
-    updates.pop("actor_user_id", None)
-    _apply_expense_updates(expense, updates, db)
-    if note:
-        expense.review_note = note
-    if {"amount", "currency", "supplier_tax_id", "requires_authorization"} & set(updates):
-        reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
-
-    changed_fields = sorted(updates)
-    db.add(
-        AuditLog(
-            reimbursement_request_id=expense.reimbursement_request_id,
-            expense_id=expense.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="expense_review_updated",
-            message=note,
-            event_payload={
-                "actor_role": actor.role.value,
-                "request_status": reimbursement_request.status.value,
-                "changed_fields": changed_fields,
-                "reported_total": str(reimbursement_request.reported_total),
-            },
-        )
+    return _review_update_expense_with_actor(
+        expense,
+        actor=current_user,
+        updates=updates,
+        note=note,
+        require_store_assignment=True,
+        db=db,
     )
-    db.commit()
-    db.refresh(expense)
-    return expense
 
 
 @router.post("/{expense_id}/remove", response_model=ExpenseRead)
@@ -318,36 +301,33 @@ def remove_expense_from_review(
     db: Annotated[Session, Depends(get_db)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
-    reimbursement_request = _attached_request_or_conflict(expense)
     actor = _get_actor_or_404(removal_in.actor_user_id, db)
-    _ensure_actor_can(actor, REMOVAL_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
-    _ensure_expense_not_excluded(expense)
-
-    expense.status = ExpenseStatus.removed
-    expense.removed_at = datetime.now(UTC)
-    expense.removed_by_user_id = actor.id
-    expense.removal_reason = removal_in.reason
-    if removal_in.adjust_reported_total:
-        reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
-
-    db.add(
-        AuditLog(
-            reimbursement_request_id=expense.reimbursement_request_id,
-            expense_id=expense.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="expense_removed_from_request",
-            message=removal_in.reason,
-            event_payload={
-                "actor_role": actor.role.value,
-                "request_status": reimbursement_request.status.value,
-                "reported_total": str(reimbursement_request.reported_total),
-            },
-        )
+    return _remove_expense_with_actor(
+        expense,
+        actor=actor,
+        reason=removal_in.reason,
+        adjust_reported_total=removal_in.adjust_reported_total,
+        require_store_assignment=False,
+        db=db,
     )
-    db.commit()
-    db.refresh(expense)
-    return expense
+
+
+@router.post("/{expense_id}/remove/me", response_model=ExpenseRead)
+def remove_expense_from_review_as_current_user(
+    expense_id: UUID,
+    removal_in: AuthenticatedExpenseRemoval,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Expense:
+    expense = _get_expense_or_404(expense_id, db)
+    return _remove_expense_with_actor(
+        expense,
+        actor=current_user,
+        reason=removal_in.reason,
+        adjust_reported_total=removal_in.adjust_reported_total,
+        require_store_assignment=True,
+        db=db,
+    )
 
 
 @router.patch("/{expense_id}", response_model=ExpenseRead)
@@ -387,6 +367,226 @@ def update_expense(
             )
         )
 
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+def _authorize_expense_with_actor(
+    expense: Expense,
+    *,
+    actor: User,
+    note: str | None,
+    require_store_assignment: bool,
+    db: Session,
+) -> Expense:
+    reimbursement_request = _attached_request_or_conflict(expense)
+    if reimbursement_request.status != ReimbursementRequestStatus.authorization_review:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_IN_AUTHORIZATION_REVIEW",
+                "message": "Expenses can only be authorized during authorization review.",
+            },
+        )
+    _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
+    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_expense_not_excluded(expense)
+
+    expense.requires_authorization = True
+    expense.authorized_at = datetime.now(UTC)
+    expense.authorized_by_user_id = actor.id
+    expense.authorization_note = note
+    expense.status = ExpenseStatus.approved
+    db.add(
+        AuditLog(
+            reimbursement_request_id=expense.reimbursement_request_id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_authorized",
+            message=note,
+            event_payload={
+                "actor_role": actor.role.value,
+                "authenticated": require_store_assignment,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+def _reject_expense_with_actor(
+    expense: Expense,
+    *,
+    actor: User,
+    reason: str,
+    adjust_reported_total: bool,
+    require_store_assignment: bool,
+    db: Session,
+) -> Expense:
+    reimbursement_request = _attached_request_or_conflict(expense)
+    if reimbursement_request.status != ReimbursementRequestStatus.authorization_review:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_IN_AUTHORIZATION_REVIEW",
+                "message": "Expenses can only be rejected during authorization review.",
+            },
+        )
+    _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
+    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_expense_not_excluded(expense)
+    if expense.authorized_at is not None or expense.status == ExpenseStatus.approved:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "EXPENSE_ALREADY_AUTHORIZED",
+                "message": "Authorized expenses cannot be rejected.",
+            },
+        )
+
+    expense.requires_authorization = True
+    expense.status = ExpenseStatus.rejected
+    expense.authorization_note = reason
+    if adjust_reported_total:
+        reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=expense.reimbursement_request_id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_authorization_rejected",
+            message=reason,
+            event_payload={
+                "actor_role": actor.role.value,
+                "reported_total": str(reimbursement_request.reported_total),
+                "authenticated": require_store_assignment,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+def _add_observation_with_actor(
+    expense: Expense,
+    *,
+    actor: User,
+    note: str,
+    require_store_assignment: bool,
+    db: Session,
+) -> Expense:
+    reimbursement_request = _attached_request_or_conflict(expense)
+    _ensure_actor_can(actor, OBSERVATION_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
+    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_expense_not_excluded(expense)
+
+    expense.review_note = note
+    db.add(
+        AuditLog(
+            reimbursement_request_id=expense.reimbursement_request_id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_observation_added",
+            message=note,
+            event_payload={
+                "actor_role": actor.role.value,
+                "request_status": reimbursement_request.status.value,
+                "authenticated": require_store_assignment,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+def _review_update_expense_with_actor(
+    expense: Expense,
+    *,
+    actor: User,
+    updates: dict[str, object],
+    note: str | None,
+    require_store_assignment: bool,
+    db: Session,
+) -> Expense:
+    reimbursement_request = _attached_request_or_conflict(expense)
+    _ensure_actor_can(actor, REVIEW_EDIT_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
+    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_expense_not_excluded(expense)
+
+    _apply_expense_updates(expense, updates, db)
+    if note:
+        expense.review_note = note
+    if {"amount", "currency", "supplier_tax_id", "requires_authorization"} & set(updates):
+        reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
+
+    changed_fields = sorted(updates)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=expense.reimbursement_request_id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_review_updated",
+            message=note,
+            event_payload={
+                "actor_role": actor.role.value,
+                "request_status": reimbursement_request.status.value,
+                "changed_fields": changed_fields,
+                "reported_total": str(reimbursement_request.reported_total),
+                "authenticated": require_store_assignment,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+def _remove_expense_with_actor(
+    expense: Expense,
+    *,
+    actor: User,
+    reason: str,
+    adjust_reported_total: bool,
+    require_store_assignment: bool,
+    db: Session,
+) -> Expense:
+    reimbursement_request = _attached_request_or_conflict(expense)
+    _ensure_actor_can(actor, REMOVAL_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
+    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_expense_not_excluded(expense)
+
+    expense.status = ExpenseStatus.removed
+    expense.removed_at = datetime.now(UTC)
+    expense.removed_by_user_id = actor.id
+    expense.removal_reason = reason
+    if adjust_reported_total:
+        reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=expense.reimbursement_request_id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_removed_from_request",
+            message=reason,
+            event_payload={
+                "actor_role": actor.role.value,
+                "request_status": reimbursement_request.status.value,
+                "reported_total": str(reimbursement_request.reported_total),
+                "authenticated": require_store_assignment,
+            },
+        )
+    )
     db.commit()
     db.refresh(expense)
     return expense
@@ -474,6 +674,25 @@ def _ensure_actor_can(actor: User, roles: set[UserRole]) -> None:
                 "message": f"Role {actor.role.value} cannot perform this expense action.",
             },
         )
+
+
+def _ensure_store_assignment_if_required(
+    db: Session,
+    actor: User,
+    reimbursement_request: ReimbursementRequest,
+    required: bool,
+) -> None:
+    if not required:
+        return
+    if user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "STORE_ASSIGNMENT_REQUIRED",
+            "message": "Actor must be assigned to the request store for this action",
+        },
+    )
 
 
 def _ensure_expense_not_excluded(expense: Expense) -> None:

@@ -471,7 +471,7 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
             <label class="field full">
               <span>Correo tienda</span>
-              <input class="input" id="scenarioStoreEmail" value="hud.store@hud.smolbox.local" />
+              <input class="input" id="scenarioStoreEmail" value="hud.store@hud.smolbox.example.com" />
             </label>
             <label class="field">
               <span>Periodo</span>
@@ -651,7 +651,7 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
             <label class="field full">
               <span>Correo tienda</span>
-              <input class="input" id="storeEmail" value="hud.sucursal.norte@hud.smolbox.local" />
+              <input class="input" id="storeEmail" value="hud.sucursal.norte@hud.smolbox.example.com" />
             </label>
           </div>
           <div class="toolbar">
@@ -678,7 +678,7 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
             <label class="field full">
               <span>Correo</span>
-              <input class="input" id="userEmail" value="hud.usuario.nuevo@hud.smolbox.local" />
+              <input class="input" id="userEmail" value="hud.usuario.nuevo@hud.smolbox.example.com" />
             </label>
           </div>
           <div class="toolbar">
@@ -792,6 +792,65 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
+              <h2>Sesión de prueba</h2>
+              <p class="subtle">Simula el token que usará el frontend real.</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class="field full">
+              <span>Rol activo</span>
+              <select class="input" id="authRole">
+                <option value="store">Tienda</option>
+                <option value="authorizer">Autorización</option>
+                <option value="accountant">Contabilidad</option>
+                <option value="accounting_manager">Gerente conta</option>
+                <option value="treasury">Tesorería</option>
+                <option value="director">Dirección</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="loginRoleBtn">Iniciar sesión</button>
+            <button class="btn" id="meBtn">Ver sesión</button>
+          </div>
+          <div id="authState"></div>
+
+          <h3 style="margin-top: 16px;">Acciones con token</h3>
+          <div class="form-grid">
+            <label class="field full">
+              <span>Transición</span>
+              <select class="input" id="authTransitionTarget">
+                <option value="submitted">Enviar solicitud</option>
+                <option value="authorization_review">Abrir autorización</option>
+                <option value="authorized">Enviar a contabilidad</option>
+                <option value="under_accounting_review">Tomar contabilidad</option>
+                <option value="accounting_reviewed">Cerrar contabilidad</option>
+                <option value="accounting_manager_review">Enviar gerente</option>
+                <option value="accounting_manager_approved">Aprobar gerente</option>
+                <option value="treasury_review">Revisar tesorería</option>
+                <option value="direction_review">Enviar dirección</option>
+                <option value="direction_approved">Aprobar dirección</option>
+                <option value="approved_for_payment">Liberar pago</option>
+                <option value="paid">Confirmar pago</option>
+                <option value="closed">Cerrar</option>
+              </select>
+            </label>
+          </div>
+          <div class="flow">
+            <button class="btn" id="authTransitionBtn">Transición con sesión</button>
+            <button class="btn success" id="authAuthorizeBtn">Autorizar producto</button>
+            <button class="btn warning" id="authRejectBtn">Rechazar producto</button>
+            <button class="btn success" id="authSapBtn">Preparar SAP</button>
+            <button class="btn warning" id="outOfPeriodBtn">Probar fuera de periodo</button>
+            <button class="btn" id="downloadReceiptBtn">Descargar recibo</button>
+            <button class="btn warning" id="missingAttachmentBtn">Probar archivo 404</button>
+          </div>
+        </section>
+
+        <section class="card panel">
+          <div class="panel-head">
+            <div>
               <h2>Validación</h2>
               <p class="subtle">Resumen calculado por el backend.</p>
             </div>
@@ -826,6 +885,8 @@ TEST_HUD_HTML = """<!doctype html>
     const api = "/api/v1";
     let state = null;
     let busy = false;
+    let authToken = null;
+    let authUser = null;
 
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -865,6 +926,21 @@ TEST_HUD_HTML = """<!doctype html>
       });
     }
 
+    function authHeaders(extra = {}) {
+      return {
+        ...extra,
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      };
+    }
+
+    function jsonAuthRequest(path, payload) {
+      return request(path, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload)
+      });
+    }
+
     async function loadStatus() {
       try {
         state = await request("/dev-hud/status");
@@ -882,6 +958,21 @@ TEST_HUD_HTML = """<!doctype html>
         await loadStatus();
       } catch (error) {
         writeConsole(`${label} falló`, error);
+      } finally {
+        setBusy(false);
+        applyButtonState();
+      }
+    }
+
+    async function runExpectedFailure(label, fn, expectedCode) {
+      setBusy(true);
+      try {
+        const payload = await fn();
+        writeConsole(`${label} no falló`, payload);
+      } catch (error) {
+        const code = error?.payload?.detail?.code;
+        const ok = !expectedCode || code === expectedCode || error.status === expectedCode;
+        writeConsole(ok ? label : `${label} falló distinto`, error);
       } finally {
         setBusy(false);
         applyButtonState();
@@ -907,6 +998,14 @@ TEST_HUD_HTML = """<!doctype html>
         button.disabled = !hasScenario && button.dataset.action !== "seed-scenario";
       });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
+      $("#loginRoleBtn").disabled = !hasScenario;
+      $("#meBtn").disabled = !authToken;
+      $$("#authTransitionBtn, #authAuthorizeBtn, #authRejectBtn, #authSapBtn").forEach((button) => {
+        button.disabled = !hasScenario || !authToken;
+      });
+      $$("#outOfPeriodBtn, #downloadReceiptBtn, #missingAttachmentBtn").forEach((button) => {
+        button.disabled = !hasScenario;
+      });
     }
 
     function render() {
@@ -916,6 +1015,7 @@ TEST_HUD_HTML = """<!doctype html>
       renderExpenses();
       renderValidation();
       renderAudit();
+      renderAuthState();
       applyButtonState();
     }
 
@@ -1089,6 +1189,13 @@ TEST_HUD_HTML = """<!doctype html>
       `;
     }
 
+    function renderAuthState() {
+      const label = authUser
+        ? `${authUser.role} / ${authUser.email}`
+        : "Sin sesión activa";
+      $("#authState").innerHTML = row("Sesión", label);
+    }
+
     function valueOrNull(selector) {
       const value = $(selector).value.trim();
       return value || null;
@@ -1140,6 +1247,59 @@ TEST_HUD_HTML = """<!doctype html>
       return request(`/reimbursement-requests/${requestId}/expenses/import`, {
         method: "POST",
         body: form
+      });
+    }
+
+    function roleEmail(role) {
+      const email = state?.scenario?.users?.[role]?.email;
+      if (!email) {
+        throw { status: 409, payload: { message: "Crea el escenario HUD primero." } };
+      }
+      return email;
+    }
+
+    async function loginSelectedRole() {
+      const role = $("#authRole").value;
+      const payload = await jsonRequest("/auth/login", {
+        email: roleEmail(role),
+        password: "hud-password"
+      });
+      authToken = payload.access_token;
+      authUser = payload.user;
+      renderAuthState();
+      return payload;
+    }
+
+    function scenarioRequestId() {
+      const requestId = state?.scenario?.request_id;
+      if (!requestId) {
+        throw { status: 409, payload: { message: "No hay solicitud HUD activa." } };
+      }
+      return requestId;
+    }
+
+    function firstPendingAuthorizationExpense() {
+      const expense = (state?.scenario?.expenses || []).find((item) =>
+        item.requires_authorization && !item.is_authorized && !item.is_rejected
+      );
+      if (!expense) {
+        throw { status: 409, payload: { message: "No hay producto pendiente de autorización." } };
+      }
+      return expense;
+    }
+
+    function firstReceiptAttachmentId() {
+      const expense = (state?.scenario?.expenses || []).find((item) => item.receipt_attachment_id);
+      if (!expense) {
+        throw { status: 409, payload: { message: "No hay recibo descargable." } };
+      }
+      return expense.receipt_attachment_id;
+    }
+
+    async function authenticatedTransition() {
+      return jsonAuthRequest(`/reimbursement-requests/${scenarioRequestId()}/transition/me`, {
+        target_status: $("#authTransitionTarget").value,
+        note: "Transición desde HUD con token."
       });
     }
 
@@ -1232,6 +1392,50 @@ TEST_HUD_HTML = """<!doctype html>
         runAction(button.textContent.trim(), () => executeUserFlowAction(button.dataset.action))
       );
     });
+    $("#loginRoleBtn").addEventListener("click", () => runAction("Sesión iniciada", loginSelectedRole));
+    $("#meBtn").addEventListener("click", () => runAction("Sesión actual", () =>
+      request("/auth/me", { headers: authHeaders() })
+    ));
+    $("#authTransitionBtn").addEventListener("click", () => runAction("Transición autenticada", authenticatedTransition));
+    $("#authAuthorizeBtn").addEventListener("click", () => runAction("Producto autorizado con token", () =>
+      jsonAuthRequest(`/expenses/${firstPendingAuthorizationExpense().id}/authorize/me`, {
+        note: "Autorizado desde HUD con token."
+      })
+    ));
+    $("#authRejectBtn").addEventListener("click", () => runAction("Producto rechazado con token", () =>
+      jsonAuthRequest(`/expenses/${firstPendingAuthorizationExpense().id}/reject/me`, {
+        reason: "Rechazado desde HUD con token.",
+        adjust_reported_total: true
+      })
+    ));
+    $("#authSapBtn").addEventListener("click", () => runAction("SAP preparado con token", () =>
+      jsonAuthRequest(`/reimbursement-requests/${scenarioRequestId()}/sap-policy/prepare/me`, {
+        reference: "HUD-SAP-TOKEN",
+        note: "Preparado desde HUD con token."
+      })
+    ));
+    $("#outOfPeriodBtn").addEventListener("click", () => runExpectedFailure(
+      "Gasto fuera de periodo bloqueado",
+      () => jsonRequest("/dev-hud/payments", {
+        merchant: "HUD Fuera de Periodo",
+        amount: "10.00",
+        spent_on: "2026-09-30",
+        category: "prueba",
+        keep_reported_total_balanced: false
+      }),
+      "PAYMENT_OUTSIDE_PERIOD"
+    ));
+    $("#downloadReceiptBtn").addEventListener("click", () => runAction("Recibo listo para descargar", async () => {
+      const attachmentId = firstReceiptAttachmentId();
+      const metadata = await request(`/attachments/${attachmentId}`);
+      window.open(`${api}/attachments/${attachmentId}/download`, "_blank");
+      return metadata;
+    }));
+    $("#missingAttachmentBtn").addEventListener("click", () => runExpectedFailure(
+      "Archivo inexistente bloqueado",
+      () => request("/attachments/00000000-0000-4000-8000-000000000000/download"),
+      404
+    ));
 
     loadStatus();
   </script>
