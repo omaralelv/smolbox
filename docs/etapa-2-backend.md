@@ -41,6 +41,8 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
 - Login basico con contrasena y token Bearer local.
 - Asignacion formal usuario-tienda mediante `store_user_assignments`.
 - Validacion ampliada de solicitudes.
+- Flujo de revision automatica para CFDI, comprobantes, total, periodo, OCR pendiente,
+  alertas y datos base de poliza SAP.
 - Revision por gasto: autorizar, rechazar en autorizacion, observar, editar durante
   revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
 - Placeholder de poliza SAP despues de revision contable y antes de gerente.
@@ -125,6 +127,31 @@ Para autorizacion, los gastos con `requires_authorization=true` deben estar auto
 rechazados. Los gastos rechazados quedan fuera del total activo de reembolso, conservan
 historial y no bloquean que la solicitud avance. Los gastos que no requieren autorizacion no
 bloquean ese paso.
+
+## Flujo automatico y humano
+
+La automatizacion se ejecuta con:
+
+```text
+POST /api/v1/reimbursement-requests/{request_id}/automated-review
+```
+
+Este paso no aprueba ni rechaza la solicitud. Solo revisa y registra auditoria de:
+
+- CFDI faltante, invalido o duplicado;
+- comprobantes faltantes;
+- total reportado descuadrado;
+- gastos fuera de periodo;
+- OCR pendiente de integracion real;
+- alertas automaticas;
+- datos base para preparar la poliza SAP.
+
+Las decisiones humanas siguen separadas:
+
+- autorizacion decide autorizar o rechazar productos;
+- gerente de contabilidad aprueba despues de contabilidad;
+- direccion aprueba antes de liberar pago;
+- tesoreria confirma pago.
 
 ## Login y permisos por tienda
 
@@ -330,6 +357,7 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/dev-hud/users`
 - `POST /api/v1/dev-hud/assign-user`
 - `POST /api/v1/dev-hud/payments`
+- `POST /api/v1/dev-hud/automated-review`
 - `POST /api/v1/dev-hud/authorize-expenses`
 - `POST /api/v1/dev-hud/reject-authorization-expense`
 - `POST /api/v1/dev-hud/complete-cfdi`
@@ -348,6 +376,7 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `GET /api/v1/stores/{store_id}/users`
 - `PATCH /api/v1/periods/{period_id}`
 - `PATCH /api/v1/reimbursement-requests/{request_id}`
+- `POST /api/v1/reimbursement-requests/{request_id}/automated-review`
 - `POST /api/v1/reimbursement-requests/{request_id}/transition`
 - `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`
 - `GET /api/v1/reimbursement-requests/{request_id}/audit-events`

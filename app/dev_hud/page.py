@@ -597,6 +597,7 @@ TEST_HUD_HTML = """<!doctype html>
             <div class="toolbar">
               <button class="btn warning" id="importDryRunBtn">CSV dry run</button>
               <button class="btn" id="importRealBtn">Importar CSV</button>
+              <button class="btn" id="automatedReviewBtn">Ejecutar automaticos</button>
               <button class="btn success" id="completeCfdiBtn">Completar CFDI demo</button>
             </div>
           </div>
@@ -758,7 +759,7 @@ TEST_HUD_HTML = """<!doctype html>
       const hasScenario = Boolean(state?.scenario?.exists);
       const hasStores = Boolean(state?.workspace?.stores?.length);
       const hasUsers = Boolean(state?.workspace?.users?.length);
-      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, #prepareSapPolicyBtn").forEach((button) => {
+      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, #prepareSapPolicyBtn").forEach((button) => {
         button.disabled = !hasScenario;
       });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
@@ -1028,6 +1029,9 @@ TEST_HUD_HTML = """<!doctype html>
     });
     $("#completeCfdiBtn").addEventListener("click", () => runAction("CFDI demo completado", () =>
       request("/dev-hud/complete-cfdi", { method: "POST" })
+    ));
+    $("#automatedReviewBtn").addEventListener("click", () => runAction("Revision automatica", () =>
+      request("/dev-hud/automated-review", { method: "POST" })
     ));
     $("#authorizeExpensesBtn").addEventListener("click", () => runAction("Gastos autorizados", () =>
       request("/dev-hud/authorize-expenses", { method: "POST" })

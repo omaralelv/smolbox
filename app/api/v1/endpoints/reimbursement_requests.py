@@ -19,6 +19,7 @@ from app.schemas.attachment import AttachmentRead
 from app.schemas.audit_log import AuditLogRead
 from app.schemas.expense_import import ExpenseImportErrorRead, ExpenseImportResult
 from app.schemas.reimbursement_request import (
+    AutomatedReviewRead,
     ReimbursementRequestCreate,
     ReimbursementRequestRead,
     ReimbursementRequestTransition,
@@ -27,6 +28,7 @@ from app.schemas.reimbursement_request import (
     SapPolicyPrepare,
     SapPolicyRead,
 )
+from app.services.automation_review import build_automated_review
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.permissions import user_can_transition_store_request
@@ -215,6 +217,53 @@ def get_reimbursement_validation_summary(
             detail="Reimbursement request not found",
         )
     return summarize_reimbursement_request(reimbursement_request)
+
+
+@router.post("/{request_id}/automated-review", response_model=AutomatedReviewRead)
+def run_reimbursement_automated_review(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> AutomatedReviewRead:
+    statement = (
+        select(ReimbursementRequest)
+        .options(
+            selectinload(ReimbursementRequest.period),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+        )
+        .where(ReimbursementRequest.id == request_id)
+    )
+    reimbursement_request = db.scalars(statement).first()
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    summary = summarize_reimbursement_request(reimbursement_request)
+    review = build_automated_review(reimbursement_request, summary)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_type=AuditActorType.system,
+            action="automated_review_completed",
+            message="Automatic validation flow completed.",
+            event_payload={
+                "overall_status": review.overall_status,
+                "automatic_steps": [
+                    {"code": step.code, "status": step.status, "blocking": step.blocking}
+                    for step in review.automatic_steps
+                ],
+                "human_steps": [
+                    {"code": step.code, "status": step.status, "blocking": step.blocking}
+                    for step in review.human_steps
+                ],
+                "alert_codes": [issue.code for issue in review.alerts],
+            },
+        )
+    )
+    db.commit()
+    return review
 
 
 @router.post("/{request_id}/transition", response_model=ReimbursementRequestRead)

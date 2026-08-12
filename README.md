@@ -41,6 +41,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
   invalidos, autorizaciones pendientes y readiness para envio/autorizacion/aprobacion
   contable.
+- Revision automatica de solicitud para CFDI, comprobantes, total, periodo, OCR pendiente,
+  alertas y datos base de poliza SAP sin aprobar decisiones humanas.
 - Descarga de adjuntos por ID.
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.

@@ -126,3 +126,24 @@ class ReimbursementValidationSummary(BaseModel):
     ready_for_accounting_approval: bool
     is_balanced: bool
     issues: list[ReimbursementValidationIssue]
+
+
+class AutomatedReviewStep(BaseModel):
+    code: str
+    label: str
+    responsibility: str = "automatic"
+    status: str
+    message: str
+    blocking: bool = False
+    issue_codes: list[str] = Field(default_factory=list)
+    expense_ids: list[UUID] = Field(default_factory=list)
+    data: dict = Field(default_factory=dict)
+
+
+class AutomatedReviewRead(BaseModel):
+    request_id: UUID
+    overall_status: str
+    automatic_steps: list[AutomatedReviewStep]
+    human_steps: list[AutomatedReviewStep]
+    alerts: list[ReimbursementValidationIssue]
+    summary: ReimbursementValidationSummary

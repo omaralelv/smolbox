@@ -14,6 +14,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
     assert "Rechazar producto" in TEST_HUD_HTML
+    assert "Ejecutar automaticos" in TEST_HUD_HTML
     assert "Preparar póliza SAP" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML
 
@@ -35,6 +36,14 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     assert all(expense["has_receipt"] for expense in scenario["expenses"])
     assert any(expense["requires_authorization"] for expense in scenario["expenses"])
     assert not any(expense["has_current_valid_cfdi"] for expense in scenario["expenses"])
+
+    automated_review = client.post("/api/v1/dev-hud/automated-review")
+    assert automated_review.status_code == 200, automated_review.text
+    assert automated_review.json()["review"]["overall_status"] == "blocked"
+    assert any(
+        step["code"] == "ocr_extraction"
+        for step in automated_review.json()["review"]["automatic_steps"]
+    )
 
     submitted = client.post("/api/v1/dev-hud/transition/submitted")
     assert submitted.status_code == 200, submitted.text

@@ -21,6 +21,7 @@ from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.store import Store, StoreUserAssignment
 from app.models.user import User, UserRole
+from app.services.automation_review import build_automated_review
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.storage import StorageService
@@ -293,6 +294,52 @@ def complete_dev_hud_cfdi(
     return {
         "message": "HUD CFDI evidence completed",
         "cfdi_added": added,
+        "scenario": _scenario_payload(db, request_id),
+    }
+
+
+@router.post("/automated-review")
+def run_dev_hud_automated_review(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    request = _load_demo_request(db)
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "HUD_SCENARIO_NOT_FOUND", "message": "Create the HUD scenario first"},
+        )
+
+    summary = summarize_reimbursement_request(request)
+    review = build_automated_review(request, summary)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            actor_type=AuditActorType.system,
+            action="dev_hud_automated_review_completed",
+            message="HUD automatic validation flow completed.",
+            event_payload={
+                "overall_status": review.overall_status,
+                "automatic_steps": [
+                    {"code": step.code, "status": step.status, "blocking": step.blocking}
+                    for step in review.automatic_steps
+                ],
+                "human_steps": [
+                    {"code": step.code, "status": step.status, "blocking": step.blocking}
+                    for step in review.human_steps
+                ],
+                "alert_codes": [issue.code for issue in review.alerts],
+            },
+        )
+    )
+    request_id = request.id
+    db.commit()
+
+    return {
+        "message": "HUD automated review completed",
+        "review": review.model_dump(mode="json"),
         "scenario": _scenario_payload(db, request_id),
     }
 
