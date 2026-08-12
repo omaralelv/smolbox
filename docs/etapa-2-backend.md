@@ -69,6 +69,9 @@ alembic upgrade head
 La primera migracion de Etapa 2 crea la estructura actual en una base vacia y tambien agrega
 columnas nuevas si detecta una base local que venia de Etapa 1.
 
+La migracion `20260812_0004_expense_authorization_rejection` asegura que PostgreSQL acepte
+`rejected` como estado de gasto para rechazar un producto individual durante autorizacion.
+
 ## Reglas de flujo
 
 Las transiciones se hacen con:
