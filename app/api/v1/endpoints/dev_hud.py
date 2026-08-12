@@ -268,6 +268,10 @@ def complete_dev_hud_cfdi(
     storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
     added = 0
     for expense in request.expenses:
+        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}:
+            continue
+        if expense.removed_at is not None:
+            continue
         if _has_current_valid_cfdi(expense):
             continue
         _ensure_demo_cfdi(db, storage, expense, settings)
@@ -318,7 +322,7 @@ def authorize_dev_hud_expenses(
     actor = _hud_actor(db, UserRole.authorizer)
     authorized = 0
     for expense in request.expenses:
-        if expense.status == ExpenseStatus.removed or expense.removed_at is not None:
+        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected} or expense.removed_at is not None:
             continue
         if not expense.requires_authorization or expense.authorized_at is not None:
             continue
@@ -345,6 +349,77 @@ def authorize_dev_hud_expenses(
     return {
         "message": "HUD expenses authorized",
         "authorized": authorized,
+        "scenario": _scenario_payload(db, request_id),
+    }
+
+
+@router.post("/reject-authorization-expense")
+def reject_dev_hud_authorization_expense(
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    request = _load_demo_request(db)
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "HUD_SCENARIO_NOT_FOUND", "message": "Create the HUD scenario first"},
+        )
+    if request.status != ReimbursementRequestStatus.authorization_review:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_IN_AUTHORIZATION_REVIEW",
+                "message": "Move the HUD request to authorization review first",
+            },
+        )
+
+    actor = _hud_actor(db, UserRole.authorizer)
+    expense = next(
+        (
+            item
+            for item in request.expenses
+            if item.requires_authorization
+            and item.authorized_at is None
+            and item.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
+            and item.removed_at is None
+        ),
+        None,
+    )
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "NO_PENDING_AUTHORIZATION_EXPENSE",
+                "message": "No pending authorization expense is available to reject",
+            },
+        )
+
+    expense.status = ExpenseStatus.rejected
+    expense.authorization_note = "HUD authorization rejected for this product."
+    request.reported_total = _active_expense_total(request)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="dev_hud_expense_authorization_rejected",
+            message=expense.authorization_note,
+            event_payload={
+                "actor_role": actor.role.value,
+                "reported_total": str(request.reported_total),
+            },
+        )
+    )
+
+    request_id = request.id
+    db.commit()
+
+    return {
+        "message": "HUD expense authorization rejected",
+        "rejected_expense_id": expense.id,
         "scenario": _scenario_payload(db, request_id),
     }
 
@@ -856,6 +931,17 @@ def _scenario_reported_total(scenario: HudScenarioCreate) -> Decimal:
     return total.quantize(Decimal("0.01"))
 
 
+def _active_expense_total(request: ReimbursementRequest) -> Decimal:
+    total = Decimal("0.00")
+    for expense in request.expenses:
+        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}:
+            continue
+        if expense.removed_at is not None:
+            continue
+        total += Decimal(expense.amount)
+    return total.quantize(Decimal("0.01"))
+
+
 def _validate_seed_expense_dates(scenario: HudScenarioCreate) -> None:
     invalid_rows = [
         expense.merchant
@@ -1091,6 +1177,7 @@ def _expense_payload(expense: Expense) -> dict[str, Any]:
         "currency": expense.currency,
         "spent_on": expense.spent_on,
         "category": expense.category,
+        "status": expense.status.value,
         "has_receipt": _has_attachment_type(expense, AttachmentType.receipt),
         "has_cfdi_xml": _has_attachment_type(expense, AttachmentType.cfdi_xml),
         "has_current_valid_cfdi": _has_current_valid_cfdi(expense),
@@ -1099,6 +1186,7 @@ def _expense_payload(expense: Expense) -> dict[str, Any]:
         "authorization_note": expense.authorization_note,
         "review_note": expense.review_note,
         "is_removed": expense.status == ExpenseStatus.removed or expense.removed_at is not None,
+        "is_rejected": expense.status == ExpenseStatus.rejected,
         "removal_reason": expense.removal_reason,
     }
 

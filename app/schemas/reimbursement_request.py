@@ -114,6 +114,7 @@ class ReimbursementValidationSummary(BaseModel):
     expense_count: int
     category_totals: list[CategoryTotal]
     removed_expense_ids: list[UUID]
+    rejected_expense_ids: list[UUID]
     missing_authorization_expense_ids: list[UUID]
     missing_receipt_expense_ids: list[UUID]
     missing_cfdi_expense_ids: list[UUID]

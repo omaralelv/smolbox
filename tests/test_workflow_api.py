@@ -184,6 +184,103 @@ def test_required_expense_authorization_blocks_request(
     assert authorized.json()["status"] == "authorized"
 
 
+def test_authorization_rejects_only_the_expense_and_request_can_continue(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    approved_expense = create_expense(client, base_records, amount="1000.00")
+    authorization_expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Producto no procedente",
+            "amount": "500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
+    )
+    assert authorization_expense.status_code == 201, authorization_expense.text
+    for expense_id in [approved_expense["id"], authorization_expense.json()["id"]]:
+        receipt = client.post(
+            f"/api/v1/expenses/{expense_id}/attachments",
+            data={"attachment_type": "receipt"},
+            files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+        )
+        assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            target_status="submitted",
+            actor_user_id=store_user_id,
+        ).status_code
+        == 200
+    )
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            target_status="authorization_review",
+            actor_user_id=authorizer_user_id,
+        ).status_code
+        == 200
+    )
+
+    rejected_expense = client.post(
+        f"/api/v1/expenses/{authorization_expense.json()['id']}/reject",
+        json={
+            "actor_user_id": authorizer_user_id,
+            "reason": "Producto no autorizado para reembolso",
+            "adjust_reported_total": True,
+        },
+    )
+    assert rejected_expense.status_code == 200, rejected_expense.text
+    assert rejected_expense.json()["status"] == "rejected"
+    assert rejected_expense.json()["authorization_note"] == "Producto no autorizado para reembolso"
+
+    summary = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/validation-summary"
+    )
+    assert summary.status_code == 200
+    assert summary.json()["reported_total"] == "1000.00"
+    assert summary.json()["calculated_total"] == "1000.00"
+    assert authorization_expense.json()["id"] in summary.json()["rejected_expense_ids"]
+    assert summary.json()["missing_authorization_expense_ids"] == []
+
+    rejected_request = _transition(
+        client,
+        base_records["request_id"],
+        target_status="rejected",
+        actor_user_id=authorizer_user_id,
+    )
+    assert rejected_request.status_code == 409
+
+    authorized = _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorized",
+        actor_user_id=authorizer_user_id,
+    )
+    assert authorized.status_code == 200, authorized.text
+    assert authorized.json()["status"] == "authorized"
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200
+    assert "expense_authorization_rejected" in {
+        event["action"] for event in audit_events.json()
+    }
+
+
 def test_accounting_can_remove_expense_with_reason(
     client: TestClient,
     base_records: dict[str, str],

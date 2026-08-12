@@ -12,7 +12,8 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
 - Migraciones Alembic para versionar la base de datos.
 - Usuarios internos con roles operativos:
   - `store`: captura y envia solicitudes.
-  - `authorizer`: revisa gastos que requieren autorizacion y los autoriza.
+  - `authorizer`: revisa gastos que requieren autorizacion y los autoriza o rechaza a
+    nivel gasto/producto.
   - `accountant`: revisa facturas, CFDI y formato base; puede observar, editar o remover gastos.
   - `accounting_manager`: valida la revision contable antes de tesoreria.
   - `treasury`: revisa tesoreria, envia a direccion, autoriza pago, marca pagado y cierra.
@@ -40,8 +41,8 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
 - Login basico con contrasena y token Bearer local.
 - Asignacion formal usuario-tienda mediante `store_user_assignments`.
 - Validacion ampliada de solicitudes.
-- Revision por gasto: autorizar, observar, editar durante revision contable/gerencial y
-  remover con motivo obligatorio sin borrar historial.
+- Revision por gasto: autorizar, rechazar en autorizacion, observar, editar durante
+  revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
 - Placeholder de poliza SAP despues de revision contable y antes de gerente.
 - Descarga de adjuntos por identificador.
 - Edicion parcial de registros operativos mediante `PATCH`.
@@ -90,7 +91,9 @@ Reglas principales:
 
 - La tienda puede mover `draft` o `correction_required` a `submitted`.
 - Autorizacion mueve `submitted` a `authorization_review`.
-- Autorizacion puede autorizar gastos individuales y luego mover la solicitud a `authorized`.
+- Autorizacion puede autorizar o rechazar gastos individuales y luego mover la solicitud a
+  `authorized`. Si algo no procede en esta etapa, se rechaza el gasto/producto, no toda la
+  solicitud.
 - Contabilidad mueve `authorized` a `under_accounting_review`.
 - Contabilidad puede pedir correccion o mover a `accounting_reviewed`.
 - Despues de `accounting_reviewed`, contabilidad debe preparar la poliza SAP placeholder.
@@ -115,8 +118,10 @@ Para aprobacion contable, ademas se requiere que no falten XML CFDI y que no exi
 de CFDI persistidos. Si se edita monto, moneda o RFC de proveedor despues de validar un CFDI,
 la validacion CFDI se marca como no vigente y debe repetirse.
 
-Para autorizacion, los gastos con `requires_authorization=true` deben tener `authorized_at`.
-Los gastos que no requieren autorizacion no bloquean ese paso.
+Para autorizacion, los gastos con `requires_authorization=true` deben estar autorizados o
+rechazados. Los gastos rechazados quedan fuera del total activo de reembolso, conservan
+historial y no bloquean que la solicitud avance. Los gastos que no requieren autorizacion no
+bloquean ese paso.
 
 ## Login y permisos por tienda
 
@@ -200,6 +205,7 @@ Endpoints:
 
 ```text
 POST /api/v1/expenses/{expense_id}/authorize
+POST /api/v1/expenses/{expense_id}/reject
 POST /api/v1/expenses/{expense_id}/observation
 PATCH /api/v1/expenses/{expense_id}/review
 POST /api/v1/expenses/{expense_id}/remove
@@ -208,6 +214,9 @@ POST /api/v1/expenses/{expense_id}/remove
 Reglas:
 
 - `authorize` solo funciona durante `authorization_review` y con rol `authorizer`.
+- `reject` solo funciona durante `authorization_review` y con rol `authorizer`; marca el
+  gasto como `rejected`, guarda el motivo y puede ajustar el total reportado para que la
+  solicitud siga con los gastos restantes.
 - `observation` funciona en la etapa activa del rol revisor: autorizacion, contabilidad,
   gerente contable, tesoreria o direccion.
 - `review` permite editar gastos durante `under_accounting_review` o
@@ -319,6 +328,7 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/dev-hud/assign-user`
 - `POST /api/v1/dev-hud/payments`
 - `POST /api/v1/dev-hud/authorize-expenses`
+- `POST /api/v1/dev-hud/reject-authorization-expense`
 - `POST /api/v1/dev-hud/complete-cfdi`
 - `POST /api/v1/dev-hud/prepare-sap-policy`
 - `POST /api/v1/dev-hud/transition/{target_status}`
@@ -341,6 +351,7 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`
 - `PATCH /api/v1/expenses/{expense_id}`
 - `POST /api/v1/expenses/{expense_id}/authorize`
+- `POST /api/v1/expenses/{expense_id}/reject`
 - `POST /api/v1/expenses/{expense_id}/observation`
 - `PATCH /api/v1/expenses/{expense_id}/review`
 - `POST /api/v1/expenses/{expense_id}/remove`

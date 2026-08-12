@@ -23,6 +23,7 @@ def _summary(
         expense_count=1,
         category_totals=[],
         removed_expense_ids=[],
+        rejected_expense_ids=[],
         missing_authorization_expense_ids=[],
         missing_receipt_expense_ids=[],
         missing_cfdi_expense_ids=[],

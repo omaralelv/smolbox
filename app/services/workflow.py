@@ -98,14 +98,12 @@ ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
     ),
     ReimbursementRequestStatus.rejected: TransitionRule(
         allowed_from={
-            ReimbursementRequestStatus.authorization_review,
             ReimbursementRequestStatus.under_accounting_review,
             ReimbursementRequestStatus.accounting_manager_review,
             ReimbursementRequestStatus.treasury_review,
             ReimbursementRequestStatus.direction_review,
         },
         allowed_roles={
-            UserRole.authorizer,
             UserRole.accountant,
             UserRole.accounting_manager,
             UserRole.treasury,

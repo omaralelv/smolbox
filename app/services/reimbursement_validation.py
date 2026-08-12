@@ -43,6 +43,7 @@ def summarize_reimbursement_request(
     missing_receipt_expense_ids: list[UUID] = []
     missing_authorization_expense_ids: list[UUID] = []
     removed_expense_ids: list[UUID] = []
+    rejected_expense_ids: list[UUID] = []
     missing_cfdi_expense_ids: list[UUID] = []
     out_of_period_expense_ids: list[UUID] = []
     duplicate_cfdi_uuids: list[str] = []
@@ -58,6 +59,9 @@ def summarize_reimbursement_request(
     for expense in request.expenses:
         if _is_removed(expense):
             removed_expense_ids.append(expense.id)
+            continue
+        if _is_rejected(expense):
+            rejected_expense_ids.append(expense.id)
             continue
 
         active_expenses.append(expense)
@@ -191,6 +195,7 @@ def summarize_reimbursement_request(
             for category, total in sorted(category_totals.items())
         ],
         removed_expense_ids=removed_expense_ids,
+        rejected_expense_ids=rejected_expense_ids,
         missing_authorization_expense_ids=missing_authorization_expense_ids,
         missing_receipt_expense_ids=missing_receipt_expense_ids,
         missing_cfdi_expense_ids=missing_cfdi_expense_ids,
@@ -227,6 +232,11 @@ def _is_removed(expense: ExpenseLike) -> bool:
         return True
     status = getattr(expense, "status", None)
     return getattr(status, "value", status) == "removed"
+
+
+def _is_rejected(expense: ExpenseLike) -> bool:
+    status = getattr(expense, "status", None)
+    return getattr(status, "value", status) == "rejected"
 
 
 def _requires_authorization(expense: ExpenseLike) -> bool:

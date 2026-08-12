@@ -571,6 +571,7 @@ TEST_HUD_HTML = """<!doctype html>
             <button class="btn primary flow-btn" data-target="submitted">Enviar tienda</button>
             <button class="btn flow-btn" data-target="authorization_review">Revisión autorización</button>
             <button class="btn success" id="authorizeExpensesBtn">Autorizar gastos</button>
+            <button class="btn warning" id="rejectAuthorizationExpenseBtn">Rechazar producto</button>
             <button class="btn success flow-btn" data-target="authorized">Autorizar solicitud</button>
             <button class="btn flow-btn" data-target="under_accounting_review">Revisión contable</button>
             <button class="btn warning flow-btn" data-target="correction_required">Pedir corrección</button>
@@ -757,7 +758,7 @@ TEST_HUD_HTML = """<!doctype html>
       const hasScenario = Boolean(state?.scenario?.exists);
       const hasStores = Boolean(state?.workspace?.stores?.length);
       const hasUsers = Boolean(state?.workspace?.users?.length);
-      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #prepareSapPolicyBtn").forEach((button) => {
+      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, #prepareSapPolicyBtn").forEach((button) => {
         button.disabled = !hasScenario;
       });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
@@ -861,7 +862,7 @@ TEST_HUD_HTML = """<!doctype html>
                 <td>${authBadge(expense)}</td>
                 <td>${badge(expense.has_receipt)}</td>
                 <td>${badge(expense.has_current_valid_cfdi)}</td>
-                <td>${expense.is_removed ? "<span class='state bad'>Removido</span>" : "<span class='state ok'>Activo</span>"}</td>
+                <td>${expenseStatusBadge(expense)}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -875,7 +876,20 @@ TEST_HUD_HTML = """<!doctype html>
         : "<span class='state warn'>Pendiente</span>";
     }
 
+    function expenseStatusBadge(expense) {
+      if (expense.is_rejected) {
+        return "<span class='state bad'>Rechazado</span>";
+      }
+      if (expense.is_removed) {
+        return "<span class='state bad'>Removido</span>";
+      }
+      return "<span class='state ok'>Activo</span>";
+    }
+
     function authBadge(expense) {
+      if (expense.is_rejected) {
+        return "<span class='state bad'>Rechazado</span>";
+      }
       if (!expense.requires_authorization) {
         return "<span class='state ok'>No requiere</span>";
       }
@@ -1017,6 +1031,9 @@ TEST_HUD_HTML = """<!doctype html>
     ));
     $("#authorizeExpensesBtn").addEventListener("click", () => runAction("Gastos autorizados", () =>
       request("/dev-hud/authorize-expenses", { method: "POST" })
+    ));
+    $("#rejectAuthorizationExpenseBtn").addEventListener("click", () => runAction("Producto rechazado", () =>
+      request("/dev-hud/reject-authorization-expense", { method: "POST" })
     ));
     $("#prepareSapPolicyBtn").addEventListener("click", () => runAction("Póliza SAP preparada", () =>
       request("/dev-hud/prepare-sap-policy", { method: "POST" })

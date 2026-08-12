@@ -35,8 +35,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Flujo de estados de solicitud alineado al proceso empresarial: tienda, autorizacion,
   contabilidad, gerente de contabilidad, tesoreria, direccion, pago y cierre.
 - Endpoint de transicion de estado con validacion de rol y reglas minimas de negocio.
-- Acciones por gasto para autorizar, observar, editar durante revision contable/gerencial
-  y remover con motivo obligatorio sin borrar historial.
+- Acciones por gasto para autorizar, rechazar en autorizacion, observar, editar durante
+  revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
 - Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI y cambios de estado.
 - Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
   invalidos, autorizaciones pendientes y readiness para envio/autorizacion/aprobacion
@@ -136,12 +136,14 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 9. Crear usuarios internos en `POST /api/v1/users`.
 10. Asignar usuarios a tienda con `POST /api/v1/stores/{store_id}/users`.
 11. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
-12. Preparar la poliza SAP placeholder con
+12. Rechazar un gasto/producto individual de autorizacion, si no procede, con
+   `POST /api/v1/expenses/{expense_id}/reject`.
+13. Preparar la poliza SAP placeholder con
    `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`.
-13. Revisar auditoria con
+14. Revisar auditoria con
    `GET /api/v1/reimbursement-requests/{request_id}/audit-events`.
-14. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
-15. Importar gastos desde Excel/CSV con
+15. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
+16. Importar gastos desde Excel/CSV con
    `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`.
 
 Flujo de estados esperado:
@@ -164,15 +166,17 @@ draft
 -> closed
 ```
 
-Durante revision se puede regresar a `correction_required` o rechazar con `rejected`.
-Los gastos que tienen `requires_authorization=true` deben autorizarse antes de mover la
-solicitud a `authorized`.
+Durante autorizacion, si un gasto/producto no procede, se rechaza solo ese gasto con
+`POST /api/v1/expenses/{expense_id}/reject`; la solicitud puede seguir con los gastos
+restantes si el total queda cuadrado. Los gastos que tienen `requires_authorization=true`
+deben autorizarse o rechazarse antes de mover la solicitud a `authorized`.
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
 `Crear escenario`, luego prueba `Enviar tienda`, `Revision autorizacion`, `Autorizar gastos`,
-`Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`, `Cerrar contabilidad`,
-`Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`, `Revision tesoreria`,
-`Enviar direccion`, `Aprobar direccion`, `Aprobar pago`, `Marcar pagado` y `Cerrar`.
+o `Rechazar producto`, `Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`,
+`Cerrar contabilidad`, `Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`,
+`Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`, `Aprobar pago`, `Marcar pagado`
+y `Cerrar`.
 
 El HUD tambien permite crear tiendas y usuarios con prefijo/dominio `HUD`, asignar un
 usuario tienda o contador a una tienda y crear un pago/gasto dentro de la solicitud demo.

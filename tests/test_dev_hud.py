@@ -13,6 +13,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Personalizar escenario" in TEST_HUD_HTML
     assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
+    assert "Rechazar producto" in TEST_HUD_HTML
     assert "Preparar póliza SAP" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML
 
@@ -109,9 +110,30 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     assert reset.status_code == 200, reset.text
     assert reset.json()["deleted"]["reimbursement_requests"] == 1
 
+
+def test_dev_hud_can_reject_one_authorization_expense(client: TestClient) -> None:
+    seeded = client.post("/api/v1/dev-hud/seed-demo")
+    assert seeded.status_code == 201, seeded.text
+
+    submitted = client.post("/api/v1/dev-hud/transition/submitted")
+    assert submitted.status_code == 200, submitted.text
+    authorization_review = client.post("/api/v1/dev-hud/transition/authorization_review")
+    assert authorization_review.status_code == 200, authorization_review.text
+
+    rejected = client.post("/api/v1/dev-hud/reject-authorization-expense")
+    assert rejected.status_code == 200, rejected.text
+    scenario = rejected.json()["scenario"]
+    assert scenario["summary"]["ready_for_authorization_approval"] is True
+    assert len(scenario["summary"]["rejected_expense_ids"]) == 1
+    assert any(expense["is_rejected"] for expense in scenario["expenses"])
+
+    authorized = client.post("/api/v1/dev-hud/transition/authorized")
+    assert authorized.status_code == 200, authorized.text
+    assert authorized.json()["to_status"] == "authorized"
+
     final_status = client.get("/api/v1/dev-hud/status")
     assert final_status.status_code == 200, final_status.text
-    assert final_status.json()["scenario"]["exists"] is False
+    assert final_status.json()["scenario"]["status"] == "authorized"
 
 
 def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
