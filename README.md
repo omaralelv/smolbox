@@ -92,6 +92,17 @@ docker compose down -v
 docker compose up --build
 ```
 
+## Datos de prueba
+
+El repo incluye datos ficticios para pruebas manuales en `docs/test-data`:
+
+- escenarios JSON para sembrar el HUD;
+- CSV validos e invalidos para importacion masiva;
+- XML CFDI ficticios para validacion;
+- un PDF minimo para probar subida de comprobantes.
+
+La guia de uso esta en `docs/test-data/README.md`.
+
 ## Desarrollo sin Docker
 
 ```bash

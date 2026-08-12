@@ -1,0 +1,40 @@
+{
+  "reset_existing": true,
+  "store_code": "HUD-ERRORES",
+  "store_name": "HUD Tienda Errores",
+  "contact_email": "hud.store@hud.smolbox.local",
+  "assigned_accountant": "HUD Usuario Contador",
+  "period_name": "HUD Agosto 2026 Errores",
+  "starts_on": "2026-08-01",
+  "ends_on": "2026-08-31",
+  "reported_total": "2000.00",
+  "previous_reimbursement_starts_on": "2026-07-01",
+  "previous_reimbursement_ends_on": "2026-07-31",
+  "previous_reimbursement_amount": "1450.00",
+  "notes": "Escenario intencionalmente incorrecto para ver bloqueos de validacion.",
+  "expenses": [
+    {
+      "merchant": "Factura Sin Comprobante",
+      "amount": "900.00",
+      "currency": "MXN",
+      "spent_on": "2026-08-09",
+      "category": "mantenimiento",
+      "description": "No crea recibo para probar missing_receipts.",
+      "supplier_tax_id": "FSC010101CC1",
+      "requires_authorization": false,
+      "create_receipt": false
+    },
+    {
+      "merchant": "Total No Cuadra",
+      "amount": "750.00",
+      "currency": "MXN",
+      "spent_on": "2026-08-10",
+      "category": "operacion",
+      "description": "El total reportado no coincide con la suma.",
+      "supplier_tax_id": "TNC010101DD1",
+      "requires_authorization": true,
+      "create_receipt": true
+    }
+  ]
+}
+

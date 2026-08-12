@@ -1,0 +1,5 @@
+proveedor,importe,fecha,categoria,descripcion,rfc_proveedor,moneda,requiere_autorizacion
+Taxi Local Norte,420.50,2026-08-08,transporte,Traslado operativo,TLN010101AB1,MXN,true
+Compra Emergencia,1250.00,2026-08-11,operacion,Compra fuera de presupuesto,CEM010101FF1,MXN,true
+Agua Tienda,180.00,2026-08-13,servicios,Servicio menor de tienda,AGT010101GG1,MXN,false
+
