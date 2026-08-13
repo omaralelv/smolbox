@@ -242,6 +242,65 @@ TEST_HUD_HTML = """<!doctype html>
 	      grid-column: 1 / -1;
 	    }
 
+	    .scenario-list {
+	      display: grid;
+	      gap: 10px;
+	    }
+
+	    .scenario-card {
+	      width: 100%;
+	      display: grid;
+	      grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(90px, 0.7fr));
+	      align-items: center;
+	      gap: 12px;
+	      padding: 12px;
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      background: var(--panel);
+	      color: var(--ink);
+	      cursor: pointer;
+	      text-align: left;
+	    }
+
+	    .scenario-card:hover {
+	      border-color: #94a3b8;
+	      background: #f8fafc;
+	    }
+
+	    .scenario-card.active {
+	      border-color: var(--blue);
+	      background: #eef5ff;
+	      box-shadow: inset 3px 0 0 var(--blue);
+	    }
+
+	    .scenario-card strong,
+	    .scenario-card span {
+	      overflow-wrap: anywhere;
+	    }
+
+	    .scenario-card small {
+	      display: block;
+	      margin-top: 4px;
+	      color: var(--muted);
+	      font-size: 12px;
+	    }
+
+	    .scenario-card .metric-mini {
+	      display: grid;
+	      gap: 4px;
+	    }
+
+	    .scenario-card .metric-mini span {
+	      color: var(--muted);
+	      font-size: 11px;
+	      font-weight: 760;
+	      text-transform: uppercase;
+	    }
+
+	    .scenario-card .metric-mini strong {
+	      font-size: 13px;
+	    }
+
 	    .product-tabs {
 	      display: flex;
 	      flex-wrap: wrap;
@@ -641,6 +700,7 @@ TEST_HUD_HTML = """<!doctype html>
 
 	      .layout,
 	      .split,
+	      .scenario-card,
 	      .product-shell,
 	      .product-workspace {
 	        grid-template-columns: 1fr;
@@ -674,6 +734,10 @@ TEST_HUD_HTML = """<!doctype html>
 	      .product-detail-grid,
 	      .product-nav {
 	        grid-template-columns: 1fr 1fr;
+	      }
+
+	      .scenario-card {
+	        grid-template-columns: 1fr;
 	      }
 
 	      .product-titlebar,
@@ -749,7 +813,7 @@ TEST_HUD_HTML = """<!doctype html>
               <input class="input" id="scenarioEndsOn" type="date" value="2026-08-31" />
             </label>
             <label class="checkline full">
-              <input id="scenarioResetExisting" type="checkbox" checked />
+              <input id="scenarioResetExisting" type="checkbox" />
               Reemplazar datos HUD existentes
             </label>
           </div>
@@ -793,27 +857,37 @@ TEST_HUD_HTML = """<!doctype html>
               Gasto 2 requiere autorización previa
             </label>
           </div>
-          <div id="scenarioRows"></div>
-	        </section>
+	          <div id="scenarioRows"></div>
+		        </section>
 
-	        <section class="card panel">
-	          <div class="panel-head">
-	            <div>
-	              <h2>2. Vista producto</h2>
-	              <p class="subtle">Ventanas por rol para probar como usuario final.</p>
-	            </div>
-	          </div>
+		        <section class="card panel">
+		          <div class="panel-head">
+		            <div>
+		              <h2>2. Solicitudes HUD</h2>
+		              <p class="subtle">Selecciona una solicitud para probar su flujo.</p>
+		            </div>
+		          </div>
+		          <div class="scenario-list" id="scenarioList"></div>
+		        </section>
+
+		        <section class="card panel">
+		          <div class="panel-head">
+		            <div>
+		              <h2>3. Vista producto</h2>
+		              <p class="subtle">Ventanas por rol para probar como usuario final.</p>
+		            </div>
+		          </div>
 	          <div class="product-tabs" id="productTabs"></div>
 	          <div class="product-window" id="productPreview"></div>
 	        </section>
 
-	        <section class="card panel">
-	          <div class="panel-head">
-	            <div>
-	              <h2>3. Flujo usuario final</h2>
-	              <p class="subtle">Recorrido por rol con acciones equivalentes al proceso real.</p>
-	            </div>
-	          </div>
+		        <section class="card panel">
+		          <div class="panel-head">
+		            <div>
+		              <h2>4. Flujo usuario final</h2>
+		              <p class="subtle">Recorrido por rol con acciones equivalentes al proceso real.</p>
+		            </div>
+		          </div>
           <div class="user-flow">
             <div class="user-flow-row">
               <div class="role">
@@ -1143,6 +1217,7 @@ TEST_HUD_HTML = """<!doctype html>
 	    let authToken = null;
 	    let authUser = null;
 	    let activeProductRole = "store";
+	    let activeRequestId = window.localStorage.getItem("smolbox.devHud.activeRequestId");
 
 	    const $ = (selector) => document.querySelector(selector);
 	    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -1450,23 +1525,54 @@ TEST_HUD_HTML = """<!doctype html>
       });
     }
 
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
+	    function escapeHtml(value) {
+	      return String(value ?? "")
+	        .replace(/&/g, "&amp;")
+	        .replace(/</g, "&lt;")
+	        .replace(/>/g, "&gt;")
+	        .replace(/"/g, "&quot;")
+	        .replace(/'/g, "&#039;");
+	    }
 
-    async function loadStatus() {
-      try {
-        state = await request("/dev-hud/status");
-        render();
-      } catch (error) {
-        writeConsole("No se pudo cargar el estado", error);
-      }
-    }
+	    function selectedRequestQuery() {
+	      return activeRequestId ? `?request_id=${encodeURIComponent(activeRequestId)}` : "";
+	    }
+
+	    function selectedDevHudPath(path) {
+	      return `${path}${selectedRequestQuery()}`;
+	    }
+
+	    function persistActiveRequestId() {
+	      if (activeRequestId) {
+	        window.localStorage.setItem("smolbox.devHud.activeRequestId", activeRequestId);
+	      } else {
+	        window.localStorage.removeItem("smolbox.devHud.activeRequestId");
+	      }
+	    }
+
+	    function syncActiveRequestFromState() {
+	      if (state?.scenario?.request_id) {
+	        activeRequestId = state.scenario.request_id;
+	      } else if (!(state?.scenarios || []).length) {
+	        activeRequestId = null;
+	      }
+	      persistActiveRequestId();
+	    }
+
+	    async function loadStatus() {
+	      try {
+	        state = await request(selectedDevHudPath("/dev-hud/status"));
+	        if (activeRequestId && !state?.scenario?.exists && (state?.scenarios || []).length) {
+	          activeRequestId = state.scenarios[0].request_id;
+	          persistActiveRequestId();
+	          state = await request(selectedDevHudPath("/dev-hud/status"));
+	        }
+	        syncActiveRequestFromState();
+	        render();
+	      } catch (error) {
+	        writeConsole("No se pudo cargar el estado", error);
+	      }
+	    }
 
     async function runAction(label, fn) {
       setBusy(true);
@@ -1584,6 +1690,7 @@ TEST_HUD_HTML = """<!doctype html>
     function render() {
 	      renderStats();
 	      renderScenario();
+	      renderScenarioList();
 	      renderProductPreview();
 	      renderWorkspaceSelectors();
       renderExpenses();
@@ -1618,11 +1725,11 @@ TEST_HUD_HTML = """<!doctype html>
       return `<div class="row"><strong>${label}</strong><span class="mono">${value ?? "-"}</span></div>`;
     }
 
-	    function renderScenario() {
-	      const scenario = state?.scenario;
-	      if (!scenario?.exists) {
-	        $("#scenarioRows").innerHTML = row("Estado", "Sin escenario HUD");
-	        return;
+		    function renderScenario() {
+		      const scenario = state?.scenario;
+		      if (!scenario?.exists) {
+		        $("#scenarioRows").innerHTML = row("Estado", "Sin escenario HUD");
+		        return;
       }
       $("#scenarioRows").innerHTML = [
         row("Solicitud", scenario.request_id),
@@ -1637,6 +1744,39 @@ TEST_HUD_HTML = """<!doctype html>
         row("Usuario tesorería", scenario.users.treasury?.email),
 	        row("Dirección", scenario.users.director?.email)
 	      ].join("");
+	    }
+
+	    function renderScenarioList() {
+	      const scenarios = state?.scenarios || [];
+	      if (!scenarios.length) {
+	        $("#scenarioList").innerHTML = `
+	          <div class="notice">No hay solicitudes HUD creadas.</div>
+	        `;
+	        return;
+	      }
+	      $("#scenarioList").innerHTML = scenarios.map((scenario) => `
+	        <button
+	          class="scenario-card ${scenario.request_id === activeRequestId ? "active" : ""}"
+	          data-request-id="${escapeHtml(scenario.request_id)}"
+	        >
+	          <span>
+	            <strong>${escapeHtml(scenario.store_code)} / ${escapeHtml(scenario.period_name)}</strong>
+	            <small>${escapeHtml(scenario.store_name)}</small>
+	          </span>
+	          <span class="metric-mini">
+	            <span>Estado</span>
+	            <strong>${escapeHtml(scenario.status)}</strong>
+	          </span>
+	          <span class="metric-mini">
+	            <span>Total</span>
+	            <strong>${money(scenario.calculated_total)}</strong>
+	          </span>
+	          <span class="metric-mini">
+	            <span>Alertas</span>
+	            <strong>${scenario.issue_count || 0}</strong>
+	          </span>
+	        </button>
+	      `).join("");
 	    }
 
 	    function renderProductPreview() {
@@ -2114,9 +2254,9 @@ TEST_HUD_HTML = """<!doctype html>
       return value || null;
     }
 
-    function scenarioSeedPayload() {
-      return {
-        reset_existing: $("#scenarioResetExisting").checked,
+	    function scenarioSeedPayload() {
+	      return {
+	        reset_existing: $("#scenarioResetExisting").checked,
         store_code: $("#scenarioStoreCode").value,
         store_name: $("#scenarioStoreName").value,
         contact_email: valueOrNull("#scenarioStoreEmail"),
@@ -2143,11 +2283,25 @@ TEST_HUD_HTML = """<!doctype html>
             requires_authorization: $("#scenarioExpense2RequiresAuthorization").checked,
             create_receipt: true
           }
-        ]
-      };
-    }
+	        ]
+	      };
+	    }
 
-    async function importDemo(dryRun) {
+	    async function seedScenario() {
+	      const payload = await jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload());
+	      activeRequestId = payload.scenario?.request_id || activeRequestId;
+	      persistActiveRequestId();
+	      return payload;
+	    }
+
+	    async function resetHudData() {
+	      const payload = await request("/dev-hud/reset-demo", { method: "POST" });
+	      activeRequestId = null;
+	      persistActiveRequestId();
+	      return payload;
+	    }
+
+	    async function importDemo(dryRun) {
       const requestId = state?.scenario?.request_id;
       const form = new FormData();
       const csv = [
@@ -2367,15 +2521,15 @@ TEST_HUD_HTML = """<!doctype html>
 	    function executeUserFlowAction(action) {
 	      if (action.startsWith("transition:")) {
 	        const target = action.split(":")[1];
-	        return request(`/dev-hud/transition/${target}`, { method: "POST" });
+	        return request(selectedDevHudPath(`/dev-hud/transition/${target}`), { method: "POST" });
       }
       const actions = {
-        "seed-scenario": () => jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload()),
-        "automated-review": () => request("/dev-hud/automated-review", { method: "POST" }),
-        "complete-cfdi": () => request("/dev-hud/complete-cfdi", { method: "POST" }),
-        "authorize-expenses": () => request("/dev-hud/authorize-expenses", { method: "POST" }),
-        "reject-product": () => request("/dev-hud/reject-authorization-expense", { method: "POST" }),
-        "prepare-sap-policy": () => request("/dev-hud/prepare-sap-policy", { method: "POST" }),
+        "seed-scenario": seedScenario,
+        "automated-review": () => request(selectedDevHudPath("/dev-hud/automated-review"), { method: "POST" }),
+        "complete-cfdi": () => request(selectedDevHudPath("/dev-hud/complete-cfdi"), { method: "POST" }),
+        "authorize-expenses": () => request(selectedDevHudPath("/dev-hud/authorize-expenses"), { method: "POST" }),
+        "reject-product": () => request(selectedDevHudPath("/dev-hud/reject-authorization-expense"), { method: "POST" }),
+        "prepare-sap-policy": () => request(selectedDevHudPath("/dev-hud/prepare-sap-policy"), { method: "POST" }),
         "record-payment": registerPaymentAsDemoTreasury
       };
       const handler = actions[action];
@@ -2393,10 +2547,8 @@ TEST_HUD_HTML = """<!doctype html>
 	      return executeAuthAction(actionId);
 	    }
 
-    $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
-    $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", () =>
-      jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload())
-    ));
+	    $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
+	    $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", seedScenario));
     $("#createStoreBtn").addEventListener("click", () => runAction("Tienda creada", () =>
       jsonRequest("/dev-hud/stores", {
         code: $("#storeCode").value,
@@ -2417,35 +2569,35 @@ TEST_HUD_HTML = """<!doctype html>
         user_id: $("#assignUserId").value
       })
     ));
-    $("#resetBtn").addEventListener("click", () => {
-      if (!confirm("Limpiar solo datos HUD?")) return;
-      runAction("HUD limpiado", () => request("/dev-hud/reset-demo", { method: "POST" }));
-    });
-    $("#completeCfdiBtn").addEventListener("click", () => runAction("CFDI demo completado", () =>
-      request("/dev-hud/complete-cfdi", { method: "POST" })
-    ));
-    $("#automatedReviewBtn").addEventListener("click", () => runAction("Revision automatica", () =>
-      request("/dev-hud/automated-review", { method: "POST" })
-    ));
-    $("#authorizeExpensesBtn").addEventListener("click", () => runAction("Gastos autorizados", () =>
-      request("/dev-hud/authorize-expenses", { method: "POST" })
-    ));
-    $("#rejectAuthorizationExpenseBtn").addEventListener("click", () => runAction("Producto rechazado", () =>
-      request("/dev-hud/reject-authorization-expense", { method: "POST" })
-    ));
-    $("#prepareSapPolicyBtn").addEventListener("click", () => runAction("Póliza SAP preparada", () =>
-      request("/dev-hud/prepare-sap-policy", { method: "POST" })
-    ));
+	    $("#resetBtn").addEventListener("click", () => {
+	      if (!confirm("Limpiar solo datos HUD?")) return;
+	      runAction("HUD limpiado", resetHudData);
+	    });
+	    $("#completeCfdiBtn").addEventListener("click", () => runAction("CFDI demo completado", () =>
+	      request(selectedDevHudPath("/dev-hud/complete-cfdi"), { method: "POST" })
+	    ));
+	    $("#automatedReviewBtn").addEventListener("click", () => runAction("Revision automatica", () =>
+	      request(selectedDevHudPath("/dev-hud/automated-review"), { method: "POST" })
+	    ));
+	    $("#authorizeExpensesBtn").addEventListener("click", () => runAction("Gastos autorizados", () =>
+	      request(selectedDevHudPath("/dev-hud/authorize-expenses"), { method: "POST" })
+	    ));
+	    $("#rejectAuthorizationExpenseBtn").addEventListener("click", () => runAction("Producto rechazado", () =>
+	      request(selectedDevHudPath("/dev-hud/reject-authorization-expense"), { method: "POST" })
+	    ));
+	    $("#prepareSapPolicyBtn").addEventListener("click", () => runAction("Póliza SAP preparada", () =>
+	      request(selectedDevHudPath("/dev-hud/prepare-sap-policy"), { method: "POST" })
+	    ));
     $("#importDryRunBtn").addEventListener("click", () => runAction("CSV dry run", () =>
       importDemo(true)
     ));
     $("#importRealBtn").addEventListener("click", () => runAction("CSV importado", () =>
       importDemo(false)
     ));
-    $("#createPaymentBtn").addEventListener("click", () => runAction("Gasto creado", () =>
-      jsonRequest("/dev-hud/payments", {
-        merchant: $("#paymentMerchant").value,
-        amount: $("#paymentAmount").value,
+	    $("#createPaymentBtn").addEventListener("click", () => runAction("Gasto creado", () =>
+	      jsonRequest(selectedDevHudPath("/dev-hud/payments"), {
+	        merchant: $("#paymentMerchant").value,
+	        amount: $("#paymentAmount").value,
         spent_on: $("#paymentDate").value,
         category: $("#paymentCategory").value || null,
         requires_authorization: $("#paymentRequiresAuthorization").checked,
@@ -2453,15 +2605,22 @@ TEST_HUD_HTML = """<!doctype html>
       })
     ));
     $("#recordPaymentBtn").addEventListener("click", () => runAction("Pago registrado", registerPaymentAsDemoTreasury));
-    $$(".flow-btn").forEach((button) => {
-      button.addEventListener("click", () => runAction(`Transición ${button.dataset.target}`, () =>
-        request(`/dev-hud/transition/${button.dataset.target}`, { method: "POST" })
-      ));
-    });
+	    $$(".flow-btn").forEach((button) => {
+	      button.addEventListener("click", () => runAction(`Transición ${button.dataset.target}`, () =>
+	        request(selectedDevHudPath(`/dev-hud/transition/${button.dataset.target}`), { method: "POST" })
+	      ));
+	    });
 	    $$(".user-flow-btn").forEach((button) => {
 	      button.addEventListener("click", () =>
 	        runAction(button.textContent.trim(), () => executeUserFlowAction(button.dataset.action))
 	      );
+	    });
+	    $("#scenarioList").addEventListener("click", (event) => {
+	      const button = event.target.closest(".scenario-card");
+	      if (!button) return;
+	      activeRequestId = button.dataset.requestId;
+	      persistActiveRequestId();
+	      runAction("Solicitud seleccionada", async () => ({ request_id: activeRequestId }));
 	    });
 	    $("#productTabs").addEventListener("click", (event) => {
 	      const button = event.target.closest(".product-tab");
@@ -2488,9 +2647,9 @@ TEST_HUD_HTML = """<!doctype html>
       runAction(button.textContent.trim(), () => executeAuthAction(button.dataset.authAction));
     });
     $("#outOfPeriodBtn").addEventListener("click", () => runExpectedFailure(
-      "Gasto fuera de periodo bloqueado",
-      () => jsonRequest("/dev-hud/payments", {
-        merchant: "HUD Fuera de Periodo",
+	      "Gasto fuera de periodo bloqueado",
+	      () => jsonRequest(selectedDevHudPath("/dev-hud/payments"), {
+	        merchant: "HUD Fuera de Periodo",
         amount: "10.00",
         spent_on: "2026-09-30",
         category: "prueba",

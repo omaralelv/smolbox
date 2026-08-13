@@ -11,6 +11,10 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Crear usuario" in TEST_HUD_HTML
     assert "Agregar gasto" in TEST_HUD_HTML
     assert "Personalizar escenario" in TEST_HUD_HTML
+    assert "Solicitudes HUD" in TEST_HUD_HTML
+    assert "scenarioList" in TEST_HUD_HTML
+    assert "scenario-card" in TEST_HUD_HTML
+    assert "selectedDevHudPath" in TEST_HUD_HTML
     assert "Vista producto" in TEST_HUD_HTML
     assert "Ventanas por rol" in TEST_HUD_HTML
     assert "productTabs" in TEST_HUD_HTML
@@ -360,3 +364,55 @@ def test_dev_hud_seeds_custom_scenario(client: TestClient) -> None:
     status = client.get("/api/v1/dev-hud/status")
     assert status.status_code == 200, status.text
     assert status.json()["scenario"]["store_code"] == "HUD-CUSTOM"
+
+
+def test_dev_hud_can_target_multiple_scenarios_by_request_id(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/dev-hud/seed-demo",
+        json={
+            "reset_existing": True,
+            "store_code": "HUD-MULTI-1",
+            "store_name": "HUD Tienda Multiple 1",
+            "contact_email": "hud.multi.1@hud.smolbox.example.com",
+            "period_name": "HUD Agosto 2026",
+        },
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["scenario"]["request_id"]
+
+    second = client.post(
+        "/api/v1/dev-hud/seed-demo",
+        json={
+            "reset_existing": False,
+            "store_code": "HUD-MULTI-2",
+            "store_name": "HUD Tienda Multiple 2",
+            "contact_email": "hud.multi.2@hud.smolbox.example.com",
+            "period_name": "HUD Agosto 2026",
+        },
+    )
+    assert second.status_code == 201, second.text
+    second_id = second.json()["scenario"]["request_id"]
+    assert second_id != first_id
+
+    status = client.get("/api/v1/dev-hud/status")
+    assert status.status_code == 200, status.text
+    request_ids = {item["request_id"] for item in status.json()["scenarios"]}
+    assert {first_id, second_id}.issubset(request_ids)
+
+    selected_first = client.get(f"/api/v1/dev-hud/status?request_id={first_id}")
+    assert selected_first.status_code == 200, selected_first.text
+    assert selected_first.json()["scenario"]["store_code"] == "HUD-MULTI-1"
+
+    moved_first = client.post(f"/api/v1/dev-hud/transition/submitted?request_id={first_id}")
+    assert moved_first.status_code == 200, moved_first.text
+    assert moved_first.json()["scenario"]["store_code"] == "HUD-MULTI-1"
+    assert moved_first.json()["to_status"] == "submitted"
+
+    first_after_move = client.get(f"/api/v1/dev-hud/status?request_id={first_id}")
+    assert first_after_move.status_code == 200, first_after_move.text
+    assert first_after_move.json()["scenario"]["status"] == "submitted"
+
+    second_after_move = client.get(f"/api/v1/dev-hud/status?request_id={second_id}")
+    assert second_after_move.status_code == 200, second_after_move.text
+    assert second_after_move.json()["scenario"]["store_code"] == "HUD-MULTI-2"
+    assert second_after_move.json()["scenario"]["status"] == "draft"

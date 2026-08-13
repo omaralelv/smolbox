@@ -197,6 +197,7 @@ class HudScenarioCreate(BaseModel):
 def get_dev_hud_status(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
@@ -224,6 +225,7 @@ def get_dev_hud_status(
             "environment": settings.environment,
             "counts": {},
             "scenario": {"exists": False},
+            "scenarios": [],
         }
 
     return {
@@ -231,7 +233,8 @@ def get_dev_hud_status(
         "database": database_status,
         "environment": settings.environment,
         "counts": counts,
-        "scenario": _scenario_payload(db),
+        "scenario": _scenario_payload(db, request_id),
+        "scenarios": _scenario_list_payload(db),
         "workspace": _workspace_payload(db),
         "business_rules": _business_rules_payload(db),
     }
@@ -265,10 +268,11 @@ def seed_dev_hud_demo(
 def complete_dev_hud_cfdi(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -319,10 +323,11 @@ def complete_dev_hud_cfdi(
 def run_dev_hud_automated_review(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -365,10 +370,11 @@ def run_dev_hud_automated_review(
 def authorize_dev_hud_expenses(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -421,10 +427,11 @@ def authorize_dev_hud_expenses(
 def reject_dev_hud_authorization_expense(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -492,10 +499,11 @@ def reject_dev_hud_authorization_expense(
 def prepare_dev_hud_sap_policy(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -536,10 +544,11 @@ def transition_dev_hud_request(
     target_status: ReimbursementRequestStatus,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -601,6 +610,7 @@ def reset_dev_hud_demo(
         "message": "HUD demo data deleted",
         "deleted": deleted,
         "scenario": {"exists": False},
+        "scenarios": [],
     }
 
 
@@ -703,10 +713,11 @@ def create_dev_hud_payment(
     payment_in: HudPaymentCreate,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request_id: UUID | None = None,
 ) -> dict[str, Any]:
     _ensure_dev_hud_enabled(settings)
 
-    request = _load_demo_request(db)
+    request = _load_demo_request(db, request_id)
     if request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1161,10 +1172,9 @@ def _load_demo_request(db: Session, request_id: UUID | None = None) -> Reimburse
         )
         .order_by(ReimbursementRequest.created_at.desc())
     )
+    statement = statement.where(Store.code.like("HUD-%"), Period.name.like("HUD %"))
     if request_id is not None:
         statement = statement.where(ReimbursementRequest.id == request_id)
-    else:
-        statement = statement.where(Store.code.like("HUD-%"), Period.name.like("HUD %"))
     return db.scalars(statement).first()
 
 
@@ -1210,6 +1220,43 @@ def _scenario_payload(db: Session, request_id: UUID | None = None) -> dict[str, 
             }
             for event in audit_events[:10]
         ],
+    }
+
+
+def _scenario_list_payload(db: Session) -> list[dict[str, Any]]:
+    statement = (
+        select(ReimbursementRequest)
+        .join(Store)
+        .join(Period)
+        .options(
+            selectinload(ReimbursementRequest.store),
+            selectinload(ReimbursementRequest.period),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+        )
+        .where(Store.code.like("HUD-%"), Period.name.like("HUD %"))
+        .order_by(ReimbursementRequest.created_at.desc())
+        .limit(100)
+    )
+    return [_scenario_list_item_payload(request) for request in db.scalars(statement)]
+
+
+def _scenario_list_item_payload(request: ReimbursementRequest) -> dict[str, Any]:
+    summary = summarize_reimbursement_request(request).model_dump(mode="json")
+    return {
+        "request_id": request.id,
+        "status": request.status.value,
+        "store_code": request.store.code,
+        "store_name": request.store.name,
+        "period_name": request.period.name,
+        "reported_total": summary["reported_total"],
+        "calculated_total": summary["calculated_total"],
+        "difference": summary["difference"],
+        "expense_count": summary["expense_count"],
+        "issue_count": len(summary["issues"]),
+        "authorization_pending_count": len(summary["missing_authorization_expense_ids"]),
+        "sap_policy_prepared": request.sap_policy_generated_at is not None,
+        "created_at": request.created_at,
     }
 
 
