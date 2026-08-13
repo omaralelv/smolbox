@@ -15,7 +15,10 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Sesión de prueba" in TEST_HUD_HTML
     assert "Crear solicitud" in TEST_HUD_HTML
     assert "Revisar automáticamente" in TEST_HUD_HTML
-    assert "Transición con sesión" in TEST_HUD_HTML
+    assert "Acciones disponibles" in TEST_HUD_HTML
+    assert "Iniciar o cambiar sesión" in TEST_HUD_HTML
+    assert "Cerrar sesión" in TEST_HUD_HTML
+    assert "Ver mi cola" in TEST_HUD_HTML
     assert "Probar fuera de periodo" in TEST_HUD_HTML
     assert "Descargar recibo" in TEST_HUD_HTML
     assert "Reglas de negocio" in TEST_HUD_HTML
@@ -25,6 +28,11 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "jsonAuthRequest" in TEST_HUD_HTML
     assert "jsonAuthPatchRequest" in TEST_HUD_HTML
+    assert "roleActions" in TEST_HUD_HTML
+    assert "renderRoleActions" in TEST_HUD_HTML
+    assert "executeAuthAction" in TEST_HUD_HTML
+    assert "auth-action-btn" in TEST_HUD_HTML
+    assert "/work-queue/me" in TEST_HUD_HTML
     assert "/business-rules/" in TEST_HUD_HTML
     assert "/download/me" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML

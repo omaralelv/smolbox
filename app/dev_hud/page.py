@@ -231,6 +231,17 @@ TEST_HUD_HTML = """<!doctype html>
       gap: 8px;
     }
 
+    .session-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .session-actions .notice {
+      grid-column: 1 / -1;
+    }
+
     .user-flow {
       display: grid;
       gap: 0;
@@ -476,7 +487,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Escenario HUD</h2>
+              <h2>1. Escenario HUD</h2>
               <p class="subtle">Datos aislados con prefijo HUD.</p>
             </div>
             <div class="toolbar">
@@ -566,7 +577,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Flujo usuario final</h2>
+              <h2>3. Flujo usuario final</h2>
               <p class="subtle">Recorrido por rol con acciones equivalentes al proceso real.</p>
             </div>
           </div>
@@ -616,7 +627,6 @@ TEST_HUD_HTML = """<!doctype html>
                 <button class="btn user-flow-btn" data-action="transition:under_accounting_review">Tomar revisión</button>
                 <button class="btn warning user-flow-btn" data-action="transition:correction_required">Pedir corrección</button>
                 <button class="btn success user-flow-btn" data-action="transition:accounting_reviewed">Cerrar revisión</button>
-                <button class="btn warning" id="flowRemoveExpenseBtn">Quitar gasto</button>
                 <button class="btn success user-flow-btn" data-action="prepare-sap-policy">Preparar póliza SAP</button>
               </div>
             </div>
@@ -661,7 +671,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Crear y asignar</h2>
+              <h2>Herramientas de datos</h2>
               <p class="subtle">Herramientas locales para tiendas y usuarios HUD.</p>
             </div>
           </div>
@@ -731,7 +741,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Flujo</h2>
+              <h2>Flujo técnico rápido</h2>
               <p class="subtle">Transiciones con usuarios demo por rol.</p>
             </div>
           </div>
@@ -759,7 +769,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Gastos</h2>
+              <h2>Datos de la solicitud</h2>
               <p class="subtle">Filas actuales de la solicitud demo.</p>
             </div>
             <div class="toolbar">
@@ -767,6 +777,8 @@ TEST_HUD_HTML = """<!doctype html>
               <button class="btn" id="importRealBtn">Importar CSV</button>
               <button class="btn" id="automatedReviewBtn">Ejecutar automaticos</button>
               <button class="btn success" id="completeCfdiBtn">Completar CFDI demo</button>
+              <button class="btn warning" id="outOfPeriodBtn">Probar fuera de periodo</button>
+              <button class="btn warning" id="missingAttachmentBtn">Probar archivo 404</button>
             </div>
           </div>
           <div id="expenses"></div>
@@ -775,7 +787,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Crear pago/gasto</h2>
+              <h2>Agregar gasto de prueba</h2>
               <p class="subtle">Agrega un movimiento a la solicitud HUD en borrador.</p>
             </div>
           </div>
@@ -819,8 +831,8 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>Sesión de prueba</h2>
-              <p class="subtle">Simula el token que usará el frontend real.</p>
+              <h2>2. Sesión de prueba</h2>
+              <p class="subtle">Acciones visibles según rol y estado actual.</p>
             </div>
           </div>
           <div class="form-grid">
@@ -838,43 +850,14 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
           </div>
           <div class="toolbar">
-            <button class="btn primary" id="loginRoleBtn">Iniciar sesión</button>
+            <button class="btn primary" id="loginRoleBtn">Iniciar o cambiar sesión</button>
             <button class="btn" id="meBtn">Ver sesión</button>
+            <button class="btn" id="logoutBtn">Cerrar sesión</button>
           </div>
           <div id="authState"></div>
 
-          <h3 style="margin-top: 16px;">Acciones con token</h3>
-          <div class="form-grid">
-            <label class="field full">
-              <span>Transición</span>
-              <select class="input" id="authTransitionTarget">
-                <option value="submitted">Enviar solicitud</option>
-                <option value="authorization_review">Abrir autorización</option>
-                <option value="authorized">Enviar a contabilidad</option>
-                <option value="under_accounting_review">Tomar contabilidad</option>
-                <option value="accounting_reviewed">Cerrar contabilidad</option>
-                <option value="accounting_manager_review">Enviar gerente</option>
-                <option value="accounting_manager_approved">Aprobar gerente</option>
-                <option value="treasury_review">Revisar tesorería</option>
-                <option value="direction_review">Enviar dirección</option>
-                <option value="direction_approved">Aprobar dirección</option>
-                <option value="approved_for_payment">Liberar pago</option>
-                <option value="paid">Confirmar pago</option>
-                <option value="closed">Cerrar</option>
-              </select>
-            </label>
-          </div>
-          <div class="flow">
-            <button class="btn" id="authTransitionBtn">Transición con sesión</button>
-            <button class="btn success" id="authAuthorizeBtn">Autorizar producto</button>
-            <button class="btn warning" id="authRejectBtn">Rechazar producto</button>
-            <button class="btn warning" id="authRemoveBtn">Quitar gasto</button>
-            <button class="btn success" id="authSapBtn">Preparar SAP</button>
-            <button class="btn success" id="authPaymentBtn">Registrar pago</button>
-            <button class="btn warning" id="outOfPeriodBtn">Probar fuera de periodo</button>
-            <button class="btn" id="downloadReceiptBtn">Descargar recibo</button>
-            <button class="btn warning" id="missingAttachmentBtn">Probar archivo 404</button>
-          </div>
+          <h3 style="margin-top: 16px;">Acciones disponibles</h3>
+          <div id="authActions" class="session-actions"></div>
         </section>
 
         <section class="card panel">
@@ -929,6 +912,187 @@ TEST_HUD_HTML = """<!doctype html>
 
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+    const allHumanRoles = [
+      "store",
+      "authorizer",
+      "accountant",
+      "accounting_manager",
+      "treasury",
+      "director",
+      "admin"
+    ];
+    const roleActions = [
+      {
+        id: "transition:submitted",
+        label: "Enviar solicitud",
+        roles: ["store"],
+        statuses: ["draft", "correction_required"],
+        style: "primary"
+      },
+      {
+        id: "transition:authorization_review",
+        label: "Abrir autorización",
+        roles: ["authorizer"],
+        statuses: ["submitted"]
+      },
+      {
+        id: "authorize-expense",
+        label: "Autorizar producto",
+        roles: ["authorizer"],
+        statuses: ["authorization_review"],
+        style: "success"
+      },
+      {
+        id: "reject-expense",
+        label: "Rechazar producto",
+        roles: ["authorizer"],
+        statuses: ["authorization_review"],
+        style: "warning"
+      },
+      {
+        id: "transition:authorized",
+        label: "Enviar a contabilidad",
+        roles: ["authorizer"],
+        statuses: ["authorization_review"],
+        style: "success"
+      },
+      {
+        id: "transition:under_accounting_review",
+        label: "Tomar revisión contable",
+        roles: ["accountant"],
+        statuses: ["authorized"]
+      },
+      {
+        id: "transition:correction_required",
+        label: "Pedir corrección",
+        roles: ["authorizer"],
+        statuses: ["authorization_review"],
+        style: "warning"
+      },
+      {
+        id: "transition:correction_required",
+        label: "Pedir corrección",
+        roles: ["accountant"],
+        statuses: ["under_accounting_review"],
+        style: "warning"
+      },
+      {
+        id: "remove-expense",
+        label: "Quitar gasto",
+        roles: ["accountant"],
+        statuses: ["under_accounting_review"],
+        style: "warning"
+      },
+      {
+        id: "transition:accounting_reviewed",
+        label: "Cerrar contabilidad",
+        roles: ["accountant"],
+        statuses: ["under_accounting_review"],
+        style: "success"
+      },
+      {
+        id: "prepare-sap",
+        label: "Preparar póliza SAP",
+        roles: ["accountant"],
+        statuses: ["accounting_reviewed"],
+        style: "success"
+      },
+      {
+        id: "transition:accounting_manager_review",
+        label: "Recibir solicitud",
+        roles: ["accounting_manager"],
+        statuses: ["accounting_reviewed"],
+        requiresSap: true
+      },
+      {
+        id: "transition:correction_required",
+        label: "Pedir corrección",
+        roles: ["accounting_manager"],
+        statuses: ["accounting_manager_review"],
+        style: "warning"
+      },
+      {
+        id: "remove-expense",
+        label: "Quitar gasto",
+        roles: ["accounting_manager"],
+        statuses: ["accounting_manager_review"],
+        style: "warning"
+      },
+      {
+        id: "transition:accounting_manager_approved",
+        label: "Aprobar gerente",
+        roles: ["accounting_manager"],
+        statuses: ["accounting_manager_review"],
+        style: "success"
+      },
+      {
+        id: "transition:treasury_review",
+        label: "Tomar tesorería",
+        roles: ["treasury"],
+        statuses: ["accounting_manager_approved"]
+      },
+      {
+        id: "transition:correction_required",
+        label: "Pedir corrección",
+        roles: ["treasury"],
+        statuses: ["treasury_review"],
+        style: "warning"
+      },
+      {
+        id: "transition:direction_review",
+        label: "Enviar a dirección",
+        roles: ["treasury"],
+        statuses: ["treasury_review"]
+      },
+      {
+        id: "transition:correction_required",
+        label: "Pedir corrección",
+        roles: ["director"],
+        statuses: ["direction_review"],
+        style: "warning"
+      },
+      {
+        id: "transition:direction_approved",
+        label: "Aprobar dirección",
+        roles: ["director"],
+        statuses: ["direction_review"],
+        style: "success"
+      },
+      {
+        id: "transition:approved_for_payment",
+        label: "Liberar pago",
+        roles: ["treasury"],
+        statuses: ["direction_approved"],
+        style: "success"
+      },
+      {
+        id: "record-payment",
+        label: "Registrar pago",
+        roles: ["treasury"],
+        statuses: ["approved_for_payment"],
+        style: "success"
+      },
+      {
+        id: "transition:closed",
+        label: "Cerrar solicitud",
+        roles: ["treasury"],
+        statuses: ["paid"],
+        style: "success"
+      },
+      {
+        id: "view-queue",
+        label: "Ver mi cola",
+        roles: allHumanRoles,
+        statuses: null
+      },
+      {
+        id: "download-receipt",
+        label: "Descargar recibo",
+        roles: allHumanRoles,
+        statuses: null,
+        requiresReceipt: true
+      }
+    ];
 
     function money(value) {
       if (value === null || value === undefined) return "-";
@@ -1062,10 +1226,8 @@ TEST_HUD_HTML = """<!doctype html>
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
       $("#loginRoleBtn").disabled = !hasScenario;
       $("#meBtn").disabled = !authToken;
-      $$(
-        "#authTransitionBtn, #authAuthorizeBtn, #authRejectBtn, #authRemoveBtn, #authSapBtn, " +
-        "#authPaymentBtn, #downloadReceiptBtn, #flowRemoveExpenseBtn"
-      ).forEach((button) => {
+      $("#logoutBtn").disabled = !authToken;
+      $$(".auth-action-btn").forEach((button) => {
         button.disabled = !hasScenario || !hasSession;
       });
       $$("#outOfPeriodBtn, #missingAttachmentBtn").forEach((button) => {
@@ -1084,6 +1246,7 @@ TEST_HUD_HTML = """<!doctype html>
       renderValidation();
       renderAudit();
       renderAuthState();
+      renderRoleActions();
       renderBusinessRules();
       applyButtonState();
     }
@@ -1260,9 +1423,53 @@ TEST_HUD_HTML = """<!doctype html>
 
     function renderAuthState() {
       const label = authUser
-        ? `${authUser.role} / ${authUser.email}`
+        ? `${authUser.role} / ${authUser.email} / ${state?.scenario?.status || "sin estado"}`
         : "Sin sesión activa";
       $("#authState").innerHTML = row("Sesión", label);
+    }
+
+    function renderRoleActions() {
+      if (!authToken || !authUser) {
+        $("#authActions").innerHTML = `
+          <div class="notice">Inicia sesión para ver acciones por rol.</div>
+        `;
+        return;
+      }
+
+      const actions = availableRoleActions();
+      if (!actions.length) {
+        $("#authActions").innerHTML = `
+          <div class="notice">
+            Sin acciones disponibles para ${escapeHtml(authUser.role)}
+            en estado ${escapeHtml(state?.scenario?.status || "-")}.
+          </div>
+        `;
+        return;
+      }
+
+      $("#authActions").innerHTML = actions.map((action) => `
+        <button class="btn ${action.style || ""} auth-action-btn" data-auth-action="${action.id}">
+          ${escapeHtml(action.label)}
+        </button>
+      `).join("");
+    }
+
+    function availableRoleActions() {
+      const status = state?.scenario?.status;
+      if (!status) return [];
+      return roleActions.filter((action) => {
+        const roleAllowed = authUser?.role === "admin" || action.roles.includes(authUser?.role);
+        const statusAllowed = action.statuses === null || action.statuses.includes(status);
+        const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
+        const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
+        return roleAllowed && statusAllowed && sapReady && receiptReady;
+      });
+    }
+
+    function hasReceiptAttachment() {
+      return (state?.scenario?.expenses || []).some((item) =>
+        item.receipt_attachment_id && !item.is_removed && !item.is_rejected
+      );
     }
 
     function renderBusinessRules() {
@@ -1271,6 +1478,7 @@ TEST_HUD_HTML = """<!doctype html>
         $("#businessRules").innerHTML = "<p class='subtle'>Sin reglas configuradas.</p>";
         return;
       }
+      const canEdit = authUser?.role === "admin";
 
       $("#businessRules").innerHTML = rules.map((rule) => `
         <article class="rule-card">
@@ -1278,25 +1486,38 @@ TEST_HUD_HTML = """<!doctype html>
             <h3>${escapeHtml(rule.name)}</h3>
             <p class="subtle mono">${escapeHtml(rule.code)}</p>
           </div>
-          <label class="field">
-            <span>Descripción</span>
-            <textarea class="input textarea" data-rule-description="${escapeHtml(rule.code)}">${escapeHtml(rule.description)}</textarea>
-          </label>
-          <label class="field">
-            <span>Valor JSON</span>
-            <textarea class="input textarea" data-rule-value="${escapeHtml(rule.code)}">${escapeHtml(JSON.stringify(rule.value || {}, null, 2))}</textarea>
-          </label>
-          <label class="checkline">
-            <input data-rule-active="${escapeHtml(rule.code)}" type="checkbox" ${rule.is_active ? "checked" : ""} />
-            Regla activa
-          </label>
-          <div class="toolbar">
-            <button class="btn primary business-rule-save" data-rule-code="${escapeHtml(rule.code)}">
-              Guardar regla
-            </button>
-          </div>
+          ${canEdit ? editableBusinessRule(rule) : readonlyBusinessRule(rule)}
         </article>
       `).join("");
+    }
+
+    function editableBusinessRule(rule) {
+      return `
+        <label class="field">
+          <span>Descripción</span>
+          <textarea class="input textarea" data-rule-description="${escapeHtml(rule.code)}">${escapeHtml(rule.description)}</textarea>
+        </label>
+        <label class="field">
+          <span>Valor JSON</span>
+          <textarea class="input textarea" data-rule-value="${escapeHtml(rule.code)}">${escapeHtml(JSON.stringify(rule.value || {}, null, 2))}</textarea>
+        </label>
+        <label class="checkline">
+          <input data-rule-active="${escapeHtml(rule.code)}" type="checkbox" ${rule.is_active ? "checked" : ""} />
+          Regla activa
+        </label>
+        <div class="toolbar">
+          <button class="btn primary business-rule-save" data-rule-code="${escapeHtml(rule.code)}">
+            Guardar regla
+          </button>
+        </div>
+      `;
+    }
+
+    function readonlyBusinessRule(rule) {
+      return `
+        ${row("Estado", rule.is_active ? "Activa" : "Inactiva")}
+        ${row("Valor", escapeHtml(JSON.stringify(rule.value || {}, null, 2)))}
+      `;
     }
 
     function valueOrNull(selector) {
@@ -1373,6 +1594,14 @@ TEST_HUD_HTML = """<!doctype html>
       return payload;
     }
 
+    async function logoutRole() {
+      const previousUser = authUser;
+      authToken = null;
+      authUser = null;
+      render();
+      return { message: "Sesión cerrada", previous_user: previousUser };
+    }
+
     function scenarioRequestId() {
       const requestId = state?.scenario?.request_id;
       if (!requestId) {
@@ -1427,9 +1656,9 @@ TEST_HUD_HTML = """<!doctype html>
       };
     }
 
-    async function authenticatedTransition() {
+    async function transitionWithToken(targetStatus) {
       return jsonAuthRequest(`/reimbursement-requests/${scenarioRequestId()}/transition/me`, {
-        target_status: $("#authTransitionTarget").value,
+        target_status: targetStatus,
         note: "Transición desde HUD con token."
       });
     }
@@ -1473,6 +1702,45 @@ TEST_HUD_HTML = """<!doctype html>
         content_type: blob.type,
         size_bytes: blob.size
       };
+    }
+
+    async function viewWorkQueueWithToken() {
+      return request("/work-queue/me", { headers: authHeaders() });
+    }
+
+    function executeAuthAction(actionId) {
+      if (actionId.startsWith("transition:")) {
+        return transitionWithToken(actionId.split(":")[1]);
+      }
+      const actions = {
+        "authorize-expense": () => jsonAuthRequest(
+          `/expenses/${firstPendingAuthorizationExpense().id}/authorize/me`,
+          { note: "Autorizado desde HUD con token." }
+        ),
+        "reject-expense": () => jsonAuthRequest(
+          `/expenses/${firstPendingAuthorizationExpense().id}/reject/me`,
+          {
+            reason: "Rechazado desde HUD con token.",
+            adjust_reported_total: true
+          }
+        ),
+        "remove-expense": removeExpenseWithToken,
+        "prepare-sap": () => jsonAuthRequest(
+          `/reimbursement-requests/${scenarioRequestId()}/sap-policy/prepare/me`,
+          {
+            reference: "HUD-SAP-TOKEN",
+            note: "Preparado desde HUD con token."
+          }
+        ),
+        "record-payment": registerPaymentWithToken,
+        "download-receipt": downloadReceiptWithToken,
+        "view-queue": viewWorkQueueWithToken
+      };
+      const handler = actions[actionId];
+      if (!handler) {
+        throw { status: 400, payload: { message: `Acción no soportada: ${actionId}` } };
+      }
+      return handler();
     }
 
     function executeUserFlowAction(action) {
@@ -1568,36 +1836,12 @@ TEST_HUD_HTML = """<!doctype html>
     $("#meBtn").addEventListener("click", () => runAction("Sesión actual", () =>
       request("/auth/me", { headers: authHeaders() })
     ));
-    $("#authTransitionBtn").addEventListener("click", () => runAction("Transición autenticada", authenticatedTransition));
-    $("#authAuthorizeBtn").addEventListener("click", () => runAction("Producto autorizado con token", () =>
-      jsonAuthRequest(`/expenses/${firstPendingAuthorizationExpense().id}/authorize/me`, {
-        note: "Autorizado desde HUD con token."
-      })
-    ));
-    $("#authRejectBtn").addEventListener("click", () => runAction("Producto rechazado con token", () =>
-      jsonAuthRequest(`/expenses/${firstPendingAuthorizationExpense().id}/reject/me`, {
-        reason: "Rechazado desde HUD con token.",
-        adjust_reported_total: true
-      })
-    ));
-    $("#authRemoveBtn").addEventListener("click", () => runAction(
-      "Gasto quitado con token",
-      removeExpenseWithToken
-    ));
-    $("#flowRemoveExpenseBtn").addEventListener("click", () => runAction(
-      "Gasto quitado desde flujo",
-      removeExpenseWithToken
-    ));
-    $("#authSapBtn").addEventListener("click", () => runAction("SAP preparado con token", () =>
-      jsonAuthRequest(`/reimbursement-requests/${scenarioRequestId()}/sap-policy/prepare/me`, {
-        reference: "HUD-SAP-TOKEN",
-        note: "Preparado desde HUD con token."
-      })
-    ));
-    $("#authPaymentBtn").addEventListener("click", () => runAction(
-      "Pago registrado con token",
-      registerPaymentWithToken
-    ));
+    $("#logoutBtn").addEventListener("click", () => runAction("Sesión cerrada", logoutRole));
+    $("#authActions").addEventListener("click", (event) => {
+      const button = event.target.closest(".auth-action-btn");
+      if (!button) return;
+      runAction(button.textContent.trim(), () => executeAuthAction(button.dataset.authAction));
+    });
     $("#outOfPeriodBtn").addEventListener("click", () => runExpectedFailure(
       "Gasto fuera de periodo bloqueado",
       () => jsonRequest("/dev-hud/payments", {
