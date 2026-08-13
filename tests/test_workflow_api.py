@@ -362,7 +362,13 @@ def test_accounting_can_remove_expense_with_reason(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
     )
     assert audit_events.status_code == 200
-    assert "expense_removed_from_request" in {event["action"] for event in audit_events.json()}
+    removal_event = next(
+        event for event in audit_events.json() if event["action"] == "expense_removed_from_request"
+    )
+    assert removal_event["message"] == "Factura no procede"
+    assert removal_event["event_payload"]["original_amount"] == "500.00"
+    assert removal_event["event_payload"]["original_merchant"] == second_expense["merchant"]
+    assert removal_event["event_payload"]["previous_expense_status"] == "draft"
 
 
 def test_authenticated_transition_uses_token_user_and_blocks_wrong_role(

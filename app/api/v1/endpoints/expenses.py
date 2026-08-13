@@ -31,13 +31,9 @@ from app.schemas.expense import (
     ExpenseUpdate,
 )
 from app.services.permissions import user_can_transition_store_request
+from app.services.request_editability import is_request_editable
 
 router = APIRouter()
-
-EDITABLE_REQUEST_STATUSES = {
-    ReimbursementRequestStatus.draft,
-    ReimbursementRequestStatus.correction_required,
-}
 
 OBSERVATION_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
     ReimbursementRequestStatus.authorization_review: {UserRole.authorizer, UserRole.admin},
@@ -76,6 +72,10 @@ def create_expense(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Reimbursement request not found",
             )
+        _ensure_request_editable(
+            reimbursement_request,
+            message="Expenses can only be created while the request is draft or in correction.",
+        )
         if expense_data.get("period_id") is None:
             expense_data["period_id"] = reimbursement_request.period_id
         elif expense_data["period_id"] != reimbursement_request.period_id:
@@ -340,16 +340,10 @@ def update_expense(
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
 
-    if (
-        expense.reimbursement_request is not None
-        and expense.reimbursement_request.status not in EDITABLE_REQUEST_STATUSES
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "REQUEST_NOT_EDITABLE",
-                "message": "Expenses can only be edited while the request is draft or in correction.",
-            },
+    if expense.reimbursement_request is not None:
+        _ensure_request_editable(
+            expense.reimbursement_request,
+            message="Expenses can only be edited while the request is draft or in correction.",
         )
 
     updates = expense_in.model_dump(exclude_unset=True)
@@ -564,6 +558,11 @@ def _remove_expense_with_actor(
     _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
     _ensure_expense_not_excluded(expense)
 
+    original_amount = Decimal(expense.amount).quantize(Decimal("0.01"))
+    original_currency = expense.currency
+    original_merchant = expense.merchant
+    original_category = expense.category
+    original_status = expense.status
     expense.status = ExpenseStatus.removed
     expense.removed_at = datetime.now(UTC)
     expense.removed_by_user_id = actor.id
@@ -582,6 +581,11 @@ def _remove_expense_with_actor(
             event_payload={
                 "actor_role": actor.role.value,
                 "request_status": reimbursement_request.status.value,
+                "original_amount": str(original_amount),
+                "original_currency": original_currency,
+                "original_merchant": original_merchant,
+                "original_category": original_category,
+                "previous_expense_status": original_status.value,
                 "reported_total": str(reimbursement_request.reported_total),
                 "authenticated": require_store_assignment,
             },
@@ -651,6 +655,17 @@ def _attached_request_or_conflict(expense: Expense) -> ReimbursementRequest:
             },
         )
     return expense.reimbursement_request
+
+
+def _ensure_request_editable(reimbursement_request: ReimbursementRequest, *, message: str) -> None:
+    if not is_request_editable(reimbursement_request):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_EDITABLE",
+                "message": message,
+            },
+        )
 
 
 def _get_actor_or_404(actor_user_id: UUID, db: Session) -> User:

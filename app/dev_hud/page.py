@@ -587,9 +587,10 @@ TEST_HUD_HTML = """<!doctype html>
                 <strong>Tienda</strong>
                 <span>Captura caja chica</span>
               </div>
-              <div class="task">Crea la solicitud, carga gastos y la envía para revisión.</div>
+              <div class="task">Crea la solicitud, carga gastos, comprobantes y CFDI, y la envía para revisión.</div>
               <div class="actions">
                 <button class="btn primary user-flow-btn" data-action="seed-scenario">Crear solicitud</button>
+                <button class="btn success user-flow-btn" data-action="complete-cfdi">Completar CFDI</button>
                 <button class="btn user-flow-btn" data-action="transition:submitted">Enviar solicitud</button>
               </div>
             </div>
@@ -601,7 +602,6 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="task">Revisa comprobantes, CFDI, total, periodo, alertas y datos SAP.</div>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="automated-review">Revisar automáticamente</button>
-                <button class="btn success user-flow-btn" data-action="complete-cfdi">Simular CFDI</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -651,7 +651,7 @@ TEST_HUD_HTML = """<!doctype html>
                 <button class="btn user-flow-btn" data-action="transition:treasury_review">Revisar pago</button>
                 <button class="btn user-flow-btn" data-action="transition:direction_review">Enviar a dirección</button>
                 <button class="btn success user-flow-btn" data-action="transition:approved_for_payment">Liberar pago</button>
-                <button class="btn success user-flow-btn" data-action="transition:paid">Confirmar pago</button>
+                <button class="btn success user-flow-btn" data-action="record-payment">Registrar pago</button>
                 <button class="btn success user-flow-btn" data-action="transition:closed">Cerrar solicitud</button>
               </div>
             </div>
@@ -761,7 +761,7 @@ TEST_HUD_HTML = """<!doctype html>
             <button class="btn flow-btn" data-target="direction_review">Enviar dirección</button>
             <button class="btn success flow-btn" data-target="direction_approved">Aprobar dirección</button>
             <button class="btn success flow-btn" data-target="approved_for_payment">Aprobar pago</button>
-            <button class="btn success flow-btn" data-target="paid">Marcar pagado</button>
+            <button class="btn success" id="recordPaymentBtn">Registrar pago</button>
             <button class="btn success flow-btn" data-target="closed">Cerrar</button>
           </div>
         </section>
@@ -818,7 +818,7 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
           </div>
           <div class="toolbar">
-            <button class="btn primary" id="createPaymentBtn">Crear pago/gasto</button>
+            <button class="btn primary" id="createPaymentBtn">Agregar gasto</button>
           </div>
         </section>
       </div>
@@ -1213,15 +1213,20 @@ TEST_HUD_HTML = """<!doctype html>
       const hasUsers = Boolean(state?.workspace?.users?.length);
       const hasSession = Boolean(authToken);
       const canEditRules = Boolean(authToken && authUser?.role === "admin");
+      const isEditable = isEditableScenarioStatus();
       $$(
         ".flow-btn, #importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, " +
         "#createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, " +
-        "#prepareSapPolicyBtn"
+        "#prepareSapPolicyBtn, #recordPaymentBtn"
       ).forEach((button) => {
         button.disabled = !hasScenario;
       });
+      $$("#importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn").forEach((button) => {
+        button.disabled = !hasScenario || !isEditable;
+      });
+      $("#recordPaymentBtn").disabled = !hasScenario || state?.scenario?.status !== "approved_for_payment";
       $$(".user-flow-btn").forEach((button) => {
-        button.disabled = !hasScenario && button.dataset.action !== "seed-scenario";
+        button.disabled = !isUserFlowActionAvailable(button.dataset.action);
       });
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
       $("#loginRoleBtn").disabled = !hasScenario;
@@ -1236,6 +1241,19 @@ TEST_HUD_HTML = """<!doctype html>
       $$(".business-rule-save").forEach((button) => {
         button.disabled = !canEditRules;
       });
+    }
+
+    function isEditableScenarioStatus() {
+      return ["draft", "correction_required"].includes(state?.scenario?.status);
+    }
+
+    function isUserFlowActionAvailable(action) {
+      const hasScenario = Boolean(state?.scenario?.exists);
+      if (action === "seed-scenario") return true;
+      if (!hasScenario) return false;
+      if (action === "complete-cfdi") return isEditableScenarioStatus();
+      if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
+      return true;
     }
 
     function render() {
@@ -1678,6 +1696,25 @@ TEST_HUD_HTML = """<!doctype html>
       });
     }
 
+    async function registerPaymentAsDemoTreasury() {
+      const login = await jsonRequest("/auth/login", {
+        email: roleEmail("treasury"),
+        password: "hud-password"
+      });
+      return request(`/reimbursement-requests/${scenarioRequestId()}/payments/me`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${login.access_token}`
+        },
+        body: JSON.stringify({
+          reference: `HUD-PAGO-${Date.now()}`,
+          payment_method: "transfer",
+          note: "Pago registrado desde flujo usuario final HUD."
+        })
+      });
+    }
+
     async function downloadReceiptWithToken() {
       const attachmentId = firstReceiptAttachmentId();
       const response = await fetch(`${api}/attachments/${attachmentId}/download/me`, {
@@ -1754,7 +1791,8 @@ TEST_HUD_HTML = """<!doctype html>
         "complete-cfdi": () => request("/dev-hud/complete-cfdi", { method: "POST" }),
         "authorize-expenses": () => request("/dev-hud/authorize-expenses", { method: "POST" }),
         "reject-product": () => request("/dev-hud/reject-authorization-expense", { method: "POST" }),
-        "prepare-sap-policy": () => request("/dev-hud/prepare-sap-policy", { method: "POST" })
+        "prepare-sap-policy": () => request("/dev-hud/prepare-sap-policy", { method: "POST" }),
+        "record-payment": registerPaymentAsDemoTreasury
       };
       const handler = actions[action];
       if (!handler) {
@@ -1812,7 +1850,7 @@ TEST_HUD_HTML = """<!doctype html>
     $("#importRealBtn").addEventListener("click", () => runAction("CSV importado", () =>
       importDemo(false)
     ));
-    $("#createPaymentBtn").addEventListener("click", () => runAction("Pago/gasto creado", () =>
+    $("#createPaymentBtn").addEventListener("click", () => runAction("Gasto creado", () =>
       jsonRequest("/dev-hud/payments", {
         merchant: $("#paymentMerchant").value,
         amount: $("#paymentAmount").value,
@@ -1822,6 +1860,7 @@ TEST_HUD_HTML = """<!doctype html>
         keep_reported_total_balanced: $("#paymentBalanced").checked
       })
     ));
+    $("#recordPaymentBtn").addEventListener("click", () => runAction("Pago registrado", registerPaymentAsDemoTreasury));
     $$(".flow-btn").forEach((button) => {
       button.addEventListener("click", () => runAction(`Transición ${button.dataset.target}`, () =>
         request(`/dev-hud/transition/${button.dataset.target}`, { method: "POST" })
@@ -1852,10 +1891,6 @@ TEST_HUD_HTML = """<!doctype html>
         keep_reported_total_balanced: false
       }),
       "PAYMENT_OUTSIDE_PERIOD"
-    ));
-    $("#downloadReceiptBtn").addEventListener("click", () => runAction(
-      "Recibo listo para descargar",
-      downloadReceiptWithToken
     ));
     $("#missingAttachmentBtn").addEventListener("click", () => runExpectedFailure(
       "Archivo inexistente bloqueado",

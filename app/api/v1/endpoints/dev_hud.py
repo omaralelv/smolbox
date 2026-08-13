@@ -25,6 +25,7 @@ from app.models.user import User, UserRole
 from app.services.automation_review import build_automated_review
 from app.services.business_rules import ensure_default_business_rules
 from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.request_editability import is_request_editable
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.security import hash_password
 from app.services.storage import StorageService
@@ -272,6 +273,14 @@ def complete_dev_hud_cfdi(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "HUD_SCENARIO_NOT_FOUND", "message": "Create the HUD scenario first"},
+        )
+    if not is_request_editable(request):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_EDITABLE",
+                "message": "Complete HUD CFDI evidence while the request is draft or in correction",
+            },
         )
 
     storage = StorageService(settings.upload_dir, settings.max_upload_bytes)

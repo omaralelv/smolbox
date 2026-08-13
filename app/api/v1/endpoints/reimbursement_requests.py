@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -12,7 +13,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
-from app.models.expense import Expense
+from app.models.expense import Expense, ExpenseStatus
 from app.models.payment import Payment, PaymentStatus
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
@@ -39,6 +40,7 @@ from app.services.expense_import import ExpenseImportUnsupported, parse_expense_
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.request_editability import is_request_editable
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.storage import (
     EmptyUpload,
@@ -49,12 +51,6 @@ from app.services.storage import (
 from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
 
 router = APIRouter()
-
-EDITABLE_REQUEST_STATUSES = {
-    ReimbursementRequestStatus.draft,
-    ReimbursementRequestStatus.correction_required,
-}
-
 
 @router.post("/", response_model=ReimbursementRequestRead, status_code=status.HTTP_201_CREATED)
 def create_reimbursement_request(
@@ -451,12 +447,43 @@ def record_reimbursement_request_payment_as_current_user(
         )
 
     summary = summarize_reimbursement_request(reimbursement_request)
-    payment_amount = payment_in.amount or summary.calculated_total
+    expected_amount = summary.calculated_total.quantize(Decimal("0.01"))
+    payment_amount = (payment_in.amount or expected_amount).quantize(Decimal("0.01"))
+    if summary.expense_count == 0 or expected_amount <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "NO_PAYABLE_EXPENSES",
+                "message": "The request does not have an approved amount to pay",
+            },
+        )
+    payment_currency = payment_in.currency.upper()
+    expected_currency = _active_request_currency(reimbursement_request)
+    if payment_currency != expected_currency:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PAYMENT_CURRENCY_MISMATCH",
+                "message": "Payment currency must match the approved request currency",
+                "expected_currency": expected_currency,
+                "received_currency": payment_currency,
+            },
+        )
+    if payment_amount != expected_amount:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PAYMENT_AMOUNT_MISMATCH",
+                "message": "Payment amount must match the approved request total",
+                "expected_amount": str(expected_amount),
+                "received_amount": str(payment_amount),
+            },
+        )
     now = datetime.now(UTC)
     payment = Payment(
         reimbursement_request_id=reimbursement_request.id,
         amount=payment_amount,
-        currency=payment_in.currency,
+        currency=payment_currency,
         payment_method=payment_in.payment_method,
         reference=payment_in.reference,
         note=payment_in.note,
@@ -478,7 +505,7 @@ def record_reimbursement_request_payment_as_current_user(
             message=payment_in.note or "Payment recorded by treasury.",
             event_payload={
                 "amount": str(payment_amount),
-                "currency": payment_in.currency,
+                "currency": payment_currency,
                 "payment_method": payment_in.payment_method,
                 "reference": payment_in.reference,
             },
@@ -712,6 +739,8 @@ async def upload_reimbursement_request_attachment(
             detail="Request-level attachments must use the cash_box_format type",
         )
 
+    _ensure_request_editable(reimbursement_request)
+
     storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
     try:
         content = await read_upload_limited(file, settings.max_upload_bytes)
@@ -906,7 +935,7 @@ def _prepare_sap_policy_with_actor(
 
 
 def _ensure_request_editable(reimbursement_request: ReimbursementRequest) -> None:
-    if reimbursement_request.status not in EDITABLE_REQUEST_STATUSES:
+    if not is_request_editable(reimbursement_request):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -914,3 +943,30 @@ def _ensure_request_editable(reimbursement_request: ReimbursementRequest) -> Non
                 "message": "Requests can only be edited while draft or in correction.",
             },
         )
+
+
+def _active_request_currency(reimbursement_request: ReimbursementRequest) -> str:
+    currencies = {
+        expense.currency.upper()
+        for expense in reimbursement_request.expenses
+        if expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
+        and expense.removed_at is None
+    }
+    if len(currencies) == 1:
+        return currencies.pop()
+    if not currencies:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "NO_PAYABLE_EXPENSES",
+                "message": "The request does not have active expenses to pay",
+            },
+        )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "MULTI_CURRENCY_REQUEST",
+            "message": "Payment recording requires one currency per request",
+            "currencies": sorted(currencies),
+        },
+    )

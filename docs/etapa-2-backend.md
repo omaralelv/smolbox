@@ -16,7 +16,7 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
     nivel gasto/producto.
   - `accountant`: revisa facturas, CFDI y formato base; puede observar, editar o remover gastos.
   - `accounting_manager`: valida la revision contable antes de tesoreria.
-  - `treasury`: revisa tesoreria, envia a direccion, autoriza pago, marca pagado y cierra.
+  - `treasury`: revisa tesoreria, envia a direccion, libera pago, registra el pago formal y cierra.
   - `director`: aprueba la solicitud revisada por tesoreria para liberar pago.
   - `admin`: puede ejecutar cualquier transicion soportada.
 - Flujo de estados de solicitud:
@@ -124,6 +124,8 @@ Reglas principales:
 - Direccion mueve `direction_review` a `direction_approved`.
 - Tesoreria puede mover `direction_approved` a `approved_for_payment`, registrar pago formal
   y cerrar.
+- `paid` no se alcanza con `transition`; solo se marca cuando tesoreria registra un pago en
+  `/payments/me`.
 - `admin` puede ejecutar las transiciones soportadas.
 
 Para enviar una solicitud, el resumen debe estar listo para envio:
@@ -274,7 +276,9 @@ Authorization: Bearer <token>
 }
 ```
 
-Si no se manda `amount`, el backend usa el total calculado vigente. La accion:
+Si no se manda `amount`, el backend usa el total calculado vigente. Si se manda `amount`, debe
+coincidir exactamente con ese total aprobado. La moneda del pago tambien debe coincidir con la
+moneda activa de la solicitud. La accion:
 
 - crea una fila en `payments`;
 - marca `paid_at` y `paid_by_user_id` en la solicitud;
@@ -385,8 +389,13 @@ La API permite corregir datos antes de enviar o cuando la solicitud esta en corr
 - `PATCH /api/v1/users/{user_id}`
 - `POST /api/v1/users/{user_id}/deactivate`
 
-Las solicitudes y gastos se bloquean despues de `submitted` para evitar cambios silenciosos
-mientras contabilidad o tesoreria revisan.
+Las solicitudes, gastos, importaciones, adjuntos y validaciones CFDI se bloquean despues de
+`submitted` para evitar cambios silenciosos mientras contabilidad o tesoreria revisan. Si hay
+que cambiar comprobantes, montos o CFDI, el revisor debe mandar la solicitud a
+`correction_required`.
+
+Las acciones especiales de revision siguen controladas por rol: contabilidad y gerente pueden
+observar, editar durante revision y quitar gastos con motivo sin borrar el historial.
 
 ## Importacion masiva
 
@@ -429,6 +438,8 @@ Se registran eventos en `audit_logs` para:
 - CFDI validado;
 - cambio de estado.
 - gastos importados masivamente;
+- gasto removido con motivo, usuario, monto original y proveedor original;
+- pago registrado por tesoreria;
 - solicitud o gasto actualizado.
 
 Consulta:
@@ -451,7 +462,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - sembrar un escenario demo con tienda, periodo, usuarios, solicitud, gastos y tickets;
 - intentar transiciones de estado;
 - ver que contabilidad queda bloqueada si faltan CFDI vigentes;
-- completar CFDI sinteticos de prueba;
+- completar CFDI sinteticos de prueba solo en borrador o correccion;
 - probar importacion CSV con `dry_run` o guardado real;
 - recorrer la seccion `Flujo usuario final`, agrupada por tienda, sistema, autorizacion,
   contabilidad, gerente, tesoreria y direccion;
@@ -460,7 +471,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - probar errores controlados como gasto fuera de periodo y archivo inexistente;
 - descargar recibos demo por medio del endpoint protegido de adjuntos;
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
-- crear pagos/gastos de prueba en la solicitud HUD;
+- crear gastos de prueba en la solicitud HUD;
 - quitar gastos durante revision contable usando token;
 - registrar pagos formales desde sesion de tesoreria;
 - autorizar gastos HUD que requieren aprobacion previa;

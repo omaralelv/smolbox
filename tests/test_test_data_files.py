@@ -169,7 +169,7 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
     for role in ["store", "authorizer", "accountant", "accounting_manager"]:
         assignment = client.post(
             f"/api/v1/stores/{store.json()['id']}/users",
-            json={"user_id": users[role], "role": role},
+            json={"user_id": users[role]["id"], "role": role},
         )
         assert assignment.status_code == 201, assignment.text
 
@@ -216,14 +216,14 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
     assert before_auth_review.status_code == 200, before_auth_review.text
     assert before_auth_review.json()["summary"]["missing_authorization_expense_ids"]
 
-    _transition(client, request_id, users["store"], "submitted")
-    _transition(client, request_id, users["authorizer"], "authorization_review")
+    _transition(client, request_id, users["store"]["id"], "submitted")
+    _transition(client, request_id, users["authorizer"]["id"], "authorization_review")
 
     premature_authorization = client.post(
         f"/api/v1/reimbursement-requests/{request_id}/transition",
         json={
             "target_status": "authorized",
-            "actor_user_id": users["authorizer"],
+            "actor_user_id": users["authorizer"]["id"],
             "note": "Debe bloquear por autorizaciones pendientes.",
         },
     )
@@ -234,14 +234,14 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
 
     authorized_product = client.post(
         f"/api/v1/expenses/{authorization_expenses[0]['id']}/authorize",
-        json={"actor_user_id": users["authorizer"], "note": "Producto autorizado."},
+        json={"actor_user_id": users["authorizer"]["id"], "note": "Producto autorizado."},
     )
     assert authorized_product.status_code == 200, authorized_product.text
 
     rejected_product = client.post(
         f"/api/v1/expenses/{authorization_expenses[1]['id']}/reject",
         json={
-            "actor_user_id": users["authorizer"],
+            "actor_user_id": users["authorizer"]["id"],
             "reason": "Producto no procede para reembolso.",
             "adjust_reported_total": True,
         },
@@ -255,14 +255,14 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
     assert summary.json()["ready_for_accounting_approval"] is True
     assert len(summary.json()["rejected_expense_ids"]) == 1
 
-    _transition(client, request_id, users["authorizer"], "authorized")
-    _transition(client, request_id, users["accountant"], "under_accounting_review")
-    _transition(client, request_id, users["accountant"], "accounting_reviewed")
+    _transition(client, request_id, users["authorizer"]["id"], "authorized")
+    _transition(client, request_id, users["accountant"]["id"], "under_accounting_review")
+    _transition(client, request_id, users["accountant"]["id"], "accounting_reviewed")
 
     sap_policy = client.post(
         f"/api/v1/reimbursement-requests/{request_id}/sap-policy/prepare",
         json={
-            "actor_user_id": users["accountant"],
+            "actor_user_id": users["accountant"]["id"],
             "reference": "SAP-E2E-001",
             "note": "Preparado en prueba integral.",
         },
@@ -270,14 +270,28 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
     assert sap_policy.status_code == 200, sap_policy.text
     assert sap_policy.json()["reference"] == "SAP-E2E-001"
 
-    _transition(client, request_id, users["accounting_manager"], "accounting_manager_review")
-    _transition(client, request_id, users["accounting_manager"], "accounting_manager_approved")
-    _transition(client, request_id, users["treasury"], "treasury_review")
-    _transition(client, request_id, users["treasury"], "direction_review")
-    _transition(client, request_id, users["director"], "direction_approved")
-    _transition(client, request_id, users["treasury"], "approved_for_payment")
-    _transition(client, request_id, users["treasury"], "paid")
-    closed = _transition(client, request_id, users["treasury"], "closed")
+    _transition(client, request_id, users["accounting_manager"]["id"], "accounting_manager_review")
+    _transition(client, request_id, users["accounting_manager"]["id"], "accounting_manager_approved")
+    _transition(client, request_id, users["treasury"]["id"], "treasury_review")
+    _transition(client, request_id, users["treasury"]["id"], "direction_review")
+    _transition(client, request_id, users["director"]["id"], "direction_approved")
+    _transition(client, request_id, users["treasury"]["id"], "approved_for_payment")
+    treasury_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": users["treasury"]["email"], "password": "password123"},
+    )
+    assert treasury_login.status_code == 200, treasury_login.text
+    payment = client.post(
+        f"/api/v1/reimbursement-requests/{request_id}/payments/me",
+        headers={"Authorization": f"Bearer {treasury_login.json()['access_token']}"},
+        json={
+            "reference": "E2E-PAGO-001",
+            "payment_method": "transfer",
+            "note": "Pago registrado en prueba integral.",
+        },
+    )
+    assert payment.status_code == 201, payment.text
+    closed = _transition(client, request_id, users["treasury"]["id"], "closed")
     assert closed["status"] == "closed"
 
     audit_events = client.get(f"/api/v1/reimbursement-requests/{request_id}/audit-events")
@@ -291,23 +305,25 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
         "automated_review_completed",
         "expense_authorized",
         "expense_authorization_rejected",
+        "payment_recorded",
         "sap_policy_placeholder_prepared",
         "request_status_changed",
     }
 
 
-def _create_flow_user(client: TestClient, role: str) -> str:
+def _create_flow_user(client: TestClient, role: str) -> dict[str, str]:
+    email = f"{role}.{uuid4().hex[:8]}@example.com"
     response = client.post(
         "/api/v1/users/",
         json={
-            "email": f"{role}.{uuid4().hex[:8]}@example.com",
+            "email": email,
             "full_name": f"Usuario {role}",
             "role": role,
             "password": "password123",
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()["id"]
+    return {"id": response.json()["id"], "email": email}
 
 
 def _transition(

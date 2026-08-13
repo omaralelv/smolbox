@@ -9,7 +9,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "/dev-hud/status" in TEST_HUD_HTML
     assert "Crear tienda" in TEST_HUD_HTML
     assert "Crear usuario" in TEST_HUD_HTML
-    assert "Crear pago/gasto" in TEST_HUD_HTML
+    assert "Agregar gasto" in TEST_HUD_HTML
     assert "Personalizar escenario" in TEST_HUD_HTML
     assert "Flujo usuario final" in TEST_HUD_HTML
     assert "Sesión de prueba" in TEST_HUD_HTML
@@ -37,7 +37,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "/download/me" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
     assert "Rechazar producto" in TEST_HUD_HTML
-    assert "Confirmar pago" in TEST_HUD_HTML
+    assert "Registrar pago" in TEST_HUD_HTML
     assert "executeUserFlowAction" in TEST_HUD_HTML
     assert "Ejecutar automaticos" in TEST_HUD_HTML
     assert "Preparar póliza SAP" in TEST_HUD_HTML
@@ -70,9 +70,18 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
         for step in automated_review.json()["review"]["automatic_steps"]
     )
 
+    completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
+    assert completed_cfdi.status_code == 200, completed_cfdi.text
+    assert completed_cfdi.json()["cfdi_added"] == 2
+    assert not completed_cfdi.json()["scenario"]["summary"]["missing_cfdi_expense_ids"]
+
     submitted = client.post("/api/v1/dev-hud/transition/submitted")
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()["to_status"] == "submitted"
+
+    late_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
+    assert late_cfdi.status_code == 409
+    assert late_cfdi.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
 
     authorization_review = client.post("/api/v1/dev-hud/transition/authorization_review")
     assert authorization_review.status_code == 200, authorization_review.text
@@ -89,6 +98,7 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
         authorized_expenses.json()["scenario"]["summary"]["ready_for_authorization_approval"]
         is True
     )
+    assert authorized_expenses.json()["scenario"]["summary"]["ready_for_accounting_approval"] is True
 
     authorized = client.post("/api/v1/dev-hud/transition/authorized")
     assert authorized.status_code == 200, authorized.text
@@ -97,15 +107,6 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     review = client.post("/api/v1/dev-hud/transition/under_accounting_review")
     assert review.status_code == 200, review.text
     assert review.json()["to_status"] == "under_accounting_review"
-
-    accounting_blocked = client.post("/api/v1/dev-hud/transition/accounting_reviewed")
-    assert accounting_blocked.status_code == 409
-    assert accounting_blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
-
-    completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
-    assert completed_cfdi.status_code == 200, completed_cfdi.text
-    assert completed_cfdi.json()["cfdi_added"] == 2
-    assert completed_cfdi.json()["scenario"]["summary"]["ready_for_accounting_approval"] is True
 
     accounting_reviewed = client.post("/api/v1/dev-hud/transition/accounting_reviewed")
     assert accounting_reviewed.status_code == 200, accounting_reviewed.text
@@ -156,11 +157,28 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     assert approved_for_payment.status_code == 200, approved_for_payment.text
     assert approved_for_payment.json()["to_status"] == "approved_for_payment"
 
+    direct_paid = client.post("/api/v1/dev-hud/transition/paid")
+    assert direct_paid.status_code == 409
+    assert direct_paid.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+
     treasury_login = client.post(
         "/api/v1/auth/login",
         json={"email": "hud.treasury@hud.smolbox.example.com", "password": "hud-password"},
     )
     assert treasury_login.status_code == 200, treasury_login.text
+    wrong_amount_payment = client.post(
+        f"/api/v1/reimbursement-requests/{scenario['request_id']}/payments/me",
+        headers={"Authorization": f"Bearer {treasury_login.json()['access_token']}"},
+        json={
+            "amount": "1.00",
+            "reference": "HUD-PAGO-MAL",
+            "payment_method": "transfer",
+            "note": "Debe fallar por monto incorrecto.",
+        },
+    )
+    assert wrong_amount_payment.status_code == 409
+    assert wrong_amount_payment.json()["detail"]["code"] == "PAYMENT_AMOUNT_MISMATCH"
+
     payment = client.post(
         f"/api/v1/reimbursement-requests/{scenario['request_id']}/payments/me",
         headers={"Authorization": f"Bearer {treasury_login.json()['access_token']}"},

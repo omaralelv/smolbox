@@ -44,19 +44,20 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
 - Registro formal de pago en tabla `payments` cuando tesoreria confirma el reembolso.
 - Reglas de negocio configurables en `business_rules`, editables por admin.
-- Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI y cambios de estado.
+- Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI, pagos y cambios de estado.
 - Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
   invalidos, autorizaciones pendientes y readiness para envio/autorizacion/aprobacion
   contable.
 - Revision automatica de solicitud para CFDI, comprobantes, total, periodo, OCR pendiente,
   alertas y datos base de poliza SAP sin aprobar decisiones humanas.
 - Descarga de adjuntos por ID y descarga protegida con token en `/download/me`.
-- Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
+- Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios; las solicitudes,
+  gastos, adjuntos y CFDI quedan bloqueados despues de enviar, salvo que regresen a correccion.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
 - HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo con una
   vista guiada por rol cercana al usuario final.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
-  y agregar pagos/gastos de prueba.
+  y agregar gastos de prueba.
 - Panel de sesion en el HUD para iniciar como tienda, autorizacion, contabilidad, gerente,
   tesoreria, direccion o admin, y probar rutas autenticadas con token.
 - Seccion de reglas de negocio en el HUD para revisar y editar configuracion tecnica
@@ -187,7 +188,7 @@ draft
 -> direction_review
 -> direction_approved
 -> approved_for_payment
--> paid
+-> registrar pago formal (paid)
 -> closed
 ```
 
@@ -197,14 +198,14 @@ restantes si el total queda cuadrado. Los gastos que tienen `requires_authorizat
 deben autorizarse o rechazarse antes de mover la solicitud a `authorized`.
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
-`Crear escenario`, luego prueba `Enviar tienda`, `Revision autorizacion`, `Autorizar gastos`,
-o `Rechazar producto`, `Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`,
+`Crear escenario`, luego `Completar CFDI`, `Enviar tienda`, `Revision autorizacion`,
+`Autorizar gastos` o `Rechazar producto`, `Autorizar solicitud`, `Revision contable`,
 `Cerrar contabilidad`, `Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`,
 `Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`, `Aprobar pago`,
 `Registrar pago` y `Cerrar`.
 
 El HUD tambien permite crear tiendas y usuarios con prefijo/dominio `HUD`, asignar un
-usuario tienda o contador a una tienda, crear un pago/gasto dentro de la solicitud demo,
+usuario tienda o contador a una tienda, crear un gasto dentro de la solicitud demo,
 quitar gastos durante revision contable con motivo obligatorio, registrar pagos formales y
 editar reglas de negocio como admin. Esa asignacion ya se respalda con el modelo formal
 `store_user_assignments`.

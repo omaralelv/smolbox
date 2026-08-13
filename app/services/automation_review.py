@@ -214,9 +214,9 @@ def _human_steps(summary: ReimbursementValidationSummary) -> list[AutomatedRevie
             ),
             _step(
                 "payment_confirmation",
-                "Confirmar pago",
+                "Registrar pago",
                 "pending",
-                "Tesoreria debe confirmar que el pago fue realizado.",
+                "Tesoreria debe registrar el pago formal.",
                 responsibility="human",
             ),
         ]
