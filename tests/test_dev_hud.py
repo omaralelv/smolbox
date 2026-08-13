@@ -11,8 +11,14 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Crear usuario" in TEST_HUD_HTML
     assert "Agregar gasto" in TEST_HUD_HTML
     assert "Personalizar escenario" in TEST_HUD_HTML
+    assert "Vista producto" in TEST_HUD_HTML
+    assert "Ventanas por rol" in TEST_HUD_HTML
+    assert "productTabs" in TEST_HUD_HTML
+    assert "productPreview" in TEST_HUD_HTML
+    assert "product-tab" in TEST_HUD_HTML
+    assert "product-window" in TEST_HUD_HTML
     assert "Flujo usuario final" in TEST_HUD_HTML
-    assert "Sesión de prueba" in TEST_HUD_HTML
+    assert "Sesión técnica" in TEST_HUD_HTML
     assert "Crear solicitud" in TEST_HUD_HTML
     assert "Revisar automáticamente" in TEST_HUD_HTML
     assert "Acciones disponibles" in TEST_HUD_HTML
@@ -39,6 +45,9 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Rechazar producto" in TEST_HUD_HTML
     assert "Registrar pago" in TEST_HUD_HTML
     assert "executeUserFlowAction" in TEST_HUD_HTML
+    assert "executeProductAction" in TEST_HUD_HTML
+    assert "loginProductRole" in TEST_HUD_HTML
+    assert "renderProductPreview" in TEST_HUD_HTML
     assert "Ejecutar automaticos" in TEST_HUD_HTML
     assert "Preparar póliza SAP" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML

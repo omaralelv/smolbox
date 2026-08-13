@@ -238,14 +238,216 @@ TEST_HUD_HTML = """<!doctype html>
       margin-top: 10px;
     }
 
-    .session-actions .notice {
-      grid-column: 1 / -1;
-    }
+	    .session-actions .notice {
+	      grid-column: 1 / -1;
+	    }
 
-    .user-flow {
-      display: grid;
-      gap: 0;
-      border-top: 1px solid var(--line);
+	    .product-tabs {
+	      display: flex;
+	      flex-wrap: wrap;
+	      gap: 8px;
+	      margin-bottom: 14px;
+	    }
+
+	    .product-tab {
+	      min-height: 36px;
+	      padding: 7px 11px;
+	      border: 1px solid var(--line);
+	      border-radius: 7px;
+	      background: var(--panel);
+	      color: var(--muted);
+	      cursor: pointer;
+	      font-size: 13px;
+	      font-weight: 760;
+	    }
+
+	    .product-tab.active {
+	      border-color: var(--blue);
+	      background: #e8f0ff;
+	      color: var(--blue);
+	    }
+
+	    .product-window {
+	      overflow: hidden;
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      background: #fbfcfd;
+	    }
+
+	    .product-shell {
+	      display: grid;
+	      grid-template-columns: 190px minmax(0, 1fr);
+	      min-height: 520px;
+	    }
+
+	    .product-sidebar {
+	      padding: 16px;
+	      border-right: 1px solid var(--line);
+	      background: #eef3f7;
+	    }
+
+	    .product-logo {
+	      display: block;
+	      margin-bottom: 18px;
+	      color: var(--ink);
+	      font-size: 15px;
+	      font-weight: 780;
+	    }
+
+	    .product-nav {
+	      display: grid;
+	      gap: 8px;
+	    }
+
+	    .product-nav-item {
+	      padding: 9px 10px;
+	      border-radius: 7px;
+	      color: var(--muted);
+	      font-size: 13px;
+	      font-weight: 720;
+	    }
+
+	    .product-nav-item.active {
+	      background: var(--panel);
+	      color: var(--ink);
+	    }
+
+	    .product-main {
+	      display: grid;
+	      grid-template-rows: auto auto 1fr auto;
+	      min-width: 0;
+	      padding: 18px;
+	      gap: 14px;
+	    }
+
+	    .product-titlebar,
+	    .product-actions-bar {
+	      display: flex;
+	      align-items: flex-start;
+	      justify-content: space-between;
+	      gap: 12px;
+	    }
+
+	    .product-titlebar h3 {
+	      font-size: 20px;
+	      line-height: 1.2;
+	    }
+
+	    .metric-strip {
+	      display: grid;
+	      grid-template-columns: repeat(4, minmax(0, 1fr));
+	      gap: 10px;
+	    }
+
+	    .metric {
+	      min-height: 74px;
+	      padding: 10px;
+	      border: 1px solid var(--line);
+	      border-radius: 7px;
+	      background: var(--panel);
+	    }
+
+	    .metric span {
+	      display: block;
+	      color: var(--muted);
+	      font-size: 12px;
+	      font-weight: 720;
+	      text-transform: uppercase;
+	    }
+
+	    .metric strong {
+	      display: block;
+	      margin-top: 8px;
+	      overflow-wrap: anywhere;
+	      font-size: 18px;
+	      line-height: 1.1;
+	    }
+
+	    .product-workspace {
+	      display: grid;
+	      grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+	      gap: 14px;
+	      min-width: 0;
+	    }
+
+	    .product-pane {
+	      min-width: 0;
+	      padding: 12px;
+	      border: 1px solid var(--line);
+	      border-radius: 7px;
+	      background: var(--panel);
+	    }
+
+	    .product-pane-head {
+	      display: flex;
+	      align-items: center;
+	      justify-content: space-between;
+	      gap: 10px;
+	      margin-bottom: 10px;
+	    }
+
+	    .request-tile {
+	      display: grid;
+	      gap: 7px;
+	      padding: 11px;
+	      border: 1px solid var(--line);
+	      border-radius: 7px;
+	      background: #f8fafc;
+	    }
+
+	    .request-tile.active {
+	      border-color: #94b5ef;
+	      background: #eef5ff;
+	    }
+
+	    .product-detail-grid {
+	      display: grid;
+	      grid-template-columns: repeat(2, minmax(0, 1fr));
+	      gap: 10px;
+	    }
+
+	    .detail-cell {
+	      min-width: 0;
+	      padding: 10px;
+	      border-bottom: 1px solid var(--line);
+	    }
+
+	    .detail-cell span {
+	      display: block;
+	      color: var(--muted);
+	      font-size: 12px;
+	      font-weight: 720;
+	      text-transform: uppercase;
+	    }
+
+	    .detail-cell strong {
+	      display: block;
+	      margin-top: 6px;
+	      overflow-wrap: anywhere;
+	      font-size: 13px;
+	    }
+
+	    .product-expenses {
+	      grid-column: 1 / -1;
+	    }
+
+	    .product-actions-bar {
+	      align-items: center;
+	      padding-top: 4px;
+	      border-top: 1px solid var(--line);
+	    }
+
+	    .product-action-list {
+	      display: flex;
+	      flex-wrap: wrap;
+	      gap: 8px;
+	      justify-content: flex-end;
+	    }
+
+	    .user-flow {
+	      display: grid;
+	      gap: 0;
+	      border-top: 1px solid var(--line);
     }
 
     .user-flow-row {
@@ -437,11 +639,22 @@ TEST_HUD_HTML = """<!doctype html>
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
-      .layout,
-      .split {
-        grid-template-columns: 1fr;
-      }
-    }
+	      .layout,
+	      .split,
+	      .product-shell,
+	      .product-workspace {
+	        grid-template-columns: 1fr;
+	      }
+
+	      .product-sidebar {
+	        border-right: 0;
+	        border-bottom: 1px solid var(--line);
+	      }
+
+	      .product-nav {
+	        grid-template-columns: repeat(4, minmax(0, 1fr));
+	      }
+	    }
 
     @media (max-width: 720px) {
       .shell {
@@ -453,16 +666,25 @@ TEST_HUD_HTML = """<!doctype html>
         flex-direction: column;
       }
 
-      .stats,
-      .flow,
-      .user-flow-row,
-      .form-grid {
-        grid-template-columns: 1fr 1fr;
-      }
+	      .stats,
+	      .flow,
+	      .user-flow-row,
+	      .form-grid,
+	      .metric-strip,
+	      .product-detail-grid,
+	      .product-nav {
+	        grid-template-columns: 1fr 1fr;
+	      }
 
-      .user-flow-row .actions {
-        grid-column: 1 / -1;
-      }
+	      .product-titlebar,
+	      .product-actions-bar {
+	        align-items: flex-start;
+	        flex-direction: column;
+	      }
+
+	      .user-flow-row .actions {
+	        grid-column: 1 / -1;
+	      }
 
       .row {
         grid-template-columns: 1fr;
@@ -572,15 +794,26 @@ TEST_HUD_HTML = """<!doctype html>
             </label>
           </div>
           <div id="scenarioRows"></div>
-        </section>
+	        </section>
 
-        <section class="card panel">
-          <div class="panel-head">
-            <div>
-              <h2>3. Flujo usuario final</h2>
-              <p class="subtle">Recorrido por rol con acciones equivalentes al proceso real.</p>
-            </div>
-          </div>
+	        <section class="card panel">
+	          <div class="panel-head">
+	            <div>
+	              <h2>2. Vista producto</h2>
+	              <p class="subtle">Ventanas por rol para probar como usuario final.</p>
+	            </div>
+	          </div>
+	          <div class="product-tabs" id="productTabs"></div>
+	          <div class="product-window" id="productPreview"></div>
+	        </section>
+
+	        <section class="card panel">
+	          <div class="panel-head">
+	            <div>
+	              <h2>3. Flujo usuario final</h2>
+	              <p class="subtle">Recorrido por rol con acciones equivalentes al proceso real.</p>
+	            </div>
+	          </div>
           <div class="user-flow">
             <div class="user-flow-row">
               <div class="role">
@@ -831,7 +1064,7 @@ TEST_HUD_HTML = """<!doctype html>
         <section class="card panel">
           <div class="panel-head">
             <div>
-              <h2>2. Sesión de prueba</h2>
+              <h2>Sesión técnica</h2>
               <p class="subtle">Acciones visibles según rol y estado actual.</p>
             </div>
           </div>
@@ -905,14 +1138,79 @@ TEST_HUD_HTML = """<!doctype html>
 
   <script>
     const api = "/api/v1";
-    let state = null;
-    let busy = false;
-    let authToken = null;
-    let authUser = null;
+	    let state = null;
+	    let busy = false;
+	    let authToken = null;
+	    let authUser = null;
+	    let activeProductRole = "store";
 
-    const $ = (selector) => document.querySelector(selector);
-    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
-    const allHumanRoles = [
+	    const $ = (selector) => document.querySelector(selector);
+	    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+	    const productRoles = [
+	      {
+	        id: "store",
+	        label: "Tienda",
+	        title: "Caja chica",
+	        subtitle: "Captura de gastos y envio",
+	        queueStatuses: ["draft", "correction_required"],
+	        nav: ["Bandeja", "Captura", "Comprobantes", "Historial"]
+	      },
+	      {
+	        id: "system",
+	        label: "Validación",
+	        title: "Revisión automática",
+	        subtitle: "CFDI, comprobantes, totales y alertas",
+	        queueStatuses: ["draft", "submitted", "authorization_review", "authorized", "under_accounting_review"],
+	        nav: ["Resumen", "Alertas", "CFDI", "OCR"]
+	      },
+	      {
+	        id: "authorizer",
+	        label: "Autorización",
+	        title: "Autorización por producto",
+	        subtitle: "Decisión sobre gastos especiales",
+	        queueStatuses: ["submitted", "authorization_review"],
+	        nav: ["Bandeja", "Gastos", "Decisiones", "Historial"]
+	      },
+	      {
+	        id: "accountant",
+	        label: "Contabilidad",
+	        title: "Revisión contable",
+	        subtitle: "Factura, CFDI, formato y póliza",
+	        queueStatuses: ["authorized", "under_accounting_review", "accounting_reviewed"],
+	        nav: ["Bandeja", "Documentos", "Póliza SAP", "Historial"]
+	      },
+	      {
+	        id: "accounting_manager",
+	        label: "Gerente",
+	        title: "Aprobación contable",
+	        subtitle: "Control antes de tesorería",
+	        queueStatuses: ["accounting_reviewed", "accounting_manager_review"],
+	        nav: ["Bandeja", "Solicitud", "Riesgos", "Historial"]
+	      },
+	      {
+	        id: "treasury",
+	        label: "Tesorería",
+	        title: "Pago",
+	        subtitle: "Liberación, dirección y registro de pago",
+	        queueStatuses: [
+	          "accounting_manager_approved",
+	          "treasury_review",
+	          "direction_approved",
+	          "approved_for_payment",
+	          "paid"
+	        ],
+	        nav: ["Bandeja", "Pago", "Comprobante", "Historial"]
+	      },
+	      {
+	        id: "director",
+	        label: "Dirección",
+	        title: "Aprobación final",
+	        subtitle: "Autorización antes del pago",
+	        queueStatuses: ["direction_review"],
+	        nav: ["Bandeja", "Solicitud", "Aprobación", "Historial"]
+	      }
+	    ];
+	    const allHumanRoles = [
       "store",
       "authorizer",
       "accountant",
@@ -1225,10 +1523,16 @@ TEST_HUD_HTML = """<!doctype html>
         button.disabled = !hasScenario || !isEditable;
       });
       $("#recordPaymentBtn").disabled = !hasScenario || state?.scenario?.status !== "approved_for_payment";
-      $$(".user-flow-btn").forEach((button) => {
-        button.disabled = !isUserFlowActionAvailable(button.dataset.action);
-      });
-      $("#assignUserBtn").disabled = !hasStores || !hasUsers;
+	      $$(".user-flow-btn").forEach((button) => {
+	        button.disabled = !isUserFlowActionAvailable(button.dataset.action);
+	      });
+	      $$(".product-action-btn").forEach((button) => {
+	        button.disabled = !isProductActionAvailable(
+	          button.dataset.productRole,
+	          button.dataset.productAction
+	        );
+	      });
+	      $("#assignUserBtn").disabled = !hasStores || !hasUsers;
       $("#loginRoleBtn").disabled = !hasScenario;
       $("#meBtn").disabled = !authToken;
       $("#logoutBtn").disabled = !authToken;
@@ -1247,19 +1551,41 @@ TEST_HUD_HTML = """<!doctype html>
       return ["draft", "correction_required"].includes(state?.scenario?.status);
     }
 
-    function isUserFlowActionAvailable(action) {
-      const hasScenario = Boolean(state?.scenario?.exists);
-      if (action === "seed-scenario") return true;
-      if (!hasScenario) return false;
-      if (action === "complete-cfdi") return isEditableScenarioStatus();
-      if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
-      return true;
-    }
+	    function isUserFlowActionAvailable(action) {
+	      const hasScenario = Boolean(state?.scenario?.exists);
+	      if (action === "seed-scenario") return true;
+	      if (!hasScenario) return false;
+	      if (action === "complete-cfdi") return isEditableScenarioStatus();
+	      if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
+	      return true;
+	    }
+
+	    function isProductActionAvailable(role, actionId) {
+	      const hasScenario = Boolean(state?.scenario?.exists);
+	      if (actionId === "seed-scenario") return true;
+	      if (!hasScenario) return false;
+	      if (actionId === "complete-cfdi") return isEditableScenarioStatus();
+	      if (actionId === "record-payment") return state?.scenario?.status === "approved_for_payment";
+	      const action = roleActions.find((item) => item.id === actionId);
+	      if (!action) return true;
+	      return isRoleActionAvailableFor(role, action);
+	    }
+
+	    function isRoleActionAvailableFor(role, action) {
+	      const status = state?.scenario?.status;
+	      if (!status) return false;
+	      const roleAllowed = role === "admin" || action.roles.includes(role);
+	      const statusAllowed = action.statuses === null || action.statuses.includes(status);
+	      const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
+	      const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
+	      return roleAllowed && statusAllowed && sapReady && receiptReady;
+	    }
 
     function render() {
-      renderStats();
-      renderScenario();
-      renderWorkspaceSelectors();
+	      renderStats();
+	      renderScenario();
+	      renderProductPreview();
+	      renderWorkspaceSelectors();
       renderExpenses();
       renderValidation();
       renderAudit();
@@ -1292,11 +1618,11 @@ TEST_HUD_HTML = """<!doctype html>
       return `<div class="row"><strong>${label}</strong><span class="mono">${value ?? "-"}</span></div>`;
     }
 
-    function renderScenario() {
-      const scenario = state?.scenario;
-      if (!scenario?.exists) {
-        $("#scenarioRows").innerHTML = row("Estado", "Sin escenario HUD");
-        return;
+	    function renderScenario() {
+	      const scenario = state?.scenario;
+	      if (!scenario?.exists) {
+	        $("#scenarioRows").innerHTML = row("Estado", "Sin escenario HUD");
+	        return;
       }
       $("#scenarioRows").innerHTML = [
         row("Solicitud", scenario.request_id),
@@ -1309,9 +1635,254 @@ TEST_HUD_HTML = """<!doctype html>
         row("Usuario contador", scenario.users.accountant?.email),
         row("Gerente conta", scenario.users.accounting_manager?.email),
         row("Usuario tesorería", scenario.users.treasury?.email),
-        row("Dirección", scenario.users.director?.email)
-      ].join("");
-    }
+	        row("Dirección", scenario.users.director?.email)
+	      ].join("");
+	    }
+
+	    function renderProductPreview() {
+	      renderProductTabs();
+	      const scenario = state?.scenario;
+	      const config = productRoleConfig(activeProductRole);
+	      if (!scenario?.exists) {
+	        $("#productPreview").innerHTML = `
+	          <div class="product-shell">
+	            ${productSidebar(config)}
+	            <div class="product-main">
+	              <div class="product-titlebar">
+	                <div>
+	                  <h3>${escapeHtml(config.title)}</h3>
+	                  <p class="subtle">${escapeHtml(config.subtitle)}</p>
+	                </div>
+	                <span class="state warn">Sin solicitud</span>
+	              </div>
+	              <div class="notice">Crea un escenario para ver la ventana con datos.</div>
+	              <div></div>
+	              <div class="product-actions-bar">
+	                <p class="subtle">Ambiente HUD</p>
+	                <div class="product-action-list">
+	                  ${productActionButton("store", "seed-scenario", "Crear solicitud", "primary")}
+	                </div>
+	              </div>
+	            </div>
+	          </div>
+	        `;
+	        return;
+	      }
+
+	      const summary = scenario.summary || {};
+	      const queueActive = config.queueStatuses.includes(scenario.status);
+	      const actions = productActionsForRole(config.id);
+	      $("#productPreview").innerHTML = `
+	        <div class="product-shell">
+	          ${productSidebar(config)}
+	          <div class="product-main">
+	            <div class="product-titlebar">
+	              <div>
+	                <h3>${escapeHtml(config.title)}</h3>
+	                <p class="subtle">${escapeHtml(config.subtitle)}</p>
+	              </div>
+	              <span class="state ${queueActive ? "ok" : "warn"}">
+	                ${queueActive ? "En bandeja" : "Sin pendiente"}
+	              </span>
+	            </div>
+
+	            <div class="metric-strip">
+	              <div class="metric">
+	                <span>Estado</span>
+	                <strong>${escapeHtml(scenario.status)}</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Total</span>
+	                <strong>${money(summary.reported_total)}</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Validación</span>
+	                <strong>${summary.issues?.length ? `${summary.issues.length} alerta(s)` : "Sin alertas"}</strong>
+	              </div>
+	              <div class="metric">
+	                <span>Póliza SAP</span>
+	                <strong>${scenario.sap_policy?.is_prepared ? "Preparada" : "Pendiente"}</strong>
+	              </div>
+	            </div>
+
+	            <div class="product-workspace">
+	              <section class="product-pane">
+	                <div class="product-pane-head">
+	                  <h3>Bandeja</h3>
+	                  <span class="state ${queueActive ? "ok" : "warn"}">${queueActive ? "1" : "0"}</span>
+	                </div>
+	                ${productRequestTile(scenario, queueActive)}
+	              </section>
+	              <section class="product-pane">
+	                <div class="product-pane-head">
+	                  <h3>Solicitud</h3>
+	                  <span class="state">${escapeHtml(scenario.store_code)}</span>
+	                </div>
+	                ${productDetailGrid(scenario)}
+	              </section>
+	              <section class="product-pane product-expenses">
+	                <div class="product-pane-head">
+	                  <h3>Gastos</h3>
+	                  <span class="subtle">${scenario.expenses?.length || 0} registro(s)</span>
+	                </div>
+	                ${productExpensesTable(scenario.expenses || [])}
+	              </section>
+	            </div>
+
+	            <div class="product-actions-bar">
+	              <p class="subtle">${escapeHtml(productRoleUserLabel(config.id))}</p>
+	              <div class="product-action-list">
+	                ${actions.length
+	                  ? actions.map((action) =>
+	                      productActionButton(config.id, action.id, action.label, action.style || "")
+	                    ).join("")
+	                  : "<span class='subtle'>Sin acciones para este estado.</span>"
+	                }
+	              </div>
+	            </div>
+	          </div>
+	        </div>
+	      `;
+	    }
+
+	    function renderProductTabs() {
+	      $("#productTabs").innerHTML = productRoles.map((role) => `
+	        <button class="product-tab ${role.id === activeProductRole ? "active" : ""}" data-product-role="${role.id}">
+	          ${escapeHtml(role.label)}
+	        </button>
+	      `).join("");
+	    }
+
+	    function productRoleConfig(roleId) {
+	      return productRoles.find((role) => role.id === roleId) || productRoles[0];
+	    }
+
+	    function productSidebar(config) {
+	      return `
+	        <aside class="product-sidebar">
+	          <strong class="product-logo">Smolbox</strong>
+	          <nav class="product-nav">
+	            ${config.nav.map((item, index) => `
+	              <span class="product-nav-item ${index === 0 ? "active" : ""}">${escapeHtml(item)}</span>
+	            `).join("")}
+	          </nav>
+	        </aside>
+	      `;
+	    }
+
+	    function productRequestTile(scenario, queueActive) {
+	      const summary = scenario.summary || {};
+	      return `
+	        <div class="request-tile ${queueActive ? "active" : ""}">
+	          <strong>${escapeHtml(scenario.period_name)}</strong>
+	          <span class="subtle">${escapeHtml(scenario.store_name)} / ${money(summary.calculated_total)}</span>
+	          <span class="state ${queueActive ? "ok" : "warn"}">${escapeHtml(scenario.status)}</span>
+	        </div>
+	      `;
+	    }
+
+	    function productDetailGrid(scenario) {
+	      const summary = scenario.summary || {};
+	      return `
+	        <div class="product-detail-grid">
+	          ${detailCell("Tienda", `${scenario.store_code} / ${scenario.store_name}`)}
+	          ${detailCell("Periodo", scenario.period_name)}
+	          ${detailCell("Reportado", money(summary.reported_total))}
+	          ${detailCell("Calculado", money(summary.calculated_total))}
+	          ${detailCell("Diferencia", money(summary.difference))}
+	          ${detailCell("CFDI pendientes", summary.missing_cfdi_expense_ids?.length || 0)}
+	          ${detailCell("Autorización pendiente", summary.missing_authorization_expense_ids?.length || 0)}
+	          ${detailCell("Póliza SAP", scenario.sap_policy?.is_prepared ? scenario.sap_policy.reference : "Pendiente")}
+	        </div>
+	      `;
+	    }
+
+	    function detailCell(label, value) {
+	      return `
+	        <div class="detail-cell">
+	          <span>${escapeHtml(label)}</span>
+	          <strong>${escapeHtml(value)}</strong>
+	        </div>
+	      `;
+	    }
+
+	    function productExpensesTable(expenses) {
+	      if (!expenses.length) {
+	        return "<p class='subtle'>Sin gastos.</p>";
+	      }
+	      return `
+	        <table class="table">
+	          <thead>
+	            <tr>
+	              <th>Proveedor</th>
+	              <th>Monto</th>
+	              <th>Aut.</th>
+	              <th>Ticket</th>
+	              <th>CFDI</th>
+	              <th>Estado</th>
+	            </tr>
+	          </thead>
+	          <tbody>
+	            ${expenses.map((expense) => `
+	              <tr>
+	                <td>${escapeHtml(expense.merchant)}</td>
+	                <td>${money(expense.amount)}</td>
+	                <td>${authBadge(expense)}</td>
+	                <td>${badge(expense.has_receipt)}</td>
+	                <td>${badge(expense.has_current_valid_cfdi)}</td>
+	                <td>${expenseStatusBadge(expense)}</td>
+	              </tr>
+	            `).join("")}
+	          </tbody>
+	        </table>
+	      `;
+	    }
+
+	    function productActionsForRole(role) {
+	      if (role === "system") {
+	        return [
+	          {
+	            id: "automated-review",
+	            label: "Revisar automáticamente",
+	            style: ""
+	          },
+	          {
+	            id: "complete-cfdi",
+	            label: "Completar CFDI",
+	            style: "success"
+	          }
+	        ].filter((action) => isProductActionAvailable(role, action.id));
+	      }
+	      const actions = roleActions.filter((action) => isRoleActionAvailableFor(role, action));
+	      if (role === "store" && isProductActionAvailable(role, "complete-cfdi")) {
+	        actions.splice(1, 0, {
+	          id: "complete-cfdi",
+	          label: "Completar CFDI",
+	          style: "success"
+	        });
+	      }
+	      return actions;
+	    }
+
+	    function productActionButton(role, actionId, label, style) {
+	      const disabled = isProductActionAvailable(role, actionId) ? "" : "disabled";
+	      return `
+	        <button
+	          class="btn ${escapeHtml(style)} product-action-btn"
+	          data-product-role="${escapeHtml(role)}"
+	          data-product-action="${escapeHtml(actionId)}"
+	          ${disabled}
+	        >
+	          ${escapeHtml(label)}
+	        </button>
+	      `;
+	    }
+
+	    function productRoleUserLabel(role) {
+	      if (role === "system") return "Validación automática";
+	      const email = state?.scenario?.users?.[role]?.email;
+	      return email ? `${role} / ${email}` : role;
+	    }
 
     function renderWorkspaceSelectors() {
       const stores = state?.workspace?.stores || [];
@@ -1600,17 +2171,30 @@ TEST_HUD_HTML = """<!doctype html>
       return email;
     }
 
-    async function loginSelectedRole() {
-      const role = $("#authRole").value;
-      const payload = await jsonRequest("/auth/login", {
-        email: roleEmail(role),
-        password: "hud-password"
+	    async function loginSelectedRole() {
+	      const role = $("#authRole").value;
+	      const payload = await jsonRequest("/auth/login", {
+	        email: roleEmail(role),
+	        password: "hud-password"
       });
       authToken = payload.access_token;
       authUser = payload.user;
-      renderAuthState();
-      return payload;
-    }
+	      renderAuthState();
+	      return payload;
+	    }
+
+	    async function loginProductRole(role) {
+	      const payload = await jsonRequest("/auth/login", {
+	        email: roleEmail(role),
+	        password: "hud-password"
+	      });
+	      authToken = payload.access_token;
+	      authUser = payload.user;
+	      $("#authRole").value = role;
+	      renderAuthState();
+	      renderRoleActions();
+	      return payload;
+	    }
 
     async function logoutRole() {
       const previousUser = authUser;
@@ -1780,10 +2364,10 @@ TEST_HUD_HTML = """<!doctype html>
       return handler();
     }
 
-    function executeUserFlowAction(action) {
-      if (action.startsWith("transition:")) {
-        const target = action.split(":")[1];
-        return request(`/dev-hud/transition/${target}`, { method: "POST" });
+	    function executeUserFlowAction(action) {
+	      if (action.startsWith("transition:")) {
+	        const target = action.split(":")[1];
+	        return request(`/dev-hud/transition/${target}`, { method: "POST" });
       }
       const actions = {
         "seed-scenario": () => jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload()),
@@ -1797,9 +2381,17 @@ TEST_HUD_HTML = """<!doctype html>
       const handler = actions[action];
       if (!handler) {
         throw { status: 400, payload: { message: `Acción no soportada: ${action}` } };
-      }
-      return handler();
-    }
+	      }
+	      return handler();
+	    }
+
+	    async function executeProductAction(role, actionId) {
+	      if (["seed-scenario", "complete-cfdi", "automated-review"].includes(actionId)) {
+	        return executeUserFlowAction(actionId);
+	      }
+	      await loginProductRole(role);
+	      return executeAuthAction(actionId);
+	    }
 
     $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
     $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", () =>
@@ -1866,11 +2458,25 @@ TEST_HUD_HTML = """<!doctype html>
         request(`/dev-hud/transition/${button.dataset.target}`, { method: "POST" })
       ));
     });
-    $$(".user-flow-btn").forEach((button) => {
-      button.addEventListener("click", () =>
-        runAction(button.textContent.trim(), () => executeUserFlowAction(button.dataset.action))
-      );
-    });
+	    $$(".user-flow-btn").forEach((button) => {
+	      button.addEventListener("click", () =>
+	        runAction(button.textContent.trim(), () => executeUserFlowAction(button.dataset.action))
+	      );
+	    });
+	    $("#productTabs").addEventListener("click", (event) => {
+	      const button = event.target.closest(".product-tab");
+	      if (!button) return;
+	      activeProductRole = button.dataset.productRole;
+	      renderProductPreview();
+	      applyButtonState();
+	    });
+	    $("#productPreview").addEventListener("click", (event) => {
+	      const button = event.target.closest(".product-action-btn");
+	      if (!button) return;
+	      runAction(button.textContent.trim(), () =>
+	        executeProductAction(button.dataset.productRole, button.dataset.productAction)
+	      );
+	    });
     $("#loginRoleBtn").addEventListener("click", () => runAction("Sesión iniciada", loginSelectedRole));
     $("#meBtn").addEventListener("click", () => runAction("Sesión actual", () =>
       request("/auth/me", { headers: authHeaders() })
