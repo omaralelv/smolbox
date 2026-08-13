@@ -36,6 +36,9 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Quitar gasto" in TEST_HUD_HTML
     assert "Registrar pago" in TEST_HUD_HTML
     assert "scenarioSeedPayload" in TEST_HUD_HTML
+    assert "specificErrorPayload" in TEST_HUD_HTML
+    assert "writeErrorConsole" in TEST_HUD_HTML
+    assert "HTTP_${error?.status" in TEST_HUD_HTML
     assert "jsonAuthRequest" in TEST_HUD_HTML
     assert "jsonAuthPatchRequest" in TEST_HUD_HTML
     assert "roleActions" in TEST_HUD_HTML

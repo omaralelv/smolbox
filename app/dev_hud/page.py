@@ -1475,9 +1475,45 @@ TEST_HUD_HTML = """<!doctype html>
       }).format(Number(value));
     }
 
-    function writeConsole(label, payload) {
-      $("#console").textContent = `${label}\\n${JSON.stringify(payload, null, 2)}`;
-    }
+	    function writeConsole(label, payload) {
+	      $("#console").textContent = `${label}\\n${JSON.stringify(payload, null, 2)}`;
+	    }
+
+	    function specificErrorPayload(error) {
+	      const payload = error?.payload || {};
+	      const detail = payload.detail;
+	      const detailIsObject = detail && typeof detail === "object" && !Array.isArray(detail);
+	      const code = detailIsObject && detail.code
+	        ? detail.code
+	        : payload.code || `HTTP_${error?.status || "ERROR"}`;
+	      const message = detailIsObject && detail.message
+	        ? detail.message
+	        : typeof detail === "string"
+	          ? detail
+	          : payload.message || error?.message || "Error inesperado";
+	      const errors = detailIsObject && detail.errors
+	        ? detail.errors
+	        : Array.isArray(detail)
+	          ? detail.map((item) => ({
+	              field: (item.loc || []).join("."),
+	              message: item.msg,
+	              type: item.type
+	            }))
+	          : undefined;
+
+	      return {
+	        ok: false,
+	        status: error?.status || null,
+	        code,
+	        message,
+	        ...(errors ? { errors } : {}),
+	        raw: payload
+	      };
+	    }
+
+	    function writeErrorConsole(label, error) {
+	      writeConsole(label, specificErrorPayload(error));
+	    }
 
     async function request(path, options = {}) {
       const response = await fetch(`${api}${path}`, options);
@@ -1570,7 +1606,7 @@ TEST_HUD_HTML = """<!doctype html>
 	        syncActiveRequestFromState();
 	        render();
 	      } catch (error) {
-	        writeConsole("No se pudo cargar el estado", error);
+	        writeErrorConsole("No se pudo cargar el estado", error);
 	      }
 	    }
 
@@ -1580,9 +1616,9 @@ TEST_HUD_HTML = """<!doctype html>
         const payload = await fn();
         writeConsole(label, payload);
         await loadStatus();
-      } catch (error) {
-        writeConsole(`${label} falló`, error);
-      } finally {
+	      } catch (error) {
+	        writeErrorConsole(`${label} falló`, error);
+	      } finally {
         setBusy(false);
         applyButtonState();
       }
@@ -1593,11 +1629,11 @@ TEST_HUD_HTML = """<!doctype html>
       try {
         const payload = await fn();
         writeConsole(`${label} no falló`, payload);
-      } catch (error) {
-        const code = error?.payload?.detail?.code;
-        const ok = !expectedCode || code === expectedCode || error.status === expectedCode;
-        writeConsole(ok ? label : `${label} falló distinto`, error);
-      } finally {
+	      } catch (error) {
+	        const code = error?.payload?.detail?.code;
+	        const ok = !expectedCode || code === expectedCode || error.status === expectedCode;
+	        writeErrorConsole(ok ? label : `${label} falló distinto`, error);
+	      } finally {
         setBusy(false);
         applyButtonState();
       }
