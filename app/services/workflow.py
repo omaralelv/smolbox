@@ -132,7 +132,12 @@ def transition_reimbursement_request(
     if rule is None:
         raise WorkflowTransitionError(f"Transition to {target_status.value} is not supported")
 
-    if current_status not in rule.allowed_from:
+    is_correction_return = (
+        current_status == ReimbursementRequestStatus.submitted
+        and request.correction_return_status == target_status
+    )
+
+    if current_status not in rule.allowed_from and not is_correction_return:
         raise WorkflowTransitionError(
             f"Cannot move request from {current_status.value} to {target_status.value}"
         )

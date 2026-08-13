@@ -78,6 +78,70 @@ def test_attachment_download_returns_file_or_404(
     assert missing.status_code == 404
 
 
+def test_authenticated_attachment_download_requires_store_scope(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records)
+    uploaded = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+
+    assigned_user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "attachment.store@example.com",
+            "full_name": "Attachment Store",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert assigned_user.status_code == 201, assigned_user.text
+    assignment = client.post(
+        f"/api/v1/stores/{base_records['store_id']}/users",
+        json={"user_id": assigned_user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+
+    unassigned_user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "attachment.unassigned@example.com",
+            "full_name": "Attachment Unassigned",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert unassigned_user.status_code == 201, unassigned_user.text
+
+    assigned_token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "attachment.store@example.com", "password": "secret-password"},
+    )
+    assert assigned_token.status_code == 200, assigned_token.text
+    protected = client.get(
+        f"/api/v1/attachments/{uploaded.json()['id']}/download/me",
+        headers={"Authorization": f"Bearer {assigned_token.json()['access_token']}"},
+    )
+    assert protected.status_code == 200, protected.text
+    assert protected.content.startswith(b"%PDF-1.4")
+
+    unassigned_token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "attachment.unassigned@example.com", "password": "secret-password"},
+    )
+    assert unassigned_token.status_code == 200, unassigned_token.text
+    blocked = client.get(
+        f"/api/v1/attachments/{uploaded.json()['id']}/download/me",
+        headers={"Authorization": f"Bearer {unassigned_token.json()['access_token']}"},
+    )
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["code"] == "STORE_ASSIGNMENT_REQUIRED"
+
+
 def test_database_failure_does_not_leave_orphan_file(
     test_app: FastAPI,
     db_engine: Engine,

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -12,13 +13,15 @@ from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
+from app.models.payment import Payment, PaymentStatus
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.store import Store
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.attachment import AttachmentRead
 from app.schemas.audit_log import AuditLogRead
 from app.schemas.expense_import import ExpenseImportErrorRead, ExpenseImportResult
+from app.schemas.payment import PaymentCreate, PaymentRead
 from app.schemas.reimbursement_request import (
     AuthenticatedReimbursementRequestTransition,
     AuthenticatedSapPolicyPrepare,
@@ -390,6 +393,102 @@ def prepare_reimbursement_request_sap_policy_as_current_user(
     )
 
 
+@router.get("/{request_id}/payments", response_model=list[PaymentRead])
+def list_reimbursement_request_payments(
+    request_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[Payment]:
+    if db.get(ReimbursementRequest, request_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+    return list(
+        db.scalars(
+            select(Payment)
+            .where(Payment.reimbursement_request_id == request_id)
+            .order_by(Payment.created_at.desc())
+        )
+    )
+
+
+@router.post("/{request_id}/payments/me", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
+def record_reimbursement_request_payment_as_current_user(
+    request_id: UUID,
+    payment_in: PaymentCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Payment:
+    reimbursement_request = db.get(ReimbursementRequest, request_id)
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+    if current_user.role not in {UserRole.treasury, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": f"Role {current_user.role.value} cannot record payments",
+            },
+        )
+    if not user_can_transition_store_request(db, current_user, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store for this action",
+            },
+        )
+    if reimbursement_request.status != ReimbursementRequestStatus.approved_for_payment:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_APPROVED_FOR_PAYMENT",
+                "message": "Payments can only be recorded after payment approval",
+            },
+        )
+
+    summary = summarize_reimbursement_request(reimbursement_request)
+    payment_amount = payment_in.amount or summary.calculated_total
+    now = datetime.now(UTC)
+    payment = Payment(
+        reimbursement_request_id=reimbursement_request.id,
+        amount=payment_amount,
+        currency=payment_in.currency,
+        payment_method=payment_in.payment_method,
+        reference=payment_in.reference,
+        note=payment_in.note,
+        status=PaymentStatus.paid,
+        paid_at=now,
+        paid_by_user_id=current_user.id,
+    )
+    reimbursement_request.status = ReimbursementRequestStatus.paid
+    reimbursement_request.paid_at = now
+    db.add(payment)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="payment_recorded",
+            from_status=ReimbursementRequestStatus.approved_for_payment.value,
+            to_status=ReimbursementRequestStatus.paid.value,
+            message=payment_in.note or "Payment recorded by treasury.",
+            event_payload={
+                "amount": str(payment_amount),
+                "currency": payment_in.currency,
+                "payment_method": payment_in.payment_method,
+                "reference": payment_in.reference,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
 @router.get("/{request_id}/audit-events", response_model=list[AuditLogRead])
 def list_reimbursement_request_audit_events(
     request_id: UUID,
@@ -721,6 +820,12 @@ def _transition_request_with_actor(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "INVALID_WORKFLOW_TRANSITION", "message": str(exc)},
         ) from exc
+
+    if to_status == ReimbursementRequestStatus.correction_required:
+        reimbursement_request.correction_requested_at = datetime.now(UTC)
+        reimbursement_request.correction_requested_by_user_id = actor.id
+        reimbursement_request.correction_return_status = from_status
+        reimbursement_request.correction_reason = note
 
     db.add(
         AuditLog(

@@ -35,7 +35,8 @@ TEST_HUD_HTML = """<!doctype html>
 
     button,
     input,
-    select {
+    select,
+    textarea {
       font: inherit;
     }
 
@@ -306,6 +307,14 @@ TEST_HUD_HTML = """<!doctype html>
       font-size: 13px;
     }
 
+    .textarea {
+      min-height: 86px;
+      resize: vertical;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .checkline {
       display: flex;
       align-items: center;
@@ -393,6 +402,23 @@ TEST_HUD_HTML = """<!doctype html>
       color: #563a00;
       font-size: 13px;
       font-weight: 650;
+    }
+
+    .rule-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .rule-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .rule-card:first-child {
+      border-top: 0;
+      padding-top: 0;
     }
 
     @media (max-width: 1080px) {
@@ -590,6 +616,7 @@ TEST_HUD_HTML = """<!doctype html>
                 <button class="btn user-flow-btn" data-action="transition:under_accounting_review">Tomar revisión</button>
                 <button class="btn warning user-flow-btn" data-action="transition:correction_required">Pedir corrección</button>
                 <button class="btn success user-flow-btn" data-action="transition:accounting_reviewed">Cerrar revisión</button>
+                <button class="btn warning" id="flowRemoveExpenseBtn">Quitar gasto</button>
                 <button class="btn success user-flow-btn" data-action="prepare-sap-policy">Preparar póliza SAP</button>
               </div>
             </div>
@@ -841,11 +868,23 @@ TEST_HUD_HTML = """<!doctype html>
             <button class="btn" id="authTransitionBtn">Transición con sesión</button>
             <button class="btn success" id="authAuthorizeBtn">Autorizar producto</button>
             <button class="btn warning" id="authRejectBtn">Rechazar producto</button>
+            <button class="btn warning" id="authRemoveBtn">Quitar gasto</button>
             <button class="btn success" id="authSapBtn">Preparar SAP</button>
+            <button class="btn success" id="authPaymentBtn">Registrar pago</button>
             <button class="btn warning" id="outOfPeriodBtn">Probar fuera de periodo</button>
             <button class="btn" id="downloadReceiptBtn">Descargar recibo</button>
             <button class="btn warning" id="missingAttachmentBtn">Probar archivo 404</button>
           </div>
+        </section>
+
+        <section class="card panel">
+          <div class="panel-head">
+            <div>
+              <h2>Reglas de negocio</h2>
+              <p class="subtle">Configuración técnica editable por admin para validaciones del flujo.</p>
+            </div>
+          </div>
+          <div id="businessRules" class="rule-list"></div>
         </section>
 
         <section class="card panel">
@@ -941,6 +980,23 @@ TEST_HUD_HTML = """<!doctype html>
       });
     }
 
+    function jsonAuthPatchRequest(path, payload) {
+      return request(path, {
+        method: "PATCH",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload)
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
     async function loadStatus() {
       try {
         state = await request("/dev-hud/status");
@@ -991,7 +1047,13 @@ TEST_HUD_HTML = """<!doctype html>
       const hasScenario = Boolean(state?.scenario?.exists);
       const hasStores = Boolean(state?.workspace?.stores?.length);
       const hasUsers = Boolean(state?.workspace?.users?.length);
-      $$(".flow-btn, #importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, #createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, #prepareSapPolicyBtn").forEach((button) => {
+      const hasSession = Boolean(authToken);
+      const canEditRules = Boolean(authToken && authUser?.role === "admin");
+      $$(
+        ".flow-btn, #importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, " +
+        "#createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, " +
+        "#prepareSapPolicyBtn"
+      ).forEach((button) => {
         button.disabled = !hasScenario;
       });
       $$(".user-flow-btn").forEach((button) => {
@@ -1000,11 +1062,17 @@ TEST_HUD_HTML = """<!doctype html>
       $("#assignUserBtn").disabled = !hasStores || !hasUsers;
       $("#loginRoleBtn").disabled = !hasScenario;
       $("#meBtn").disabled = !authToken;
-      $$("#authTransitionBtn, #authAuthorizeBtn, #authRejectBtn, #authSapBtn").forEach((button) => {
-        button.disabled = !hasScenario || !authToken;
+      $$(
+        "#authTransitionBtn, #authAuthorizeBtn, #authRejectBtn, #authRemoveBtn, #authSapBtn, " +
+        "#authPaymentBtn, #downloadReceiptBtn, #flowRemoveExpenseBtn"
+      ).forEach((button) => {
+        button.disabled = !hasScenario || !hasSession;
       });
-      $$("#outOfPeriodBtn, #downloadReceiptBtn, #missingAttachmentBtn").forEach((button) => {
+      $$("#outOfPeriodBtn, #missingAttachmentBtn").forEach((button) => {
         button.disabled = !hasScenario;
+      });
+      $$(".business-rule-save").forEach((button) => {
+        button.disabled = !canEditRules;
       });
     }
 
@@ -1016,6 +1084,7 @@ TEST_HUD_HTML = """<!doctype html>
       renderValidation();
       renderAudit();
       renderAuthState();
+      renderBusinessRules();
       applyButtonState();
     }
 
@@ -1196,6 +1265,40 @@ TEST_HUD_HTML = """<!doctype html>
       $("#authState").innerHTML = row("Sesión", label);
     }
 
+    function renderBusinessRules() {
+      const rules = state?.business_rules || [];
+      if (!rules.length) {
+        $("#businessRules").innerHTML = "<p class='subtle'>Sin reglas configuradas.</p>";
+        return;
+      }
+
+      $("#businessRules").innerHTML = rules.map((rule) => `
+        <article class="rule-card">
+          <div>
+            <h3>${escapeHtml(rule.name)}</h3>
+            <p class="subtle mono">${escapeHtml(rule.code)}</p>
+          </div>
+          <label class="field">
+            <span>Descripción</span>
+            <textarea class="input textarea" data-rule-description="${escapeHtml(rule.code)}">${escapeHtml(rule.description)}</textarea>
+          </label>
+          <label class="field">
+            <span>Valor JSON</span>
+            <textarea class="input textarea" data-rule-value="${escapeHtml(rule.code)}">${escapeHtml(JSON.stringify(rule.value || {}, null, 2))}</textarea>
+          </label>
+          <label class="checkline">
+            <input data-rule-active="${escapeHtml(rule.code)}" type="checkbox" ${rule.is_active ? "checked" : ""} />
+            Regla activa
+          </label>
+          <div class="toolbar">
+            <button class="btn primary business-rule-save" data-rule-code="${escapeHtml(rule.code)}">
+              Guardar regla
+            </button>
+          </div>
+        </article>
+      `).join("");
+    }
+
     function valueOrNull(selector) {
       const value = $(selector).value.trim();
       return value || null;
@@ -1288,12 +1391,40 @@ TEST_HUD_HTML = """<!doctype html>
       return expense;
     }
 
+    function firstActiveExpense() {
+      const expense = (state?.scenario?.expenses || []).find((item) =>
+        !item.is_removed && !item.is_rejected
+      );
+      if (!expense) {
+        throw { status: 409, payload: { message: "No hay gasto activo disponible." } };
+      }
+      return expense;
+    }
+
     function firstReceiptAttachmentId() {
-      const expense = (state?.scenario?.expenses || []).find((item) => item.receipt_attachment_id);
+      const expense = (state?.scenario?.expenses || []).find((item) =>
+        item.receipt_attachment_id && !item.is_removed && !item.is_rejected
+      );
       if (!expense) {
         throw { status: 409, payload: { message: "No hay recibo descargable." } };
       }
       return expense.receipt_attachment_id;
+    }
+
+    function businessRulePayload(ruleCode) {
+      const description = $(`[data-rule-description="${ruleCode}"]`).value.trim();
+      const rawValue = $(`[data-rule-value="${ruleCode}"]`).value.trim();
+      let parsedValue = {};
+      try {
+        parsedValue = rawValue ? JSON.parse(rawValue) : {};
+      } catch {
+        throw { status: 400, payload: { message: "El valor de la regla debe ser JSON válido." } };
+      }
+      return {
+        description,
+        value: parsedValue,
+        is_active: $(`[data-rule-active="${ruleCode}"]`).checked
+      };
     }
 
     async function authenticatedTransition() {
@@ -1301,6 +1432,47 @@ TEST_HUD_HTML = """<!doctype html>
         target_status: $("#authTransitionTarget").value,
         note: "Transición desde HUD con token."
       });
+    }
+
+    async function removeExpenseWithToken() {
+      return jsonAuthRequest(`/expenses/${firstActiveExpense().id}/remove/me`, {
+        reason: "Gasto quitado desde HUD con token.",
+        adjust_reported_total: true
+      });
+    }
+
+    async function registerPaymentWithToken() {
+      return jsonAuthRequest(`/reimbursement-requests/${scenarioRequestId()}/payments/me`, {
+        reference: `HUD-PAGO-${Date.now()}`,
+        payment_method: "transfer",
+        note: "Pago registrado desde HUD con token."
+      });
+    }
+
+    async function downloadReceiptWithToken() {
+      const attachmentId = firstReceiptAttachmentId();
+      const response = await fetch(`${api}/attachments/${attachmentId}/download/me`, {
+        headers: authHeaders()
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        let payload = text;
+        try {
+          payload = text ? JSON.parse(text) : {};
+        } catch {
+          payload = { raw: text };
+        }
+        throw { status: response.status, payload };
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      return {
+        attachment_id: attachmentId,
+        content_type: blob.type,
+        size_bytes: blob.size
+      };
     }
 
     function executeUserFlowAction(action) {
@@ -1408,11 +1580,23 @@ TEST_HUD_HTML = """<!doctype html>
         adjust_reported_total: true
       })
     ));
+    $("#authRemoveBtn").addEventListener("click", () => runAction(
+      "Gasto quitado con token",
+      removeExpenseWithToken
+    ));
+    $("#flowRemoveExpenseBtn").addEventListener("click", () => runAction(
+      "Gasto quitado desde flujo",
+      removeExpenseWithToken
+    ));
     $("#authSapBtn").addEventListener("click", () => runAction("SAP preparado con token", () =>
       jsonAuthRequest(`/reimbursement-requests/${scenarioRequestId()}/sap-policy/prepare/me`, {
         reference: "HUD-SAP-TOKEN",
         note: "Preparado desde HUD con token."
       })
+    ));
+    $("#authPaymentBtn").addEventListener("click", () => runAction(
+      "Pago registrado con token",
+      registerPaymentWithToken
     ));
     $("#outOfPeriodBtn").addEventListener("click", () => runExpectedFailure(
       "Gasto fuera de periodo bloqueado",
@@ -1425,17 +1609,23 @@ TEST_HUD_HTML = """<!doctype html>
       }),
       "PAYMENT_OUTSIDE_PERIOD"
     ));
-    $("#downloadReceiptBtn").addEventListener("click", () => runAction("Recibo listo para descargar", async () => {
-      const attachmentId = firstReceiptAttachmentId();
-      const metadata = await request(`/attachments/${attachmentId}`);
-      window.open(`${api}/attachments/${attachmentId}/download`, "_blank");
-      return metadata;
-    }));
+    $("#downloadReceiptBtn").addEventListener("click", () => runAction(
+      "Recibo listo para descargar",
+      downloadReceiptWithToken
+    ));
     $("#missingAttachmentBtn").addEventListener("click", () => runExpectedFailure(
       "Archivo inexistente bloqueado",
       () => request("/attachments/00000000-0000-4000-8000-000000000000/download"),
       404
     ));
+    $("#businessRules").addEventListener("click", (event) => {
+      const button = event.target.closest(".business-rule-save");
+      if (!button) return;
+      const ruleCode = button.dataset.ruleCode;
+      runAction(`Regla ${ruleCode} guardada`, () =>
+        jsonAuthPatchRequest(`/business-rules/${ruleCode}`, businessRulePayload(ruleCode))
+      );
+    });
 
     loadStatus();
   </script>

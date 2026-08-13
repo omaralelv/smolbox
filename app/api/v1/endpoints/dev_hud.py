@@ -15,6 +15,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
+from app.models.business_rule import BusinessRule
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense, ExpenseStatus
 from app.models.period import Period, PeriodStatus
@@ -22,6 +23,7 @@ from app.models.reimbursement_request import ReimbursementRequest, Reimbursement
 from app.models.store import Store, StoreUserAssignment
 from app.models.user import User, UserRole
 from app.services.automation_review import build_automated_review
+from app.services.business_rules import ensure_default_business_rules
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.security import hash_password
@@ -199,6 +201,8 @@ def get_dev_hud_status(
 
     try:
         db.execute(select(1))
+        ensure_default_business_rules(db)
+        db.commit()
         counts = {
             "stores": _count(db, Store),
             "periods": _count(db, Period),
@@ -208,6 +212,7 @@ def get_dev_hud_status(
             "attachments": _count(db, Attachment),
             "audit_events": _count(db, AuditLog),
             "cfdi_validations": _count(db, CfdiValidation),
+            "business_rules": _count(db, BusinessRule),
         }
         database_status = "ok"
         api_status = "ok"
@@ -227,6 +232,7 @@ def get_dev_hud_status(
         "counts": counts,
         "scenario": _scenario_payload(db),
         "workspace": _workspace_payload(db),
+        "business_rules": _business_rules_payload(db),
     }
 
 
@@ -1205,6 +1211,21 @@ def _workspace_payload(db: Session) -> dict[str, Any]:
         "stores": [_store_payload(store) for store in stores],
         "users": [_user_payload(user) for user in users],
     }
+
+
+def _business_rules_payload(db: Session) -> list[dict[str, Any]]:
+    ensure_default_business_rules(db)
+    return [
+        {
+            "id": rule.id,
+            "code": rule.code,
+            "name": rule.name,
+            "description": rule.description,
+            "value": rule.value,
+            "is_active": rule.is_active,
+        }
+        for rule in db.scalars(select(BusinessRule).order_by(BusinessRule.code))
+    ]
 
 
 def _store_payload(store: Store) -> dict[str, Any]:

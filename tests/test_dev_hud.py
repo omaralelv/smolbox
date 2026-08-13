@@ -18,8 +18,15 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Transición con sesión" in TEST_HUD_HTML
     assert "Probar fuera de periodo" in TEST_HUD_HTML
     assert "Descargar recibo" in TEST_HUD_HTML
+    assert "Reglas de negocio" in TEST_HUD_HTML
+    assert "Guardar regla" in TEST_HUD_HTML
+    assert "Quitar gasto" in TEST_HUD_HTML
+    assert "Registrar pago" in TEST_HUD_HTML
     assert "scenarioSeedPayload" in TEST_HUD_HTML
     assert "jsonAuthRequest" in TEST_HUD_HTML
+    assert "jsonAuthPatchRequest" in TEST_HUD_HTML
+    assert "/business-rules/" in TEST_HUD_HTML
+    assert "/download/me" in TEST_HUD_HTML
     assert "Autorizar gastos" in TEST_HUD_HTML
     assert "Rechazar producto" in TEST_HUD_HTML
     assert "Confirmar pago" in TEST_HUD_HTML
@@ -136,6 +143,35 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     direction_approved = client.post("/api/v1/dev-hud/transition/direction_approved")
     assert direction_approved.status_code == 200, direction_approved.text
     assert direction_approved.json()["to_status"] == "direction_approved"
+
+    approved_for_payment = client.post("/api/v1/dev-hud/transition/approved_for_payment")
+    assert approved_for_payment.status_code == 200, approved_for_payment.text
+    assert approved_for_payment.json()["to_status"] == "approved_for_payment"
+
+    treasury_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "hud.treasury@hud.smolbox.example.com", "password": "hud-password"},
+    )
+    assert treasury_login.status_code == 200, treasury_login.text
+    payment = client.post(
+        f"/api/v1/reimbursement-requests/{scenario['request_id']}/payments/me",
+        headers={"Authorization": f"Bearer {treasury_login.json()['access_token']}"},
+        json={
+            "reference": "HUD-PAGO-001",
+            "payment_method": "transfer",
+            "note": "Pago registrado desde HUD.",
+        },
+    )
+    assert payment.status_code == 201, payment.text
+    assert payment.json()["reference"] == "HUD-PAGO-001"
+
+    payments = client.get(f"/api/v1/reimbursement-requests/{scenario['request_id']}/payments")
+    assert payments.status_code == 200, payments.text
+    assert len(payments.json()) == 1
+
+    closed = client.post("/api/v1/dev-hud/transition/closed")
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["to_status"] == "closed"
 
     reset = client.post("/api/v1/dev-hud/reset-demo")
     assert reset.status_code == 200, reset.text

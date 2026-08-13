@@ -1,0 +1,79 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import Select, select
+from sqlalchemy.orm import Session
+
+from app.api.dependencies.auth import get_current_user
+from app.db.session import get_db
+from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.store import StoreUserAssignment
+from app.models.user import User, UserRole
+from app.schemas.reimbursement_request import ReimbursementRequestRead
+
+router = APIRouter()
+
+
+ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
+    UserRole.store: {
+        ReimbursementRequestStatus.draft,
+        ReimbursementRequestStatus.correction_required,
+    },
+    UserRole.authorizer: {
+        ReimbursementRequestStatus.submitted,
+        ReimbursementRequestStatus.authorization_review,
+    },
+    UserRole.accountant: {
+        ReimbursementRequestStatus.authorized,
+        ReimbursementRequestStatus.under_accounting_review,
+    },
+    UserRole.accounting_manager: {
+        ReimbursementRequestStatus.accounting_reviewed,
+        ReimbursementRequestStatus.accounting_manager_review,
+    },
+    UserRole.treasury: {
+        ReimbursementRequestStatus.accounting_manager_approved,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    },
+    UserRole.director: {ReimbursementRequestStatus.direction_review},
+}
+
+
+@router.get("/me", response_model=list[ReimbursementRequestRead])
+def list_my_work_queue(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[ReimbursementRequest]:
+    statement = select(ReimbursementRequest).order_by(ReimbursementRequest.created_at.desc())
+
+    if current_user.role == UserRole.admin:
+        return list(db.scalars(statement.limit(200)))
+
+    statuses = ROLE_QUEUE_STATUSES.get(current_user.role, set())
+    if not statuses:
+        return []
+
+    statement = statement.where(ReimbursementRequest.status.in_(statuses))
+    statement = _scope_to_assigned_stores(statement, current_user)
+    return list(db.scalars(statement.limit(200)))
+
+
+def _scope_to_assigned_stores(
+    statement: Select[tuple[ReimbursementRequest]],
+    current_user: User,
+) -> Select[tuple[ReimbursementRequest]]:
+    if current_user.role in {UserRole.treasury, UserRole.director}:
+        return statement
+
+    return statement.where(
+        ReimbursementRequest.store_id.in_(
+            select(StoreUserAssignment.store_id).where(
+                StoreUserAssignment.user_id == current_user.id,
+                StoreUserAssignment.role == current_user.role,
+                StoreUserAssignment.is_active.is_(True),
+            )
+        )
+    )

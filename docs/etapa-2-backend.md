@@ -40,13 +40,16 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
 - Bitacora de auditoria para reconstruir acciones importantes.
 - Login basico con contrasena y token Bearer local.
 - Asignacion formal usuario-tienda mediante `store_user_assignments`.
+- Cola de trabajo autenticada para que cada rol consulte solo las solicitudes que le tocan.
 - Validacion ampliada de solicitudes.
 - Flujo de revision automatica para CFDI, comprobantes, total, periodo, OCR pendiente,
   alertas y datos base de poliza SAP.
 - Revision por gasto: autorizar, rechazar en autorizacion, observar, editar durante
   revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
 - Placeholder de poliza SAP despues de revision contable y antes de gerente.
-- Descarga de adjuntos por identificador.
+- Registro formal de pagos por tesoreria en la tabla `payments`.
+- Reglas de negocio configurables en la tabla `business_rules`.
+- Descarga de adjuntos por identificador y descarga protegida con token.
 - Edicion parcial de registros operativos mediante `PATCH`.
 - Importacion masiva de gastos desde CSV o XLSX.
 - HUD local de pruebas para recorrer el flujo desde el navegador, incluyendo una vista
@@ -75,6 +78,13 @@ columnas nuevas si detecta una base local que venia de Etapa 1.
 La migracion `20260812_0004_expense_authorization_rejection` asegura que PostgreSQL acepte
 `rejected` como estado de gasto para rechazar un producto individual durante autorizacion.
 
+La migracion `20260813_0005_queues_payments_rules` agrega:
+
+- metadatos de correccion en `reimbursement_requests`;
+- tabla `payments` para registrar pagos de tesoreria;
+- tabla `business_rules` para reglas configurables;
+- enum `payment_status` para distinguir pagos pagados o cancelados.
+
 ## Reglas de flujo
 
 Las transiciones se hacen con:
@@ -102,6 +112,9 @@ Reglas principales:
   solicitud.
 - Contabilidad mueve `authorized` a `under_accounting_review`.
 - Contabilidad puede pedir correccion o mover a `accounting_reviewed`.
+- Si contabilidad, gerente, tesoreria o direccion piden correccion, la solicitud regresa a
+  `correction_required`. Cuando tienda corrige y reenvia, el backend recuerda el estado que
+  pidio la correccion y permite regresar directo a ese punto de revision.
 - Despues de `accounting_reviewed`, contabilidad debe preparar la poliza SAP placeholder.
 - Gerente de contabilidad recibe la solicitud en `accounting_manager_review` solo si la
   poliza SAP placeholder ya fue preparada, y despues puede mover a
@@ -109,7 +122,8 @@ Reglas principales:
 - Tesoreria mueve `accounting_manager_approved` a `treasury_review` y luego a
   `direction_review`.
 - Direccion mueve `direction_review` a `direction_approved`.
-- Tesoreria puede mover `direction_approved` a `approved_for_payment`, marcar `paid` y cerrar.
+- Tesoreria puede mover `direction_approved` a `approved_for_payment`, registrar pago formal
+  y cerrar.
 - `admin` puede ejecutar las transiciones soportadas.
 
 Para enviar una solicitud, el resumen debe estar listo para envio:
@@ -196,11 +210,13 @@ Ejemplos:
 ```text
 POST /api/v1/reimbursement-requests/{request_id}/transition/me
 POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare/me
+POST /api/v1/reimbursement-requests/{request_id}/payments/me
 POST /api/v1/expenses/{expense_id}/authorize/me
 POST /api/v1/expenses/{expense_id}/reject/me
 POST /api/v1/expenses/{expense_id}/observation/me
 PATCH /api/v1/expenses/{expense_id}/review/me
 POST /api/v1/expenses/{expense_id}/remove/me
+GET /api/v1/attachments/{attachment_id}/download/me
 ```
 
 Las rutas antiguas que reciben `actor_user_id` se conservan para pruebas tecnicas y
@@ -221,6 +237,88 @@ POST /api/v1/stores/{store_id}/users
 ```
 
 Tesoreria, direccion y admin siguen siendo roles transversales por ahora.
+
+## Cola de trabajo
+
+El frontend puede consultar la bandeja de trabajo del usuario con:
+
+```text
+GET /api/v1/work-queue/me
+Authorization: Bearer <token>
+```
+
+La respuesta devuelve solicitudes filtradas por rol y estado:
+
+- tienda ve borradores y solicitudes en correccion de sus tiendas asignadas;
+- autorizacion ve solicitudes enviadas o en revision de autorizacion de sus tiendas;
+- contabilidad ve solicitudes autorizadas o en revision contable de sus tiendas;
+- gerente contable ve solicitudes revisadas por contabilidad o en revision gerencial;
+- tesoreria ve solicitudes aprobadas por gerente, en revision de tesoreria o listas para pago;
+- direccion ve solicitudes en revision de direccion;
+- admin ve todo.
+
+## Pagos de tesoreria
+
+Cuando la solicitud esta en `approved_for_payment`, tesoreria o admin registra el pago:
+
+```text
+POST /api/v1/reimbursement-requests/{request_id}/payments/me
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "reference": "PAGO-0001",
+  "payment_method": "transfer",
+  "note": "Pago confirmado por tesoreria"
+}
+```
+
+Si no se manda `amount`, el backend usa el total calculado vigente. La accion:
+
+- crea una fila en `payments`;
+- marca `paid_at` y `paid_by_user_id` en la solicitud;
+- cambia la solicitud a `paid`;
+- registra auditoria `payment_recorded`.
+
+Los pagos de una solicitud se consultan con:
+
+```text
+GET /api/v1/reimbursement-requests/{request_id}/payments
+```
+
+## Reglas de negocio
+
+Las reglas configurables se listan con:
+
+```text
+GET /api/v1/business-rules/
+```
+
+Se crean automaticamente las reglas iniciales:
+
+- `authorization_threshold`: monto a partir del cual un gasto requiere autorizacion.
+- `require_cfdi_for_accounting`: bandera para CFDI obligatorio en revision contable.
+- `block_out_of_period_expenses`: bandera para bloquear gastos fuera del periodo.
+- `auto_adjust_total_on_removed_expense`: bandera para ajustar total al quitar gastos.
+
+Admin puede actualizar una regla:
+
+```text
+PATCH /api/v1/business-rules/{rule_code}
+Authorization: Bearer <token admin>
+```
+
+```json
+{
+  "value": {"amount": "1500.00", "currency": "MXN"},
+  "is_active": true,
+  "description": "Monto minimo para mandar un gasto a autorizacion."
+}
+```
+
+En esta entrega las reglas quedan persistidas y editables. El siguiente paso es conectar
+cada regla a su validador especifico para que el comportamiento cambie sin tocar codigo.
 
 ## Placeholder de poliza SAP
 
@@ -360,10 +458,13 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - iniciar sesion como rol HUD con token local y ejecutar acciones autenticadas similares a
   las que usara el frontend final;
 - probar errores controlados como gasto fuera de periodo y archivo inexistente;
-- descargar recibos demo por medio del endpoint de adjuntos;
+- descargar recibos demo por medio del endpoint protegido de adjuntos;
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
 - crear pagos/gastos de prueba en la solicitud HUD;
+- quitar gastos durante revision contable usando token;
+- registrar pagos formales desde sesion de tesoreria;
 - autorizar gastos HUD que requieren aprobacion previa;
+- revisar y editar reglas de negocio desde sesion admin;
 - preparar la poliza SAP placeholder antes de mandar a gerente;
 - limpiar solo los datos con prefijo HUD.
 
@@ -390,6 +491,9 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/dev-hud/prepare-sap-policy`
 - `POST /api/v1/dev-hud/transition/{target_status}`
 - `POST /api/v1/dev-hud/reset-demo`
+- `GET /api/v1/business-rules`
+- `PATCH /api/v1/business-rules/{rule_code}`
+- `GET /api/v1/work-queue/me`
 - `POST /api/v1/auth/login`
 - `GET /api/v1/auth/me`
 - `POST /api/v1/users`
@@ -407,6 +511,8 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/reimbursement-requests/{request_id}/transition/me`
 - `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`
 - `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare/me`
+- `GET /api/v1/reimbursement-requests/{request_id}/payments`
+- `POST /api/v1/reimbursement-requests/{request_id}/payments/me`
 - `GET /api/v1/reimbursement-requests/{request_id}/audit-events`
 - `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`
 - `PATCH /api/v1/expenses/{expense_id}`
@@ -422,3 +528,4 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 - `POST /api/v1/expenses/{expense_id}/remove/me`
 - `GET /api/v1/attachments/{attachment_id}`
 - `GET /api/v1/attachments/{attachment_id}/download`
+- `GET /api/v1/attachments/{attachment_id}/download/me`

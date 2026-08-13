@@ -69,6 +69,10 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     approved_for_payment_at: datetime | None = None
     paid_at: datetime | None = None
     closed_at: datetime | None = None
+    correction_requested_at: datetime | None = None
+    correction_requested_by_user_id: UUID | None = None
+    correction_return_status: ReimbursementRequestStatus | None = None
+    correction_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -8,8 +8,10 @@ from app.db.base import Base
 from app.models import (  # noqa: F401
     attachment,
     audit_log,
+    business_rule,
     cfdi_validation,
     expense,
+    payment,
     period,
     reimbursement_request,
     store,

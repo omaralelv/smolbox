@@ -507,3 +507,113 @@ def test_authenticated_actions_require_store_assignment_and_role(
     )
     assert authorized.status_code == 200, authorized.text
     assert authorized.json()["authorized_by_user_id"] == assigned_authorizer_id
+
+
+def test_work_queue_filters_by_role_status_and_store_assignment(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    receipt = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    store_queue = client.get("/api/v1/work-queue/me", headers=_auth_headers(client, "store@example.com"))
+    assert store_queue.status_code == 200, store_queue.text
+    assert [item["id"] for item in store_queue.json()] == [base_records["request_id"]]
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    authorizer_queue = client.get(
+        "/api/v1/work-queue/me",
+        headers=_auth_headers(client, "authorizer@example.com"),
+    )
+    assert authorizer_queue.status_code == 200, authorizer_queue.text
+    assert [item["id"] for item in authorizer_queue.json()] == [base_records["request_id"]]
+
+
+def test_correction_returns_to_requesting_review_status(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    receipt = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    accountant_user_id = _create_user(client, "accountant")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorization_review",
+        actor_user_id=authorizer_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorized",
+        actor_user_id=authorizer_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="under_accounting_review",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+
+    correction = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=_auth_headers(client, "accountant@example.com"),
+        json={
+            "target_status": "correction_required",
+            "note": "Falta aclarar factura.",
+        },
+    )
+    assert correction.status_code == 200, correction.text
+    assert correction.json()["status"] == "correction_required"
+    assert correction.json()["correction_return_status"] == "under_accounting_review"
+    assert correction.json()["correction_reason"] == "Falta aclarar factura."
+
+    resubmitted = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=_auth_headers(client, "store@example.com"),
+        json={"target_status": "submitted", "note": "Tienda corrigio factura."},
+    )
+    assert resubmitted.status_code == 200, resubmitted.text
+
+    returned = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=_auth_headers(client, "accountant@example.com"),
+        json={"target_status": "under_accounting_review", "note": "Regresa a contabilidad."},
+    )
+    assert returned.status_code == 200, returned.text
+    assert returned.json()["status"] == "under_accounting_review"
