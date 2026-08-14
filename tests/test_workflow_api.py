@@ -84,17 +84,11 @@ def test_request_moves_through_submission_and_accounting_review(
         target_status="authorization_review",
         actor_user_id=authorizer_user_id,
     )
-    assert authorization_review.status_code == 200, authorization_review.text
-    assert authorization_review.json()["status"] == "authorization_review"
-
-    authorized = _transition(
-        client,
-        base_records["request_id"],
-        target_status="authorized",
-        actor_user_id=authorizer_user_id,
-    )
-    assert authorized.status_code == 200, authorized.text
-    assert authorized.json()["status"] == "authorized"
+    assert authorization_review.status_code == 409
+    assert authorization_review.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+    assert "does not have expenses pending authorization" in authorization_review.json()["detail"][
+        "message"
+    ]
 
     review = _transition(
         client,
@@ -558,13 +552,27 @@ def test_authorizer_cannot_remove_regular_expense_during_authorization_review(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
-    expense = create_expense(client, base_records, amount="1500.00")
-    receipt = client.post(
-        f"/api/v1/expenses/{expense['id']}/attachments",
-        data={"attachment_type": "receipt"},
-        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    expense = create_expense(client, base_records, amount="1000.00")
+    authorization_expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Producto que habilita autorizacion",
+            "amount": "500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
     )
-    assert receipt.status_code == 201, receipt.text
+    assert authorization_expense.status_code == 201, authorization_expense.text
+    for expense_id in [expense["id"], authorization_expense.json()["id"]]:
+        receipt = client.post(
+            f"/api/v1/expenses/{expense_id}/attachments",
+            data={"attachment_type": "receipt"},
+            files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+        )
+        assert receipt.status_code == 201, receipt.text
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -600,9 +608,21 @@ def test_authenticated_transition_uses_token_user_and_blocks_wrong_role(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
-    expense = create_expense(client, base_records, amount="1500.00")
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Producto con Autorizacion Token",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
+    )
+    assert expense.status_code == 201, expense.text
     receipt = client.post(
-        f"/api/v1/expenses/{expense['id']}/attachments",
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
         data={"attachment_type": "receipt"},
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
@@ -754,8 +774,10 @@ def test_work_queue_filters_by_role_status_and_store_assignment(
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
+    accountant_user_id = _create_user(client, "accountant")
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
     _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
 
     store_queue = client.get("/api/v1/work-queue/me", headers=_auth_headers(client, "store@example.com"))
     assert store_queue.status_code == 200, store_queue.text
@@ -774,7 +796,68 @@ def test_work_queue_filters_by_role_status_and_store_assignment(
         headers=_auth_headers(client, "authorizer@example.com"),
     )
     assert authorizer_queue.status_code == 200, authorizer_queue.text
+    assert authorizer_queue.json() == []
+
+    accountant_queue = client.get(
+        "/api/v1/work-queue/me",
+        headers=_auth_headers(client, "accountant@example.com"),
+    )
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    assert [item["id"] for item in accountant_queue.json()] == [base_records["request_id"]]
+
+
+def test_work_queue_routes_authorization_required_submitted_requests_to_authorizer(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Proveedor con Autorizacion",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    receipt = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    accountant_user_id = _create_user(client, "accountant")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    authorizer_queue = client.get(
+        "/api/v1/work-queue/me",
+        headers=_auth_headers(client, "authorizer@example.com"),
+    )
+    assert authorizer_queue.status_code == 200, authorizer_queue.text
     assert [item["id"] for item in authorizer_queue.json()] == [base_records["request_id"]]
+
+    accountant_queue = client.get(
+        "/api/v1/work-queue/me",
+        headers=_auth_headers(client, "accountant@example.com"),
+    )
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    assert accountant_queue.json() == []
 
 
 def test_correction_returns_to_requesting_review_status(
@@ -790,10 +873,8 @@ def test_correction_returns_to_requesting_review_status(
     assert receipt.status_code == 201, receipt.text
 
     store_user_id = _create_user(client, "store")
-    authorizer_user_id = _create_user(client, "authorizer")
     accountant_user_id = _create_user(client, "accountant")
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
-    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
     _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
 
     assert _transition(
@@ -801,18 +882,6 @@ def test_correction_returns_to_requesting_review_status(
         base_records["request_id"],
         target_status="submitted",
         actor_user_id=store_user_id,
-    ).status_code == 200
-    assert _transition(
-        client,
-        base_records["request_id"],
-        target_status="authorization_review",
-        actor_user_id=authorizer_user_id,
-    ).status_code == 200
-    assert _transition(
-        client,
-        base_records["request_id"],
-        target_status="authorized",
-        actor_user_id=authorizer_user_id,
     ).status_code == 200
     assert _transition(
         client,

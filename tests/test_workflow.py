@@ -111,6 +111,70 @@ def test_authorization_requires_authorized_expenses() -> None:
         )
 
 
+def test_authorization_review_is_skipped_when_no_expenses_need_authorization() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.submitted)
+    actor = User(
+        email="autorizador.sin.pendientes@example.com",
+        full_name="Autorizador Sin Pendientes",
+        role=UserRole.authorizer,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.authorization_review,
+            summary=_summary(),
+        )
+
+    assert "does not have expenses pending authorization" in str(exc_info.value)
+
+
+def test_accountant_can_take_submitted_request_without_authorization_pending() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.submitted)
+    actor = User(
+        email="contador.directo@example.com",
+        full_name="Contador Directo",
+        role=UserRole.accountant,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.under_accounting_review,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.submitted
+    assert to_status == ReimbursementRequestStatus.under_accounting_review
+    assert request.status == ReimbursementRequestStatus.under_accounting_review
+
+
+def test_accountant_cannot_take_submitted_request_with_authorization_pending() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.submitted)
+    actor = User(
+        email="contador.bloqueado@example.com",
+        full_name="Contador Bloqueado",
+        role=UserRole.accountant,
+        is_active=True,
+    )
+    summary = _summary()
+    summary.ready_for_authorization_approval = False
+    summary.missing_authorization_expense_ids = [uuid4()]
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.under_accounting_review,
+            summary=summary,
+        )
+
+    assert "needs authorization review" in str(exc_info.value)
+
+
 def test_authorizer_can_reject_request_when_no_payable_expenses_remain() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.authorization_review)
     actor = User(

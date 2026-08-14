@@ -179,8 +179,8 @@ Flujo de estados esperado:
 ```text
 draft
 -> submitted
--> authorization_review
--> authorized
+-> authorization_review (solo si hay gastos con requires_authorization=true)
+-> authorized (solo despues de resolver esos gastos)
 -> under_accounting_review
 -> accounting_reviewed
 -> preparar poliza SAP placeholder
@@ -198,6 +198,9 @@ Durante autorizacion, si un gasto/producto no procede, se rechaza solo ese gasto
 `POST /api/v1/expenses/{expense_id}/reject`; la solicitud puede seguir con los gastos
 restantes si el total queda cuadrado. Los gastos que tienen `requires_authorization=true`
 deben autorizarse, rechazarse o removerse antes de mover la solicitud a `authorized`.
+Si la solicitud enviada no tiene ningun gasto pendiente de autorizacion, no entra a la
+bandeja de autorizacion: contabilidad la puede tomar directo desde `submitted` y moverla a
+`under_accounting_review`.
 
 Si autorizacion o una revision posterior rechaza/remueve todos los gastos y ya no queda monto
 reembolsable, el resumen genera la alerta `no_payable_expenses`. En ese caso la solicitud no

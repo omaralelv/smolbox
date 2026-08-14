@@ -33,7 +33,10 @@ ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
         allowed_roles={UserRole.authorizer, UserRole.admin},
     ),
     ReimbursementRequestStatus.under_accounting_review: TransitionRule(
-        allowed_from={ReimbursementRequestStatus.authorized},
+        allowed_from={
+            ReimbursementRequestStatus.submitted,
+            ReimbursementRequestStatus.authorized,
+        },
         allowed_roles={UserRole.accountant, UserRole.admin},
     ),
     ReimbursementRequestStatus.correction_required: TransitionRule(
@@ -173,6 +176,19 @@ def transition_reimbursement_request(
         and not summary.ready_for_authorization_approval
     ):
         raise WorkflowTransitionError("Request still has expenses pending authorization")
+
+    if (
+        target_status == ReimbursementRequestStatus.authorization_review
+        and not summary.missing_authorization_expense_ids
+    ):
+        raise WorkflowTransitionError("Request does not have expenses pending authorization")
+
+    if (
+        target_status == ReimbursementRequestStatus.under_accounting_review
+        and current_status == ReimbursementRequestStatus.submitted
+        and summary.missing_authorization_expense_ids
+    ):
+        raise WorkflowTransitionError("Request still needs authorization review before accounting")
 
     if (
         target_status

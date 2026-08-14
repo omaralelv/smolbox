@@ -22,8 +22,8 @@ Si incluye un placeholder auditable para preparar la poliza SAP antes de enviar 
 - Flujo de estados de solicitud:
   - `draft`
   - `submitted`
-  - `authorization_review`
-  - `authorized`
+  - `authorization_review` si hay gastos pendientes con `requires_authorization=true`
+  - `authorized` despues de resolver esos gastos
   - `under_accounting_review`
   - `correction_required`
   - `accounting_reviewed`
@@ -106,11 +106,15 @@ El cuerpo necesita:
 Reglas principales:
 
 - La tienda puede mover `draft` o `correction_required` a `submitted`.
-- Autorizacion mueve `submitted` a `authorization_review`.
+- Autorizacion mueve `submitted` a `authorization_review` solo cuando existen gastos pendientes
+  con `requires_authorization=true`.
 - Autorizacion puede autorizar o rechazar gastos individuales y luego mover la solicitud a
   `authorized`. Si algo no procede en esta etapa, se rechaza el gasto/producto, no toda la
   solicitud.
-- Contabilidad mueve `authorized` a `under_accounting_review`.
+- Si no hay gastos pendientes de autorizacion, la solicitud enviada pasa directo a la cola de
+  contabilidad y contabilidad puede mover `submitted` a `under_accounting_review`.
+- Contabilidad mueve `authorized` o `submitted` sin autorizaciones pendientes a
+  `under_accounting_review`.
 - Contabilidad puede pedir correccion o mover a `accounting_reviewed`.
 - Si contabilidad, gerente, tesoreria o direccion piden correccion, la solicitud regresa a
   `correction_required`. Cuando tienda corrige y reenvia, el backend recuerda el estado que
@@ -372,6 +376,9 @@ Reglas:
 - Si todos los gastos quedan rechazados/removidos y `expense_count` queda en `0`, el resumen
   genera `no_payable_expenses`. En ese caso la solicitud se bloquea para contabilidad, SAP y
   pago, y el rol revisor activo puede cerrar la solicitud completa como `rejected`.
+- En contabilidad, gerencia, tesoreria y direccion el boton/API de rechazar solicitud completa
+  solo procede si ya no queda monto pagable; primero se remueven o rechazan los gastos que no
+  proceden.
 - `observation` funciona en la etapa activa del rol revisor: autorizacion, contabilidad,
   gerente contable, tesoreria o direccion.
 - `review` permite editar gastos durante `under_accounting_review` o

@@ -70,6 +70,15 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "noPayableRejectionStatuses" in TEST_HUD_HTML
     assert "requiresNoPayable" in TEST_HUD_HTML
     assert "requiresAuthorizationExpense" in TEST_HUD_HTML
+    assert "selectedExpenseId" in TEST_HUD_HTML
+    assert "selected-row" in TEST_HUD_HTML
+    assert "Gasto seleccionado" in TEST_HUD_HTML
+    assert "Seleccionar" in TEST_HUD_HTML
+    assert "requiresAuthorizationPending" in TEST_HUD_HTML
+    assert "requiresNoAuthorizationPending" in TEST_HUD_HTML
+    assert "HUD_SELECTED_EXPENSE_NOT_REMOVABLE" in TEST_HUD_HTML
+    assert "productQueueActive" in TEST_HUD_HTML
+    assert "hasPendingAuthorization" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -312,6 +321,55 @@ def test_dev_hud_can_reject_request_with_no_payable_expenses(client: TestClient)
     assert rejected_request.status_code == 200, rejected_request.text
     assert rejected_request.json()["to_status"] == "rejected"
     assert rejected_request.json()["scenario"]["status"] == "rejected"
+
+
+def test_dev_hud_routes_no_authorization_scenario_directly_to_accounting(
+    client: TestClient,
+) -> None:
+    seeded = client.post(
+        "/api/v1/dev-hud/seed-demo",
+        json={
+            "reset_existing": True,
+            "store_code": "HUD-NO-AUTH",
+            "store_name": "HUD Sin Autorizacion",
+            "contact_email": "hud.no.auth@hud.smolbox.example.com",
+            "period_name": "HUD Sin Autorizacion 2026",
+            "reported_total": "1500.00",
+            "expenses": [
+                {
+                    "merchant": "HUD Papeleria Normal",
+                    "amount": "1000.00",
+                    "spent_on": "2026-08-10",
+                    "category": "papeleria",
+                    "supplier_tax_id": "XAXX010101000",
+                    "requires_authorization": False,
+                },
+                {
+                    "merchant": "HUD Taxi Normal",
+                    "amount": "500.00",
+                    "spent_on": "2026-08-11",
+                    "category": "transporte",
+                    "supplier_tax_id": "XEXX010101000",
+                    "requires_authorization": False,
+                },
+            ],
+        },
+    )
+    assert seeded.status_code == 201, seeded.text
+    assert seeded.json()["scenario"]["summary"]["missing_authorization_expense_ids"] == []
+
+    submitted = client.post("/api/v1/dev-hud/transition/submitted")
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["to_status"] == "submitted"
+
+    authorization_review = client.post("/api/v1/dev-hud/transition/authorization_review")
+    assert authorization_review.status_code == 409
+    assert authorization_review.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+
+    accounting_review = client.post("/api/v1/dev-hud/transition/under_accounting_review")
+    assert accounting_review.status_code == 200, accounting_review.text
+    assert accounting_review.json()["to_status"] == "under_accounting_review"
+    assert accounting_review.json()["actor"]["role"] == "accountant"
 
 
 def test_dev_hud_demo_users_can_login_and_exposes_attachment_ids(

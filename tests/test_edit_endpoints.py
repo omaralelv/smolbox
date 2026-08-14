@@ -59,7 +59,20 @@ def test_can_patch_core_records(client: TestClient, base_records: dict[str, str]
 
 
 def test_rejects_edit_after_submission(client: TestClient, base_records: dict[str, str]) -> None:
-    expense = create_expense(client, base_records, amount="1500.00")
+    expense_response = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Proveedor con Autorizacion",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "papeleria",
+            "requires_authorization": True,
+        },
+    )
+    assert expense_response.status_code == 201, expense_response.text
+    expense = expense_response.json()
     receipt = client.post(
         f"/api/v1/expenses/{expense['id']}/attachments",
         data={"attachment_type": "receipt"},

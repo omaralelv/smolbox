@@ -486,12 +486,46 @@ TEST_HUD_HTML = """<!doctype html>
 	      font-size: 13px;
 	    }
 
-	    .product-expenses {
-	      grid-column: 1 / -1;
+		    .product-expenses {
+		      grid-column: 1 / -1;
+		    }
+
+	    .expense-selector {
+	      display: grid;
+	      grid-template-columns: minmax(220px, 1fr) minmax(240px, 1fr);
+	      gap: 10px;
+	      margin-bottom: 10px;
+	      padding: 10px;
+	      border: 1px solid var(--line);
+	      border-radius: 7px;
+	      background: #f8fafc;
 	    }
 
-	    .product-actions-bar {
-	      align-items: center;
+	    .expense-selector .field {
+	      margin: 0;
+	    }
+
+	    .selected-expense-summary {
+	      display: grid;
+	      gap: 4px;
+	      align-content: center;
+	      color: var(--muted);
+	      font-size: 13px;
+	    }
+
+	    .selected-expense-summary strong {
+	      color: var(--ink);
+	      overflow-wrap: anywhere;
+	    }
+
+	    .table tr.selected-row {
+	      background: #eef5ff;
+	      outline: 2px solid #94b5ef;
+	      outline-offset: -2px;
+	    }
+
+		    .product-actions-bar {
+		      align-items: center;
 	      padding-top: 4px;
 	      border-top: 1px solid var(--line);
 	    }
@@ -1078,6 +1112,7 @@ TEST_HUD_HTML = """<!doctype html>
             <button class="btn success flow-btn" data-target="authorized">Autorizar solicitud</button>
             <button class="btn flow-btn" data-target="under_accounting_review">Revisión contable</button>
             <button class="btn warning flow-btn" data-target="correction_required">Pedir corrección</button>
+            <button class="btn danger flow-btn" data-target="rejected">Rechazar solicitud sin monto</button>
             <button class="btn success flow-btn" data-target="accounting_reviewed">Cerrar contabilidad</button>
             <button class="btn success" id="prepareSapPolicyBtn">Preparar póliza SAP</button>
             <button class="btn flow-btn" data-target="accounting_manager_review">Enviar gerente</button>
@@ -1232,10 +1267,11 @@ TEST_HUD_HTML = """<!doctype html>
     const api = "/api/v1";
 	    let state = null;
 	    let busy = false;
-	    let authToken = null;
-	    let authUser = null;
-	    let activeProductRole = "store";
-	    let activeRequestId = window.localStorage.getItem("smolbox.devHud.activeRequestId");
+		    let authToken = null;
+		    let authUser = null;
+		    let activeProductRole = "store";
+	    let selectedExpenseId = null;
+		    let activeRequestId = window.localStorage.getItem("smolbox.devHud.activeRequestId");
 
 	    const $ = (selector) => document.querySelector(selector);
 	    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -1269,7 +1305,7 @@ TEST_HUD_HTML = """<!doctype html>
 	        label: "Contabilidad",
 	        title: "Revisión contable",
 	        subtitle: "Factura, CFDI, formato y póliza",
-	        queueStatuses: ["authorized", "under_accounting_review", "accounting_reviewed"],
+	        queueStatuses: ["submitted", "authorized", "under_accounting_review", "accounting_reviewed"],
 	        nav: ["Bandeja", "Documentos", "Póliza SAP", "Historial"]
 	      },
 	      {
@@ -1338,7 +1374,8 @@ TEST_HUD_HTML = """<!doctype html>
         id: "transition:authorization_review",
         label: "Abrir autorización",
         roles: ["authorizer"],
-        statuses: ["submitted"]
+        statuses: ["submitted"],
+        requiresAuthorizationPending: true
       },
       {
         id: "authorize-expense",
@@ -1381,7 +1418,8 @@ TEST_HUD_HTML = """<!doctype html>
         id: "transition:under_accounting_review",
         label: "Tomar revisión contable",
         roles: ["accountant"],
-        statuses: ["authorized"]
+        statuses: ["submitted", "authorized"],
+        requiresNoAuthorizationPending: true
       },
       {
         id: "transition:correction_required",
@@ -1634,13 +1672,25 @@ TEST_HUD_HTML = """<!doctype html>
 	      }
 	    }
 
-	    function syncActiveRequestFromState() {
-	      if (state?.scenario?.request_id) {
-	        activeRequestId = state.scenario.request_id;
+		    function syncActiveRequestFromState() {
+		      if (state?.scenario?.request_id) {
+		        activeRequestId = state.scenario.request_id;
 	      } else if (!(state?.scenarios || []).length) {
 	        activeRequestId = null;
 	      }
-	      persistActiveRequestId();
+		      persistActiveRequestId();
+		    }
+
+	    function syncSelectedExpenseFromState() {
+	      const expenses = state?.scenario?.expenses || [];
+	      if (!expenses.length) {
+	        selectedExpenseId = null;
+	        return;
+	      }
+	      const selectedStillExists = expenses.some((expense) => expense.id === selectedExpenseId);
+	      if (selectedStillExists) return;
+	      const firstActive = expenses.find((expense) => !expense.is_removed && !expense.is_rejected);
+	      selectedExpenseId = firstActive?.id || expenses[0].id;
 	    }
 
 	    async function loadStatus() {
@@ -1650,9 +1700,10 @@ TEST_HUD_HTML = """<!doctype html>
 	          activeRequestId = state.scenarios[0].request_id;
 	          persistActiveRequestId();
 	          state = await request(selectedDevHudPath("/dev-hud/status"));
-	        }
-	        syncActiveRequestFromState();
-	        render();
+		        }
+		        syncActiveRequestFromState();
+	        syncSelectedExpenseFromState();
+		        render();
 	      } catch (error) {
 	        writeErrorConsole("No se pudo cargar el estado", error);
 	      }
@@ -1703,11 +1754,14 @@ TEST_HUD_HTML = """<!doctype html>
       const canEditRules = Boolean(authToken && authUser?.role === "admin");
       const isEditable = isEditableScenarioStatus();
       $$(
-        ".flow-btn, #importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, " +
+        "#importDryRunBtn, #importRealBtn, #automatedReviewBtn, #completeCfdiBtn, " +
         "#createPaymentBtn, #authorizeExpensesBtn, #rejectAuthorizationExpenseBtn, " +
         "#prepareSapPolicyBtn, #recordPaymentBtn"
       ).forEach((button) => {
         button.disabled = !hasScenario;
+      });
+      $$(".flow-btn").forEach((button) => {
+        button.disabled = !isUserFlowActionAvailable(`transition:${button.dataset.target}`);
       });
       $$("#importDryRunBtn, #importRealBtn, #completeCfdiBtn, #createPaymentBtn").forEach((button) => {
         button.disabled = !hasScenario || !isEditable;
@@ -1747,11 +1801,12 @@ TEST_HUD_HTML = """<!doctype html>
       if (!hasScenario) return false;
       if (action === "complete-cfdi") return isEditableScenarioStatus();
       if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
-      if (action === "transition:rejected") {
-        return (
-          noPayableRejectionStatuses.includes(state?.scenario?.status) &&
-          state?.scenario?.summary?.expense_count === 0
-        );
+      if (action.startsWith("transition:")) {
+        return roleActions
+          .filter((roleAction) => roleAction.id === action)
+          .some((roleAction) =>
+            roleAction.roles.some((role) => isRoleActionAvailableFor(role, roleAction))
+          );
       }
       return true;
     }
@@ -1776,15 +1831,29 @@ TEST_HUD_HTML = """<!doctype html>
       const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
       const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
       const authorizationExpenseReady =
-        !action.requiresAuthorizationExpense || hasActiveAuthorizationExpense();
+        !action.requiresAuthorizationExpense || hasSelectedRemovableExpense();
+      const authorizationPendingReady =
+        !action.requiresAuthorizationPending || hasAuthorizationPending();
+      const noAuthorizationPendingReady =
+        !action.requiresNoAuthorizationPending || !hasAuthorizationPending();
       return (
         roleAllowed &&
         statusAllowed &&
         sapReady &&
         receiptReady &&
         noPayableReady &&
-        authorizationExpenseReady
+        authorizationExpenseReady &&
+        authorizationPendingReady &&
+        noAuthorizationPendingReady
       );
+    }
+
+    function isRoleActionVisibleFor(role, action) {
+      const status = state?.scenario?.status;
+      if (!status) return false;
+      const roleAllowed = role === "admin" || action.roles.includes(role);
+      const statusAllowed = action.statuses === null || action.statuses.includes(status);
+      return roleAllowed && statusAllowed;
     }
 
     function render() {
@@ -1910,7 +1979,7 @@ TEST_HUD_HTML = """<!doctype html>
 	      }
 
 	      const summary = scenario.summary || {};
-	      const queueActive = config.queueStatuses.includes(scenario.status);
+	      const queueActive = productQueueActive(config, scenario);
 	      const actions = productActionsForRole(config.id);
 	      $("#productPreview").innerHTML = `
 	        <div class="product-shell">
@@ -1961,12 +2030,13 @@ TEST_HUD_HTML = """<!doctype html>
 	                ${productDetailGrid(scenario)}
 	              </section>
 	              <section class="product-pane product-expenses">
-	                <div class="product-pane-head">
-	                  <h3>Gastos</h3>
-	                  <span class="subtle">${scenario.expenses?.length || 0} registro(s)</span>
-	                </div>
-		                ${productExpensesTable(scenario.expenses || [], config.id)}
-	              </section>
+		                <div class="product-pane-head">
+		                  <h3>Gastos</h3>
+		                  <span class="subtle">${scenario.expenses?.length || 0} registro(s)</span>
+		                </div>
+	                ${expenseSelector(scenario.expenses || [])}
+			                ${productExpensesTable(scenario.expenses || [], config.id)}
+		              </section>
 	            </div>
 
 	            <div class="product-actions-bar">
@@ -1995,6 +2065,25 @@ TEST_HUD_HTML = """<!doctype html>
 
 	    function productRoleConfig(roleId) {
 	      return productRoles.find((role) => role.id === roleId) || productRoles[0];
+	    }
+
+	    function productQueueActive(config, scenario) {
+	      if (!config.queueStatuses.includes(scenario.status)) {
+	        return false;
+	      }
+	      if (scenario.status !== "submitted") {
+	        return true;
+	      }
+	      const hasPendingAuthorization = Boolean(
+	        scenario.summary?.missing_authorization_expense_ids?.length
+	      );
+	      if (config.id === "authorizer") {
+	        return hasPendingAuthorization;
+	      }
+	      if (config.id === "accountant") {
+	        return !hasPendingAuthorization;
+	      }
+	      return true;
 	    }
 
 	    function productSidebar(config) {
@@ -2037,19 +2126,44 @@ TEST_HUD_HTML = """<!doctype html>
 	      `;
 	    }
 
-	    function detailCell(label, value) {
-	      return `
-	        <div class="detail-cell">
+		    function detailCell(label, value) {
+		      return `
+		        <div class="detail-cell">
 	          <span>${escapeHtml(label)}</span>
 	          <strong>${escapeHtml(value)}</strong>
+	        </div>
+		      `;
+		    }
+
+	    function expenseSelector(expenses) {
+	      if (!expenses.length) {
+	        return "";
+	      }
+	      const selected = selectedExpense();
+	      return `
+	        <div class="expense-selector">
+	          <label class="field">
+	            <span>Gasto seleccionado</span>
+	            <select class="input" id="selectedExpenseId">
+	              ${expenses.map((expense) => `
+	                <option value="${escapeHtml(expense.id)}" ${expense.id === selectedExpenseId ? "selected" : ""}>
+	                  ${escapeHtml(expense.merchant)} / ${money(expense.amount)} / ${escapeHtml(expense.status)}
+	                </option>
+	              `).join("")}
+	            </select>
+	          </label>
+	          <div class="selected-expense-summary">
+	            <strong>${escapeHtml(selected?.merchant || "Sin gasto seleccionado")}</strong>
+	            <span>${selected ? `${money(selected.amount)} / ${escapeHtml(selected.category || "-")} / ${escapeHtml(selected.status)}` : "-"}</span>
+	          </div>
 	        </div>
 	      `;
 	    }
 
-	    function productExpensesTable(expenses, role) {
-	      if (!expenses.length) {
-	        return "<p class='subtle'>Sin gastos.</p>";
-	      }
+		    function productExpensesTable(expenses, role) {
+		      if (!expenses.length) {
+		        return "<p class='subtle'>Sin gastos.</p>";
+		      }
 	      return `
 	        <table class="table">
 	          <thead>
@@ -2063,10 +2177,10 @@ TEST_HUD_HTML = """<!doctype html>
 		              <th>Acciones</th>
 	            </tr>
 	          </thead>
-	          <tbody>
-	            ${expenses.map((expense) => `
-	              <tr>
-	                <td>${escapeHtml(expense.merchant)}</td>
+		          <tbody>
+		            ${expenses.map((expense) => `
+		              <tr class="${expense.id === selectedExpenseId ? "selected-row" : ""}">
+		                <td>${escapeHtml(expense.merchant)}</td>
 	                <td>${money(expense.amount)}</td>
 	                <td>${authBadge(expense)}</td>
 	                <td>${badge(expense.has_receipt)}</td>
@@ -2083,6 +2197,9 @@ TEST_HUD_HTML = """<!doctype html>
     function productExpenseActions(expense, role) {
       const actions = [];
       const activeExpense = !expense.is_removed && !expense.is_rejected;
+      if (activeExpense && expense.id !== selectedExpenseId && role !== "system") {
+        actions.push(expenseActionButton(role, "select", expense.id, "Seleccionar", ""));
+      }
       const authorizationReviewExpense =
         role === "authorizer" &&
         state?.scenario?.status === "authorization_review" &&
@@ -2140,7 +2257,7 @@ TEST_HUD_HTML = """<!doctype html>
 	          }
 	        ].filter((action) => isProductActionAvailable(role, action.id));
 	      }
-	      const actions = roleActions.filter((action) => isRoleActionAvailableFor(role, action));
+		      const actions = roleActions.filter((action) => isRoleActionVisibleFor(role, action));
 	      if (role === "store" && isProductActionAvailable(role, "complete-cfdi")) {
 	        actions.splice(1, 0, {
 	          id: "complete-cfdi",
@@ -2340,22 +2457,30 @@ TEST_HUD_HTML = """<!doctype html>
         const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
         const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
         const authorizationExpenseReady =
-          !action.requiresAuthorizationExpense || hasActiveAuthorizationExpense();
+          !action.requiresAuthorizationExpense || hasSelectedRemovableExpense();
+        const authorizationPendingReady =
+          !action.requiresAuthorizationPending || hasAuthorizationPending();
+        const noAuthorizationPendingReady =
+          !action.requiresNoAuthorizationPending || !hasAuthorizationPending();
         return (
           roleAllowed &&
           statusAllowed &&
           sapReady &&
           receiptReady &&
           noPayableReady &&
-          authorizationExpenseReady
+          authorizationExpenseReady &&
+          authorizationPendingReady &&
+          noAuthorizationPendingReady
         );
       });
     }
 
-    function hasActiveAuthorizationExpense() {
-      return (state?.scenario?.expenses || []).some((item) =>
-        item.requires_authorization && !item.is_removed && !item.is_rejected
-      );
+    function hasAuthorizationPending() {
+      return Boolean(state?.scenario?.summary?.missing_authorization_expense_ids?.length);
+    }
+
+    function hasSelectedRemovableExpense() {
+      return Boolean(selectedRemovableExpense({ throwOnInvalid: false }));
     }
 
     function hasReceiptAttachment() {
@@ -2550,7 +2675,25 @@ TEST_HUD_HTML = """<!doctype html>
       return expense;
     }
 
+    function selectedExpense() {
+      return (state?.scenario?.expenses || []).find((item) => item.id === selectedExpenseId) || null;
+    }
+
     function firstRemovableExpense() {
+      const selected = selectedRemovableExpense({ throwOnInvalid: false });
+      if (selected) return selected;
+      const selectedCurrentExpense = selectedExpense();
+      if (selectedCurrentExpense) {
+        throw {
+          status: 409,
+          payload: {
+            detail: {
+              code: "HUD_SELECTED_EXPENSE_NOT_REMOVABLE",
+              message: "El gasto seleccionado no se puede quitar en la etapa actual."
+            }
+          }
+        };
+      }
       const expenses = state?.scenario?.expenses || [];
       const expense = state?.scenario?.status === "authorization_review"
         ? expenses.find((item) =>
@@ -2561,6 +2704,59 @@ TEST_HUD_HTML = """<!doctype html>
         throw { status: 409, payload: { message: "No hay gasto activo disponible para quitar." } };
       }
       return expense;
+    }
+
+    function selectedRemovableExpense({ throwOnInvalid } = { throwOnInvalid: true }) {
+      const expense = selectedExpense();
+      if (!expense) {
+        if (!throwOnInvalid) return null;
+        throw { status: 409, payload: { message: "Selecciona un gasto primero." } };
+      }
+      const activeExpense = !expense.is_removed && !expense.is_rejected;
+      const status = state?.scenario?.status;
+      const removable =
+        activeExpense &&
+        (
+          ["under_accounting_review", "accounting_manager_review"].includes(status) ||
+          (status === "authorization_review" && expense.requires_authorization)
+        );
+      if (removable) return expense;
+      if (!throwOnInvalid) return null;
+      throw {
+        status: 409,
+        payload: {
+          detail: {
+            code: "HUD_SELECTED_EXPENSE_NOT_REMOVABLE",
+            message: "El gasto seleccionado no se puede quitar en la etapa actual."
+          }
+        }
+      };
+    }
+
+    function selectExpense(expenseId) {
+      const expense = (state?.scenario?.expenses || []).find((item) => item.id === expenseId);
+      if (!expense) {
+        throw {
+          status: 404,
+          payload: {
+            detail: {
+              code: "HUD_EXPENSE_NOT_FOUND",
+              message: "No se encontro el gasto seleccionado."
+            }
+          }
+        };
+      }
+      selectedExpenseId = expense.id;
+      renderProductPreview();
+      renderRoleActions();
+      applyButtonState();
+      return {
+        message: "Gasto seleccionado",
+        expense_id: expense.id,
+        merchant: expense.merchant,
+        amount: expense.amount,
+        status: expense.status
+      };
     }
 
 	    function firstReceiptAttachmentId() {
@@ -2759,9 +2955,12 @@ TEST_HUD_HTML = """<!doctype html>
 		      return executeAuthAction(actionId);
 		    }
 
-		    async function executeExpenseAction(role, actionId, expenseId) {
-		      await loginProductRole(role);
-		      const actions = {
+			    async function executeExpenseAction(role, actionId, expenseId) {
+		      if (actionId === "select") {
+		        return selectExpense(expenseId);
+		      }
+			      await loginProductRole(role);
+			      const actions = {
 		        authorize: () => jsonAuthRequest(`/expenses/${expenseId}/authorize/me`, {
 		          note: "Autorizado por fila desde HUD."
 		        }),
@@ -2861,14 +3060,18 @@ TEST_HUD_HTML = """<!doctype html>
 	      persistActiveRequestId();
 	      runAction("Solicitud seleccionada", async () => ({ request_id: activeRequestId }));
 	    });
-	    $("#productTabs").addEventListener("click", (event) => {
-	      const button = event.target.closest(".product-tab");
-	      if (!button) return;
-	      activeProductRole = button.dataset.productRole;
-	      renderProductPreview();
-	      applyButtonState();
+		    $("#productTabs").addEventListener("click", (event) => {
+		      const button = event.target.closest(".product-tab");
+		      if (!button) return;
+		      activeProductRole = button.dataset.productRole;
+		      renderProductPreview();
+		      applyButtonState();
+		    });
+	    $("#productPreview").addEventListener("change", (event) => {
+	      if (event.target?.id !== "selectedExpenseId") return;
+	      runAction("Gasto seleccionado", () => selectExpense(event.target.value));
 	    });
-		    $("#productPreview").addEventListener("click", (event) => {
+			    $("#productPreview").addEventListener("click", (event) => {
 		      const expenseButton = event.target.closest(".expense-action-btn");
 		      if (expenseButton) {
 		        runAction(expenseButton.textContent.trim(), () =>

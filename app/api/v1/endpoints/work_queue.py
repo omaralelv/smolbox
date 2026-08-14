@@ -10,6 +10,7 @@ from app.models.reimbursement_request import ReimbursementRequest, Reimbursement
 from app.models.store import StoreUserAssignment
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import ReimbursementRequestRead
+from app.services.reimbursement_validation import summarize_reimbursement_request
 
 router = APIRouter()
 
@@ -24,6 +25,7 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
         ReimbursementRequestStatus.authorization_review,
     },
     UserRole.accountant: {
+        ReimbursementRequestStatus.submitted,
         ReimbursementRequestStatus.authorized,
         ReimbursementRequestStatus.under_accounting_review,
     },
@@ -58,7 +60,11 @@ def list_my_work_queue(
 
     statement = statement.where(ReimbursementRequest.status.in_(statuses))
     statement = _scope_to_assigned_stores(statement, current_user)
-    return list(db.scalars(statement.limit(200)))
+    return [
+        request
+        for request in db.scalars(statement.limit(200))
+        if _request_is_visible_for_role(request, current_user.role)
+    ]
 
 
 def _scope_to_assigned_stores(
@@ -77,3 +83,16 @@ def _scope_to_assigned_stores(
             )
         )
     )
+
+
+def _request_is_visible_for_role(request: ReimbursementRequest, role: UserRole) -> bool:
+    if request.status != ReimbursementRequestStatus.submitted:
+        return True
+
+    summary = summarize_reimbursement_request(request)
+    has_pending_authorization = bool(summary.missing_authorization_expense_ids)
+    if role == UserRole.authorizer:
+        return has_pending_authorization
+    if role == UserRole.accountant:
+        return not has_pending_authorization
+    return True
