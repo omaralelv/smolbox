@@ -499,6 +499,19 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - preparar la poliza SAP placeholder antes de mandar a gerente;
 - limpiar solo los datos con prefijo HUD.
 
+Para una demostracion mas cercana a producto final, sin las herramientas tecnicas de
+sembrado avanzado, reglas y consola del HUD, usa la ventana independiente:
+
+```text
+http://localhost:8000/product-view
+```
+
+Esa vista reutiliza los mismos datos demo y endpoints locales, pero organiza la pantalla por
+rol: tienda, validacion automatica, autorizacion, contabilidad, gerente, tesoreria y
+direccion. Desde ahi se pueden seleccionar solicitudes demo, seleccionar gastos especificos,
+autorizar o rechazar productos, quitar gastos permitidos, regresar revisiones posteriores a
+contabilidad, preparar el placeholder de poliza SAP y registrar pagos.
+
 Los endpoints auxiliares viven bajo:
 
 ```text

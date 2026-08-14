@@ -809,7 +809,10 @@ TEST_HUD_HTML = """<!doctype html>
         <h1>Smolbox Dev HUD</h1>
         <p class="subtle">Panel local para probar caja chica, evidencia, CFDI y flujo.</p>
       </div>
-      <span class="badge">Solo desarrollo</span>
+      <div class="toolbar">
+        <a class="btn" href="/product-view">Abrir vista producto</a>
+        <span class="badge">Solo desarrollo</span>
+      </div>
     </header>
 
     <section class="grid stats" id="stats"></section>

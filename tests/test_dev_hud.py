@@ -6,6 +6,8 @@ from app.dev_hud.page import TEST_HUD_HTML
 def test_dev_hud_html_uses_local_api() -> None:
     assert "Smolbox Dev HUD" in TEST_HUD_HTML
     assert "/api/v1" in TEST_HUD_HTML
+    assert "/product-view" in TEST_HUD_HTML
+    assert "Abrir vista producto" in TEST_HUD_HTML
     assert "/dev-hud/status" in TEST_HUD_HTML
     assert "Crear tienda" in TEST_HUD_HTML
     assert "Crear usuario" in TEST_HUD_HTML

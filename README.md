@@ -57,6 +57,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
 - HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo con una
   vista guiada por rol cercana al usuario final.
+- Vista independiente de producto en `/product-view` para demostrar el flujo por rol sin
+  mostrar las herramientas tecnicas del HUD.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
   y agregar gastos de prueba.
 - Demo masivo del HUD para crear varias solicitudes en diferentes estados del flujo y probar
@@ -100,6 +102,12 @@ Fuera de esta etapa:
 
    ```text
    http://localhost:8000/test-hud
+   ```
+
+5. Abre la vista independiente de producto:
+
+   ```text
+   http://localhost:8000/product-view
    ```
 
 Docker ejecuta `alembic upgrade head` antes de iniciar FastAPI. Si ya tenias una base local
