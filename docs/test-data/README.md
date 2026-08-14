@@ -51,7 +51,8 @@ de empresa, SAT, bancos ni proveedores.
 
 Con `Crear demo masivo`, el HUD genera datos ficticios para revisar bandejas de tienda,
 autorizacion, contabilidad, gerente, tesoreria y direccion. Sirve para probar multiples
-solicitudes sin usar datos reales.
+solicitudes sin usar datos reales. Tambien incluye un caso `rejected` donde todos los gastos
+fueron rechazados y la solicitud queda sin monto reembolsable.
 
 Para probar rechazo de producto, usa `hud-reject-product-flow.json` y luego:
 

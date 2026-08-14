@@ -137,3 +137,30 @@ def test_summarize_reimbursement_request_excludes_rejected_authorization_expense
     assert summary.rejected_expense_ids == [rejected.id]
     assert summary.missing_authorization_expense_ids == []
     assert summary.ready_for_authorization_approval is True
+
+
+def test_summarize_reimbursement_request_reports_no_payable_expenses() -> None:
+    rejected = _expense(
+        "50.00",
+        "transporte",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+        requires_authorization=True,
+        rejected=True,
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("0.00"),
+        expenses=[rejected],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.calculated_total == Decimal("0.00")
+    assert summary.difference == Decimal("0.00")
+    assert summary.expense_count == 0
+    assert summary.rejected_expense_ids == [rejected.id]
+    assert summary.ready_for_submission is False
+    assert summary.ready_for_authorization_approval is False
+    assert summary.ready_for_accounting_approval is False
+    assert summary.is_balanced is False
+    assert "no_payable_expenses" in {issue.code for issue in summary.issues}

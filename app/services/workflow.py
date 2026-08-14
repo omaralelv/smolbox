@@ -94,12 +94,14 @@ ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
     ),
     ReimbursementRequestStatus.rejected: TransitionRule(
         allowed_from={
+            ReimbursementRequestStatus.authorization_review,
             ReimbursementRequestStatus.under_accounting_review,
             ReimbursementRequestStatus.accounting_manager_review,
             ReimbursementRequestStatus.treasury_review,
             ReimbursementRequestStatus.direction_review,
         },
         allowed_roles={
+            UserRole.authorizer,
             UserRole.accountant,
             UserRole.accounting_manager,
             UserRole.treasury,
@@ -156,6 +158,15 @@ def transition_reimbursement_request(
                 f"Role {actor.role.value} cannot review request in {current_status.value}"
             )
 
+    if (
+        target_status == ReimbursementRequestStatus.rejected
+        and current_status == ReimbursementRequestStatus.authorization_review
+        and not _has_no_payable_expenses(summary)
+    ):
+        raise WorkflowTransitionError(
+            "Authorization can reject the full request only when no payable expenses remain"
+        )
+
     if target_status == ReimbursementRequestStatus.submitted and not summary.ready_for_submission:
         raise WorkflowTransitionError("Request is not ready to be submitted")
 
@@ -184,24 +195,36 @@ def transition_reimbursement_request(
         )
 
     request.status = target_status
-    _stamp_transition(request, target_status)
+    _stamp_transition(request, target_status, from_status=current_status)
     return current_status, target_status
 
 
 def _stamp_transition(
     request: ReimbursementRequest,
     target_status: ReimbursementRequestStatus,
+    *,
+    from_status: ReimbursementRequestStatus,
 ) -> None:
     now = datetime.now(UTC)
     if target_status == ReimbursementRequestStatus.submitted:
         request.submitted_at = now
     elif target_status == ReimbursementRequestStatus.authorized:
         request.authorization_reviewed_at = now
+    elif target_status == ReimbursementRequestStatus.rejected:
+        if from_status == ReimbursementRequestStatus.authorization_review:
+            request.authorization_reviewed_at = now
+        elif from_status == ReimbursementRequestStatus.accounting_manager_review:
+            request.accounting_manager_reviewed_at = now
+        elif from_status == ReimbursementRequestStatus.treasury_review:
+            request.treasury_reviewed_at = now
+        elif from_status == ReimbursementRequestStatus.direction_review:
+            request.direction_reviewed_at = now
+        else:
+            request.accounting_reviewed_at = now
     elif target_status in {
         ReimbursementRequestStatus.accounting_reviewed,
         ReimbursementRequestStatus.correction_required,
         ReimbursementRequestStatus.accounting_approved,
-        ReimbursementRequestStatus.rejected,
     }:
         request.accounting_reviewed_at = now
     elif target_status == ReimbursementRequestStatus.accounting_manager_approved:
@@ -232,3 +255,9 @@ def _review_roles_for_status(status: ReimbursementRequestStatus) -> set[UserRole
     if status == ReimbursementRequestStatus.direction_review:
         return {UserRole.director}
     return set()
+
+
+def _has_no_payable_expenses(summary: ReimbursementValidationSummary) -> bool:
+    return summary.expense_count == 0 and (
+        bool(summary.rejected_expense_ids) or bool(summary.removed_expense_ids)
+    )

@@ -65,6 +65,8 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "executeExpenseAction" in TEST_HUD_HTML
     assert "productExpenseActions" in TEST_HUD_HTML
     assert "HUD_EXPENSE_NOT_FOUND" in TEST_HUD_HTML
+    assert "Rechazar solicitud sin monto" in TEST_HUD_HTML
+    assert "requiresNoPayable" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -265,6 +267,50 @@ def test_dev_hud_can_reject_one_authorization_expense(client: TestClient) -> Non
     assert final_status.json()["scenario"]["status"] == "authorized"
 
 
+def test_dev_hud_can_reject_request_with_no_payable_expenses(client: TestClient) -> None:
+    seeded = client.post(
+        "/api/v1/dev-hud/seed-demo",
+        json={
+            "reset_existing": True,
+            "store_code": "HUD-NO-PAY",
+            "store_name": "HUD Sin Monto",
+            "contact_email": "hud.no.pay@hud.smolbox.example.com",
+            "period_name": "HUD Sin Monto 2026",
+            "reported_total": "500.00",
+            "expenses": [
+                {
+                    "merchant": "HUD Producto Rechazable",
+                    "amount": "500.00",
+                    "spent_on": "2026-08-10",
+                    "category": "transporte",
+                    "supplier_tax_id": "XEXX010101000",
+                    "requires_authorization": True,
+                }
+            ],
+        },
+    )
+    assert seeded.status_code == 201, seeded.text
+
+    completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
+    assert completed_cfdi.status_code == 200, completed_cfdi.text
+    submitted = client.post("/api/v1/dev-hud/transition/submitted")
+    assert submitted.status_code == 200, submitted.text
+    authorization_review = client.post("/api/v1/dev-hud/transition/authorization_review")
+    assert authorization_review.status_code == 200, authorization_review.text
+
+    rejected_expense = client.post("/api/v1/dev-hud/reject-authorization-expense")
+    assert rejected_expense.status_code == 200, rejected_expense.text
+    assert rejected_expense.json()["scenario"]["summary"]["expense_count"] == 0
+    assert "no_payable_expenses" in {
+        issue["code"] for issue in rejected_expense.json()["scenario"]["summary"]["issues"]
+    }
+
+    rejected_request = client.post("/api/v1/dev-hud/transition/rejected")
+    assert rejected_request.status_code == 200, rejected_request.text
+    assert rejected_request.json()["to_status"] == "rejected"
+    assert rejected_request.json()["scenario"]["status"] == "rejected"
+
+
 def test_dev_hud_demo_users_can_login_and_exposes_attachment_ids(
     client: TestClient,
 ) -> None:
@@ -444,12 +490,12 @@ def test_dev_hud_can_target_multiple_scenarios_by_request_id(client: TestClient)
 def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
     seeded = client.post(
         "/api/v1/dev-hud/seed-bulk-demo",
-        json={"reset_existing": True, "request_count": 15, "store_count": 5},
+        json={"reset_existing": True, "request_count": 16, "store_count": 5},
     )
     assert seeded.status_code == 201, seeded.text
     payload = seeded.json()
-    assert payload["created"] == 15
-    assert len(payload["scenarios"]) == 15
+    assert payload["created"] == 16
+    assert len(payload["scenarios"]) == 16
 
     statuses = {scenario["status"] for scenario in payload["scenarios"]}
     assert {
@@ -467,12 +513,13 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
         "approved_for_payment",
         "paid",
         "correction_required",
+        "rejected",
     }.issubset(statuses)
 
     status = client.get("/api/v1/dev-hud/status")
     assert status.status_code == 200, status.text
-    assert status.json()["counts"]["reimbursement_requests"] == 15
-    assert status.json()["counts"]["expenses"] == 45
+    assert status.json()["counts"]["reimbursement_requests"] == 16
+    assert status.json()["counts"]["expenses"] == 48
 
     def role_queue_statuses(role: str) -> set[str]:
         login = client.post(
@@ -511,3 +558,12 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
     assert payments.status_code == 200, payments.text
     assert len(payments.json()) == 1
     assert payments.json()[0]["reference"].startswith("HUD-BULK-PAGO-")
+
+    rejected_request_id = next(
+        scenario["request_id"] for scenario in payload["scenarios"] if scenario["status"] == "rejected"
+    )
+    rejected_status = client.get(f"/api/v1/dev-hud/status?request_id={rejected_request_id}")
+    assert rejected_status.status_code == 200, rejected_status.text
+    rejected_summary = rejected_status.json()["scenario"]["summary"]
+    assert rejected_summary["expense_count"] == 0
+    assert "no_payable_expenses" in {issue["code"] for issue in rejected_summary["issues"]}

@@ -369,6 +369,9 @@ Reglas:
 - `reject` solo funciona durante `authorization_review` y con rol `authorizer`; marca el
   gasto como `rejected`, guarda el motivo y puede ajustar el total reportado para que la
   solicitud siga con los gastos restantes.
+- Si todos los gastos quedan rechazados/removidos y `expense_count` queda en `0`, el resumen
+  genera `no_payable_expenses`. En ese caso la solicitud se bloquea para contabilidad, SAP y
+  pago, y autorizacion puede cerrar la solicitud completa como `rejected`.
 - `observation` funciona en la etapa activa del rol revisor: autorizacion, contabilidad,
   gerente contable, tesoreria o direccion.
 - `review` permite editar gastos durante `under_accounting_review` o

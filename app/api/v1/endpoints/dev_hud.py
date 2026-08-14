@@ -57,6 +57,7 @@ BULK_DEMO_PROFILES = [
     {"name": "approved_for_payment", "status": ReimbursementRequestStatus.approved_for_payment},
     {"name": "paid", "status": ReimbursementRequestStatus.paid},
     {"name": "correction_required", "status": ReimbursementRequestStatus.correction_required},
+    {"name": "rejected_no_payable", "status": ReimbursementRequestStatus.rejected},
 ]
 
 DEMO_USERS = {
@@ -949,7 +950,10 @@ def _apply_bulk_demo_profile(
             _ensure_demo_receipt(db, storage, expense)
             _ensure_demo_cfdi(db, storage, expense, settings)
 
-    if target_status not in {
+    if target_status == ReimbursementRequestStatus.rejected:
+        _reject_all_demo_expenses(request, _hud_actor(db, UserRole.authorizer))
+        request.reported_total = Decimal("0.00")
+    elif target_status not in {
         ReimbursementRequestStatus.draft,
         ReimbursementRequestStatus.submitted,
         ReimbursementRequestStatus.authorization_review,
@@ -1003,6 +1007,28 @@ def _authorize_required_demo_expenses(request: ReimbursementRequest, actor: User
         expense.status = ExpenseStatus.approved
 
 
+def _reject_all_demo_expenses(request: ReimbursementRequest, actor: User) -> None:
+    for expense in request.expenses:
+        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}:
+            continue
+        expense.requires_authorization = True
+        expense.status = ExpenseStatus.rejected
+        expense.authorization_note = "Rechazado por perfil demo masivo sin monto pagable."
+        expense.authorized_at = None
+        expense.authorized_by_user_id = None
+        request.audit_events.append(
+            AuditLog(
+                reimbursement_request_id=request.id,
+                expense_id=expense.id,
+                actor_user_id=actor.id,
+                actor_type=AuditActorType.user,
+                action="dev_hud_expense_bulk_rejected",
+                message=expense.authorization_note,
+                event_payload={"actor_role": actor.role.value},
+            )
+        )
+
+
 def _set_demo_request_status(
     request: ReimbursementRequest,
     target_status: ReimbursementRequestStatus,
@@ -1022,6 +1048,7 @@ def _set_demo_request_status(
         ReimbursementRequestStatus.direction_approved,
         ReimbursementRequestStatus.approved_for_payment,
         ReimbursementRequestStatus.paid,
+        ReimbursementRequestStatus.rejected,
     }:
         request.authorization_reviewed_at = request.authorization_reviewed_at or now
     if target_status in {

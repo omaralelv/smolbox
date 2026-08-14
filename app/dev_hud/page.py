@@ -934,6 +934,7 @@ TEST_HUD_HTML = """<!doctype html>
                 <button class="btn user-flow-btn" data-action="transition:authorization_review">Abrir revisión</button>
                 <button class="btn success user-flow-btn" data-action="authorize-expenses">Autorizar producto</button>
                 <button class="btn warning user-flow-btn" data-action="reject-product">Rechazar producto</button>
+                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:authorized">Enviar a contabilidad</button>
               </div>
             </div>
@@ -1336,6 +1337,14 @@ TEST_HUD_HTML = """<!doctype html>
         style: "warning"
       },
       {
+        id: "transition:rejected",
+        label: "Rechazar solicitud sin monto",
+        roles: ["authorizer"],
+        statuses: ["authorization_review"],
+        style: "danger",
+        requiresNoPayable: true
+      },
+      {
         id: "transition:authorized",
         label: "Enviar a contabilidad",
         roles: ["authorizer"],
@@ -1706,35 +1715,42 @@ TEST_HUD_HTML = """<!doctype html>
       return ["draft", "correction_required"].includes(state?.scenario?.status);
     }
 
-	    function isUserFlowActionAvailable(action) {
-	      const hasScenario = Boolean(state?.scenario?.exists);
-	      if (action === "seed-scenario") return true;
-	      if (!hasScenario) return false;
-	      if (action === "complete-cfdi") return isEditableScenarioStatus();
-	      if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
-	      return true;
-	    }
+    function isUserFlowActionAvailable(action) {
+      const hasScenario = Boolean(state?.scenario?.exists);
+      if (action === "seed-scenario") return true;
+      if (!hasScenario) return false;
+      if (action === "complete-cfdi") return isEditableScenarioStatus();
+      if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
+      if (action === "transition:rejected") {
+        return (
+          state?.scenario?.status === "authorization_review" &&
+          state?.scenario?.summary?.expense_count === 0
+        );
+      }
+      return true;
+    }
 
-	    function isProductActionAvailable(role, actionId) {
-	      const hasScenario = Boolean(state?.scenario?.exists);
-	      if (actionId === "seed-scenario") return true;
-	      if (!hasScenario) return false;
-	      if (actionId === "complete-cfdi") return isEditableScenarioStatus();
-	      if (actionId === "record-payment") return state?.scenario?.status === "approved_for_payment";
-	      const action = roleActions.find((item) => item.id === actionId);
-	      if (!action) return true;
-	      return isRoleActionAvailableFor(role, action);
-	    }
+    function isProductActionAvailable(role, actionId) {
+      const hasScenario = Boolean(state?.scenario?.exists);
+      if (actionId === "seed-scenario") return true;
+      if (!hasScenario) return false;
+      if (actionId === "complete-cfdi") return isEditableScenarioStatus();
+      if (actionId === "record-payment") return state?.scenario?.status === "approved_for_payment";
+      const action = roleActions.find((item) => item.id === actionId);
+      if (!action) return true;
+      return isRoleActionAvailableFor(role, action);
+    }
 
-	    function isRoleActionAvailableFor(role, action) {
-	      const status = state?.scenario?.status;
-	      if (!status) return false;
-	      const roleAllowed = role === "admin" || action.roles.includes(role);
-	      const statusAllowed = action.statuses === null || action.statuses.includes(status);
-	      const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
-	      const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
-	      return roleAllowed && statusAllowed && sapReady && receiptReady;
-	    }
+    function isRoleActionAvailableFor(role, action) {
+      const status = state?.scenario?.status;
+      if (!status) return false;
+      const roleAllowed = role === "admin" || action.roles.includes(role);
+      const statusAllowed = action.statuses === null || action.statuses.includes(status);
+      const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
+      const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
+      const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
+      return roleAllowed && statusAllowed && sapReady && receiptReady && noPayableReady;
+    }
 
     function render() {
 	      renderStats();
@@ -2286,7 +2302,8 @@ TEST_HUD_HTML = """<!doctype html>
         const statusAllowed = action.statuses === null || action.statuses.includes(status);
         const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
         const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
-        return roleAllowed && statusAllowed && sapReady && receiptReady;
+        const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
+        return roleAllowed && statusAllowed && sapReady && receiptReady && noPayableReady;
       });
     }
 

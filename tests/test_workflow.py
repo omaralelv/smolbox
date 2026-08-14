@@ -38,6 +38,17 @@ def _summary(
     )
 
 
+def _no_payable_summary() -> ReimbursementValidationSummary:
+    summary = _summary(ready_for_submission=False, ready_for_accounting_approval=False)
+    summary.reported_total = Decimal("0.00")
+    summary.calculated_total = Decimal("0.00")
+    summary.difference = Decimal("0.00")
+    summary.expense_count = 0
+    summary.rejected_expense_ids = [uuid4()]
+    summary.ready_for_authorization_approval = False
+    return summary
+
+
 def test_store_user_can_submit_ready_request() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
     actor = User(
@@ -98,6 +109,48 @@ def test_authorization_requires_authorized_expenses() -> None:
             target_status=ReimbursementRequestStatus.authorized,
             summary=summary,
         )
+
+
+def test_authorizer_can_reject_request_when_no_payable_expenses_remain() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.authorization_review)
+    actor = User(
+        email="autorizador.sin.monto@example.com",
+        full_name="Autorizador Sin Monto",
+        role=UserRole.authorizer,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.rejected,
+        summary=_no_payable_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.authorization_review
+    assert to_status == ReimbursementRequestStatus.rejected
+    assert request.status == ReimbursementRequestStatus.rejected
+    assert request.authorization_reviewed_at is not None
+
+
+def test_authorizer_cannot_reject_request_when_payable_expenses_remain() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.authorization_review)
+    actor = User(
+        email="autorizador.con.monto@example.com",
+        full_name="Autorizador Con Monto",
+        role=UserRole.authorizer,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.rejected,
+            summary=_summary(),
+        )
+
+    assert "no payable expenses remain" in str(exc_info.value)
 
 
 def test_manager_review_requires_sap_policy_placeholder() -> None:

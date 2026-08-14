@@ -100,8 +100,23 @@ def summarize_reimbursement_request(
 
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
     difference = None if reported_total is None else _money(calculated_total - reported_total)
+    has_any_expenses = bool(request.expenses)
+    has_no_payable_expenses = len(active_expenses) == 0
 
     issues: list[ReimbursementValidationIssue] = []
+    if has_no_payable_expenses:
+        message = (
+            "All expenses were rejected or removed; the request has no payable amount."
+            if has_any_expenses
+            else "The cash box request does not include any expenses."
+        )
+        issues.append(
+            ReimbursementValidationIssue(
+                code="no_payable_expenses",
+                message=message,
+            )
+        )
+
     if reported_total is None:
         issues.append(
             ReimbursementValidationIssue(

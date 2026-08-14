@@ -291,6 +291,88 @@ def test_authorization_rejects_only_the_expense_and_request_can_continue(
     }
 
 
+def test_authorization_can_reject_request_when_all_expenses_are_rejected(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Producto No Reembolsable",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "transporte",
+            "requires_authorization": True,
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    receipt = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    authorization_review = _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorization_review",
+        actor_user_id=authorizer_user_id,
+    )
+    assert authorization_review.status_code == 200, authorization_review.text
+
+    rejected_expense = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/reject",
+        json={
+            "actor_user_id": authorizer_user_id,
+            "reason": "No procede ningun producto de la solicitud",
+            "adjust_reported_total": True,
+        },
+    )
+    assert rejected_expense.status_code == 200, rejected_expense.text
+
+    summary = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/validation-summary"
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["reported_total"] == "0.00"
+    assert summary.json()["calculated_total"] == "0.00"
+    assert summary.json()["expense_count"] == 0
+    assert "no_payable_expenses" in {issue["code"] for issue in summary.json()["issues"]}
+
+    rejected_request = _transition(
+        client,
+        base_records["request_id"],
+        target_status="rejected",
+        actor_user_id=authorizer_user_id,
+    )
+    assert rejected_request.status_code == 200, rejected_request.text
+    assert rejected_request.json()["status"] == "rejected"
+    assert rejected_request.json()["authorization_reviewed_at"] is not None
+
+    blocked_authorized = _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorized",
+        actor_user_id=authorizer_user_id,
+    )
+    assert blocked_authorized.status_code == 409
+
+
 def test_accounting_can_remove_expense_with_reason(
     client: TestClient,
     base_records: dict[str, str],
