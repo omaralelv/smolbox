@@ -153,6 +153,28 @@ def test_authorizer_cannot_reject_request_when_payable_expenses_remain() -> None
     assert "no payable expenses remain" in str(exc_info.value)
 
 
+def test_accountant_can_reject_request_when_no_payable_expenses_remain() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.under_accounting_review)
+    actor = User(
+        email="contador.sin.monto@example.com",
+        full_name="Contador Sin Monto",
+        role=UserRole.accountant,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.rejected,
+        summary=_no_payable_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.under_accounting_review
+    assert to_status == ReimbursementRequestStatus.rejected
+    assert request.status == ReimbursementRequestStatus.rejected
+    assert request.accounting_reviewed_at is not None
+
+
 def test_manager_review_requires_sap_policy_placeholder() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.accounting_reviewed)
     actor = User(

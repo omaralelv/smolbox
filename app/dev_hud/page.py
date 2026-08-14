@@ -947,6 +947,7 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="transition:under_accounting_review">Tomar revisión</button>
                 <button class="btn warning user-flow-btn" data-action="transition:correction_required">Pedir corrección</button>
+                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:accounting_reviewed">Cerrar revisión</button>
                 <button class="btn success user-flow-btn" data-action="prepare-sap-policy">Preparar póliza SAP</button>
               </div>
@@ -959,6 +960,7 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="task">Recibe solicitud revisada y aprueba antes de tesorería.</div>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="transition:accounting_manager_review">Recibir solicitud</button>
+                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:accounting_manager_approved">Aprobar gerente</button>
               </div>
             </div>
@@ -970,6 +972,7 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="task">Revisa pago, envía a dirección, confirma pago y cierra solicitud.</div>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="transition:treasury_review">Revisar pago</button>
+                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn user-flow-btn" data-action="transition:direction_review">Enviar a dirección</button>
                 <button class="btn success user-flow-btn" data-action="transition:approved_for_payment">Liberar pago</button>
                 <button class="btn success user-flow-btn" data-action="record-payment">Registrar pago</button>
@@ -983,6 +986,7 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Aprueba que tesorería realice el pago.</div>
               <div class="actions">
+                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:direction_approved">Aprobar dirección</button>
               </div>
             </div>
@@ -1299,7 +1303,7 @@ TEST_HUD_HTML = """<!doctype html>
 	        nav: ["Bandeja", "Solicitud", "Aprobación", "Historial"]
 	      }
 	    ];
-	    const allHumanRoles = [
+    const allHumanRoles = [
       "store",
       "authorizer",
       "accountant",
@@ -1307,6 +1311,20 @@ TEST_HUD_HTML = """<!doctype html>
       "treasury",
       "director",
       "admin"
+    ];
+    const noPayableRejectionRoles = [
+      "authorizer",
+      "accountant",
+      "accounting_manager",
+      "treasury",
+      "director"
+    ];
+    const noPayableRejectionStatuses = [
+      "authorization_review",
+      "under_accounting_review",
+      "accounting_manager_review",
+      "treasury_review",
+      "direction_review"
     ];
     const roleActions = [
       {
@@ -1337,10 +1355,18 @@ TEST_HUD_HTML = """<!doctype html>
         style: "warning"
       },
       {
-        id: "transition:rejected",
-        label: "Rechazar solicitud sin monto",
+        id: "remove-expense",
+        label: "Quitar gasto",
         roles: ["authorizer"],
         statuses: ["authorization_review"],
+        style: "warning",
+        requiresAuthorizationExpense: true
+      },
+      {
+        id: "transition:rejected",
+        label: "Rechazar solicitud sin monto",
+        roles: noPayableRejectionRoles,
+        statuses: noPayableRejectionStatuses,
         style: "danger",
         requiresNoPayable: true
       },
@@ -1723,7 +1749,7 @@ TEST_HUD_HTML = """<!doctype html>
       if (action === "record-payment") return state?.scenario?.status === "approved_for_payment";
       if (action === "transition:rejected") {
         return (
-          state?.scenario?.status === "authorization_review" &&
+          noPayableRejectionStatuses.includes(state?.scenario?.status) &&
           state?.scenario?.summary?.expense_count === 0
         );
       }
@@ -1749,7 +1775,16 @@ TEST_HUD_HTML = """<!doctype html>
       const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
       const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
       const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
-      return roleAllowed && statusAllowed && sapReady && receiptReady && noPayableReady;
+      const authorizationExpenseReady =
+        !action.requiresAuthorizationExpense || hasActiveAuthorizationExpense();
+      return (
+        roleAllowed &&
+        statusAllowed &&
+        sapReady &&
+        receiptReady &&
+        noPayableReady &&
+        authorizationExpenseReady
+      );
     }
 
     function render() {
@@ -2045,36 +2080,37 @@ TEST_HUD_HTML = """<!doctype html>
 	      `;
 	    }
 
-	    function productExpenseActions(expense, role) {
-	      const actions = [];
-	      if (
-	        role === "authorizer" &&
-	        state?.scenario?.status === "authorization_review" &&
-	        expense.requires_authorization &&
-	        !expense.is_authorized &&
-	        !expense.is_rejected &&
-	        !expense.is_removed
-	      ) {
-	        actions.push(expenseActionButton(role, "authorize", expense.id, "Autorizar", "success"));
-	        actions.push(expenseActionButton(role, "reject", expense.id, "Rechazar", "warning"));
-	      }
-	      if (
-	        ["accountant", "accounting_manager"].includes(role) &&
-	        ["under_accounting_review", "accounting_manager_review"].includes(state?.scenario?.status) &&
-	        !expense.is_removed &&
-	        !expense.is_rejected
-	      ) {
-	        actions.push(expenseActionButton(role, "remove", expense.id, "Quitar", "warning"));
-	        actions.push(expenseActionButton(role, "observe", expense.id, "Observar", ""));
-	      }
-	      if (expense.receipt_attachment_id && role !== "system") {
-	        actions.push(expenseActionButton(role, "download-receipt", expense.id, "Recibo", ""));
-	      }
-	      if (!actions.length) {
-	        return "<span class='subtle'>-</span>";
-	      }
-	      return `<div class="expense-action-list">${actions.join("")}</div>`;
-	    }
+    function productExpenseActions(expense, role) {
+      const actions = [];
+      const activeExpense = !expense.is_removed && !expense.is_rejected;
+      const authorizationReviewExpense =
+        role === "authorizer" &&
+        state?.scenario?.status === "authorization_review" &&
+        expense.requires_authorization &&
+        activeExpense;
+      if (authorizationReviewExpense && !expense.is_authorized) {
+        actions.push(expenseActionButton(role, "authorize", expense.id, "Autorizar", "success"));
+        actions.push(expenseActionButton(role, "reject", expense.id, "Rechazar", "warning"));
+      }
+      if (authorizationReviewExpense) {
+        actions.push(expenseActionButton(role, "remove", expense.id, "Quitar", "warning"));
+      }
+      if (
+        ["accountant", "accounting_manager"].includes(role) &&
+        ["under_accounting_review", "accounting_manager_review"].includes(state?.scenario?.status) &&
+        activeExpense
+      ) {
+        actions.push(expenseActionButton(role, "remove", expense.id, "Quitar", "warning"));
+        actions.push(expenseActionButton(role, "observe", expense.id, "Observar", ""));
+      }
+      if (expense.receipt_attachment_id && role !== "system") {
+        actions.push(expenseActionButton(role, "download-receipt", expense.id, "Recibo", ""));
+      }
+      if (!actions.length) {
+        return "<span class='subtle'>-</span>";
+      }
+      return `<div class="expense-action-list">${actions.join("")}</div>`;
+    }
 
 	    function expenseActionButton(role, actionId, expenseId, label, style) {
 	      return `
@@ -2303,8 +2339,23 @@ TEST_HUD_HTML = """<!doctype html>
         const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
         const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
         const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
-        return roleAllowed && statusAllowed && sapReady && receiptReady && noPayableReady;
+        const authorizationExpenseReady =
+          !action.requiresAuthorizationExpense || hasActiveAuthorizationExpense();
+        return (
+          roleAllowed &&
+          statusAllowed &&
+          sapReady &&
+          receiptReady &&
+          noPayableReady &&
+          authorizationExpenseReady
+        );
       });
+    }
+
+    function hasActiveAuthorizationExpense() {
+      return (state?.scenario?.expenses || []).some((item) =>
+        item.requires_authorization && !item.is_removed && !item.is_rejected
+      );
     }
 
     function hasReceiptAttachment() {
@@ -2491,7 +2542,7 @@ TEST_HUD_HTML = """<!doctype html>
 
     function firstPendingAuthorizationExpense() {
       const expense = (state?.scenario?.expenses || []).find((item) =>
-        item.requires_authorization && !item.is_authorized && !item.is_rejected
+        item.requires_authorization && !item.is_authorized && !item.is_removed && !item.is_rejected
       );
       if (!expense) {
         throw { status: 409, payload: { message: "No hay producto pendiente de autorización." } };
@@ -2499,12 +2550,15 @@ TEST_HUD_HTML = """<!doctype html>
       return expense;
     }
 
-    function firstActiveExpense() {
-      const expense = (state?.scenario?.expenses || []).find((item) =>
-        !item.is_removed && !item.is_rejected
-      );
+    function firstRemovableExpense() {
+      const expenses = state?.scenario?.expenses || [];
+      const expense = state?.scenario?.status === "authorization_review"
+        ? expenses.find((item) =>
+            item.requires_authorization && !item.is_removed && !item.is_rejected
+          )
+        : expenses.find((item) => !item.is_removed && !item.is_rejected);
       if (!expense) {
-        throw { status: 409, payload: { message: "No hay gasto activo disponible." } };
+        throw { status: 409, payload: { message: "No hay gasto activo disponible para quitar." } };
       }
       return expense;
     }
@@ -2559,7 +2613,7 @@ TEST_HUD_HTML = """<!doctype html>
     }
 
     async function removeExpenseWithToken() {
-      return jsonAuthRequest(`/expenses/${firstActiveExpense().id}/remove/me`, {
+      return jsonAuthRequest(`/expenses/${firstRemovableExpense().id}/remove/me`, {
         reason: "Gasto quitado desde HUD con token.",
         adjust_reported_total: true
       });

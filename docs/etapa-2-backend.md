@@ -371,13 +371,14 @@ Reglas:
   solicitud siga con los gastos restantes.
 - Si todos los gastos quedan rechazados/removidos y `expense_count` queda en `0`, el resumen
   genera `no_payable_expenses`. En ese caso la solicitud se bloquea para contabilidad, SAP y
-  pago, y autorizacion puede cerrar la solicitud completa como `rejected`.
+  pago, y el rol revisor activo puede cerrar la solicitud completa como `rejected`.
 - `observation` funciona en la etapa activa del rol revisor: autorizacion, contabilidad,
   gerente contable, tesoreria o direccion.
 - `review` permite editar gastos durante `under_accounting_review` o
   `accounting_manager_review`.
-- `remove` solo funciona durante revision contable o gerencial, exige `reason` y marca el
-  gasto como `removed` sin borrarlo fisicamente.
+- `remove` exige `reason` y marca el gasto como `removed` sin borrarlo fisicamente. Durante
+  `authorization_review`, autorizacion solo puede remover gastos con `requires_authorization=true`;
+  durante revision contable o gerencial se puede remover cualquier gasto activo.
 - Cuando un gasto se remueve o se edita durante revision, el total reportado se recalcula para
   mantener la solicitud balanceada y la accion queda en auditoria.
 

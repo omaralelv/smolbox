@@ -158,13 +158,11 @@ def transition_reimbursement_request(
                 f"Role {actor.role.value} cannot review request in {current_status.value}"
             )
 
-    if (
-        target_status == ReimbursementRequestStatus.rejected
-        and current_status == ReimbursementRequestStatus.authorization_review
-        and not _has_no_payable_expenses(summary)
+    if target_status == ReimbursementRequestStatus.rejected and not _has_no_payable_expenses(
+        summary
     ):
         raise WorkflowTransitionError(
-            "Authorization can reject the full request only when no payable expenses remain"
+            "Requests can be rejected only when no payable expenses remain"
         )
 
     if target_status == ReimbursementRequestStatus.submitted and not summary.ready_for_submission:

@@ -66,7 +66,10 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "productExpenseActions" in TEST_HUD_HTML
     assert "HUD_EXPENSE_NOT_FOUND" in TEST_HUD_HTML
     assert "Rechazar solicitud sin monto" in TEST_HUD_HTML
+    assert TEST_HUD_HTML.count('data-action="transition:rejected"') >= 5
+    assert "noPayableRejectionStatuses" in TEST_HUD_HTML
     assert "requiresNoPayable" in TEST_HUD_HTML
+    assert "requiresAuthorizationExpense" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:

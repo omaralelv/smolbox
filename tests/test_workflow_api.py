@@ -378,7 +378,20 @@ def test_accounting_can_remove_expense_with_reason(
     base_records: dict[str, str],
 ) -> None:
     first_expense = create_expense(client, base_records, amount="1000.00")
-    second_expense = create_expense(client, base_records, amount="500.00")
+    second_expense_response = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Gasto autorizado removible",
+            "amount": "500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
+    )
+    assert second_expense_response.status_code == 201, second_expense_response.text
+    second_expense = second_expense_response.json()
     for expense in [first_expense, second_expense]:
         receipt = client.post(
             f"/api/v1/expenses/{expense['id']}/attachments",
@@ -406,6 +419,11 @@ def test_accounting_can_remove_expense_with_reason(
         target_status="authorization_review",
         actor_user_id=authorizer_user_id,
     ).status_code == 200
+    authorized_expense = client.post(
+        f"/api/v1/expenses/{second_expense['id']}/authorize",
+        json={"actor_user_id": authorizer_user_id, "note": "Autorizado antes de contabilidad"},
+    )
+    assert authorized_expense.status_code == 200, authorized_expense.text
     assert _transition(
         client,
         base_records["request_id"],
@@ -418,6 +436,13 @@ def test_accounting_can_remove_expense_with_reason(
         target_status="under_accounting_review",
         actor_user_id=accountant_user_id,
     ).status_code == 200
+    premature_rejected = _transition(
+        client,
+        base_records["request_id"],
+        target_status="rejected",
+        actor_user_id=accountant_user_id,
+    )
+    assert premature_rejected.status_code == 409
 
     removed = client.post(
         f"/api/v1/expenses/{second_expense['id']}/remove",
@@ -429,6 +454,7 @@ def test_accounting_can_remove_expense_with_reason(
     )
     assert removed.status_code == 200, removed.text
     assert removed.json()["status"] == "removed"
+    assert removed.json()["requires_authorization"] is True
     assert removed.json()["removal_reason"] == "Factura no procede"
 
     summary = client.get(
@@ -450,7 +476,124 @@ def test_accounting_can_remove_expense_with_reason(
     assert removal_event["message"] == "Factura no procede"
     assert removal_event["event_payload"]["original_amount"] == "500.00"
     assert removal_event["event_payload"]["original_merchant"] == second_expense["merchant"]
-    assert removal_event["event_payload"]["previous_expense_status"] == "draft"
+    assert removal_event["event_payload"]["previous_expense_status"] == "approved"
+
+
+def test_authorizer_can_remove_required_expense_and_close_no_payable_request(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Producto removible en autorizacion",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "operacion",
+            "requires_authorization": True,
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    receipt = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    authorization_review = _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorization_review",
+        actor_user_id=authorizer_user_id,
+    )
+    assert authorization_review.status_code == 200, authorization_review.text
+
+    removed = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/remove/me",
+        headers=_auth_headers(client, "authorizer@example.com"),
+        json={
+            "reason": "Producto no debe formar parte del reembolso",
+            "adjust_reported_total": True,
+        },
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["status"] == "removed"
+    assert removed.json()["requires_authorization"] is True
+
+    summary = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/validation-summary"
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["reported_total"] == "0.00"
+    assert summary.json()["expense_count"] == 0
+    assert expense.json()["id"] in summary.json()["removed_expense_ids"]
+    assert "no_payable_expenses" in {issue["code"] for issue in summary.json()["issues"]}
+
+    rejected_request = _transition(
+        client,
+        base_records["request_id"],
+        target_status="rejected",
+        actor_user_id=authorizer_user_id,
+    )
+    assert rejected_request.status_code == 200, rejected_request.text
+    assert rejected_request.json()["status"] == "rejected"
+
+
+def test_authorizer_cannot_remove_regular_expense_during_authorization_review(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    receipt = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="authorization_review",
+        actor_user_id=authorizer_user_id,
+    ).status_code == 200
+
+    removed = client.post(
+        f"/api/v1/expenses/{expense['id']}/remove",
+        json={
+            "actor_user_id": authorizer_user_id,
+            "reason": "Intento de quitar gasto normal",
+            "adjust_reported_total": True,
+        },
+    )
+    assert removed.status_code == 409
+    assert removed.json()["detail"]["code"] == "EXPENSE_NOT_AUTHORIZATION_REQUIRED"
 
 
 def test_authenticated_transition_uses_token_user_and_blocks_wrong_role(

@@ -54,7 +54,10 @@ REVIEW_EDIT_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
     },
 }
 
-REMOVAL_ROLES_BY_STATUS = REVIEW_EDIT_ROLES_BY_STATUS
+REMOVAL_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
+    ReimbursementRequestStatus.authorization_review: {UserRole.authorizer, UserRole.admin},
+    **REVIEW_EDIT_ROLES_BY_STATUS,
+}
 
 
 @router.post("/", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
@@ -557,6 +560,17 @@ def _remove_expense_with_actor(
     _ensure_actor_can(actor, REMOVAL_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
     _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
     _ensure_expense_not_excluded(expense)
+    if (
+        reimbursement_request.status == ReimbursementRequestStatus.authorization_review
+        and not expense.requires_authorization
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "EXPENSE_NOT_AUTHORIZATION_REQUIRED",
+                "message": "Only expenses that require authorization can be removed during authorization review.",
+            },
+        )
 
     original_amount = Decimal(expense.amount).quantize(Decimal("0.01"))
     original_currency = expense.currency

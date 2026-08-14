@@ -197,11 +197,12 @@ draft
 Durante autorizacion, si un gasto/producto no procede, se rechaza solo ese gasto con
 `POST /api/v1/expenses/{expense_id}/reject`; la solicitud puede seguir con los gastos
 restantes si el total queda cuadrado. Los gastos que tienen `requires_authorization=true`
-deben autorizarse o rechazarse antes de mover la solicitud a `authorized`.
+deben autorizarse, rechazarse o removerse antes de mover la solicitud a `authorized`.
 
-Si autorizacion rechaza todos los gastos y ya no queda monto reembolsable, el resumen genera
-la alerta `no_payable_expenses`. En ese caso la solicitud no pasa a contabilidad, no prepara
-poliza SAP y no puede llegar a pago; autorizacion debe cerrarla como `rejected`.
+Si autorizacion o una revision posterior rechaza/remueve todos los gastos y ya no queda monto
+reembolsable, el resumen genera la alerta `no_payable_expenses`. En ese caso la solicitud no
+prepara poliza SAP y no puede llegar a pago; el rol revisor activo debe cerrarla como
+`rejected`.
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
 `Crear escenario` para una sola solicitud o `Crear demo masivo` para poblar varias bandejas.
