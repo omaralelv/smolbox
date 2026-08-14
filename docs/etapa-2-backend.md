@@ -119,8 +119,9 @@ Reglas principales:
 - Autorizacion y contabilidad no pueden regresar la solicitud a tienda para correccion.
 - Contabilidad puede observar, editar durante revision, quitar gastos con motivo o mover a
   `accounting_reviewed`.
-- Si gerente, tesoreria o direccion necesitan ajuste, regresan la solicitud a
-  `under_accounting_review`; el ultimo responsable de la correccion operativa es contabilidad.
+- Si un revisor posterior necesita ajuste, regresa la solicitud un paso:
+  gerente a `under_accounting_review`, tesoreria a `accounting_manager_review` y direccion a
+  `treasury_review`.
 - Despues de `accounting_reviewed`, contabilidad debe preparar la poliza SAP placeholder.
 - Gerente de contabilidad recibe la solicitud en `accounting_manager_review` solo si la
   poliza SAP placeholder ya fue preparada, y despues puede mover a
@@ -410,8 +411,8 @@ tienda:
 
 Las solicitudes, gastos, importaciones, adjuntos y validaciones CFDI se bloquean despues de
 `submitted` para evitar cambios silenciosos mientras contabilidad o tesoreria revisan. Si una
-revision posterior necesita ajuste, gerente, tesoreria o direccion regresan la solicitud a
-`under_accounting_review` para que contabilidad haga el ultimo ajuste auditado.
+revision posterior necesita ajuste, la solicitud baja solo un nivel: gerente la regresa a
+contabilidad, tesoreria a gerente y direccion a tesoreria.
 
 Las acciones especiales de revision siguen controladas por rol: contabilidad y gerente pueden
 observar, editar durante revision y quitar gastos con motivo sin borrar el historial.

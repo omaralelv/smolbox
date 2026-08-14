@@ -280,6 +280,70 @@ def test_accountant_cannot_pull_later_review_back_to_accounting() -> None:
     assert "cannot return request" in str(exc_info.value)
 
 
+def test_treasury_returns_request_to_accounting_manager_for_rework() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.treasury_review)
+    actor = User(
+        email="tesoreria.retrabajo@example.com",
+        full_name="Tesoreria Retrabajo",
+        role=UserRole.treasury,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.accounting_manager_review,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.treasury_review
+    assert to_status == ReimbursementRequestStatus.accounting_manager_review
+    assert request.status == ReimbursementRequestStatus.accounting_manager_review
+
+
+def test_director_returns_request_to_treasury_for_rework() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.direction_review)
+    actor = User(
+        email="direccion.retrabajo@example.com",
+        full_name="Direccion Retrabajo",
+        role=UserRole.director,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.treasury_review,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.direction_review
+    assert to_status == ReimbursementRequestStatus.treasury_review
+    assert request.status == ReimbursementRequestStatus.treasury_review
+
+
+def test_treasury_cannot_return_request_directly_to_accounting() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.treasury_review)
+    actor = User(
+        email="tesoreria.salto@example.com",
+        full_name="Tesoreria Salto",
+        role=UserRole.treasury,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.under_accounting_review,
+            summary=_summary(),
+        )
+
+    assert "Cannot move request from treasury_review to under_accounting_review" in str(
+        exc_info.value
+    )
+
+
 def test_authorizer_can_reject_request_when_no_payable_expenses_remain() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.authorization_review)
     actor = User(

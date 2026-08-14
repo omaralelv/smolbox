@@ -18,10 +18,14 @@ def test_product_view_html_uses_local_api_and_user_flow() -> None:
     assert "Rechazar producto" in PRODUCT_VIEW_HTML
     assert "Quitar gasto" in PRODUCT_VIEW_HTML
     assert "Regresar a contabilidad" in PRODUCT_VIEW_HTML
+    assert "Regresar a gerente" in PRODUCT_VIEW_HTML
+    assert "Regresar a tesorería" in PRODUCT_VIEW_HTML
     assert "Registrar pago" in PRODUCT_VIEW_HTML
     assert "selectedExpenseId" in PRODUCT_VIEW_HTML
     assert "executeProductAction" in PRODUCT_VIEW_HTML
     assert "transition:under_accounting_review" in PRODUCT_VIEW_HTML
+    assert "transition:accounting_manager_review" in PRODUCT_VIEW_HTML
+    assert "transition:treasury_review" in PRODUCT_VIEW_HTML
     assert "requiresSubmissionReady" in PRODUCT_VIEW_HTML
     assert "seedBulkDemo" in PRODUCT_VIEW_HTML
 

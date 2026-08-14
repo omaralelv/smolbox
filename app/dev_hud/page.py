@@ -946,9 +946,9 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Crea la solicitud, carga gastos, comprobantes y CFDI, y la envía para revisión.</div>
               <div class="actions">
-                <button class="btn primary user-flow-btn" data-action="seed-scenario">Crear solicitud</button>
-                <button class="btn success user-flow-btn" data-action="complete-cfdi">Completar CFDI</button>
-                <button class="btn user-flow-btn" data-action="transition:submitted">Enviar solicitud</button>
+                <button class="btn primary user-flow-btn" data-role="store" data-action="seed-scenario">Crear solicitud</button>
+                <button class="btn success user-flow-btn" data-role="store" data-action="complete-cfdi">Completar CFDI</button>
+                <button class="btn user-flow-btn" data-role="store" data-action="transition:submitted">Enviar solicitud</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -958,7 +958,7 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Revisa comprobantes, CFDI, total, periodo, alertas y datos SAP.</div>
               <div class="actions">
-                <button class="btn user-flow-btn" data-action="automated-review">Revisar automáticamente</button>
+                <button class="btn user-flow-btn" data-role="system" data-action="automated-review">Revisar automáticamente</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -968,11 +968,11 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Aprueba o rechaza solo los gastos que requieren autorización.</div>
               <div class="actions">
-                <button class="btn user-flow-btn" data-action="transition:authorization_review">Abrir revisión</button>
-                <button class="btn success user-flow-btn" data-action="authorize-expenses">Autorizar producto</button>
-                <button class="btn warning user-flow-btn" data-action="reject-product">Rechazar producto</button>
-                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
-                <button class="btn success user-flow-btn" data-action="transition:authorized">Enviar a contabilidad</button>
+                <button class="btn user-flow-btn" data-role="authorizer" data-action="transition:authorization_review">Abrir revisión</button>
+                <button class="btn success user-flow-btn" data-role="authorizer" data-action="authorize-expenses">Autorizar producto</button>
+                <button class="btn warning user-flow-btn" data-role="authorizer" data-action="reject-product">Rechazar producto</button>
+                <button class="btn danger user-flow-btn" data-role="authorizer" data-action="transition:rejected">Rechazar solicitud sin monto</button>
+                <button class="btn success user-flow-btn" data-role="authorizer" data-action="transition:authorized">Enviar a contabilidad</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -982,10 +982,10 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Revisa factura, CFDI, formato, observaciones y prepara póliza SAP.</div>
               <div class="actions">
-                <button class="btn user-flow-btn" data-action="transition:under_accounting_review">Tomar revisión</button>
-                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
-                <button class="btn success user-flow-btn" data-action="transition:accounting_reviewed">Cerrar revisión</button>
-                <button class="btn success user-flow-btn" data-action="prepare-sap-policy">Preparar póliza SAP</button>
+                <button class="btn user-flow-btn" data-role="accountant" data-action="transition:under_accounting_review">Tomar revisión</button>
+                <button class="btn danger user-flow-btn" data-role="accountant" data-action="transition:rejected">Rechazar solicitud sin monto</button>
+                <button class="btn success user-flow-btn" data-role="accountant" data-action="transition:accounting_reviewed">Cerrar revisión</button>
+                <button class="btn success user-flow-btn" data-role="accountant" data-action="prepare-sap-policy">Preparar póliza SAP</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -995,10 +995,10 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Recibe solicitud revisada y aprueba antes de tesorería.</div>
               <div class="actions">
-                <button class="btn user-flow-btn" data-action="transition:accounting_manager_review">Recibir solicitud</button>
-                <button class="btn warning user-flow-btn" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
-                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
-                <button class="btn success user-flow-btn" data-action="transition:accounting_manager_approved">Aprobar gerente</button>
+                <button class="btn user-flow-btn" data-role="accounting_manager" data-action="transition:accounting_manager_review">Recibir solicitud</button>
+                <button class="btn warning user-flow-btn" data-role="accounting_manager" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
+                <button class="btn danger user-flow-btn" data-role="accounting_manager" data-action="transition:rejected">Rechazar solicitud sin monto</button>
+                <button class="btn success user-flow-btn" data-role="accounting_manager" data-action="transition:accounting_manager_approved">Aprobar gerente</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -1008,13 +1008,13 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Revisa pago, envía a dirección, confirma pago y cierra solicitud.</div>
               <div class="actions">
-                <button class="btn user-flow-btn" data-action="transition:treasury_review">Revisar pago</button>
-                <button class="btn warning user-flow-btn" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
-                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
-                <button class="btn user-flow-btn" data-action="transition:direction_review">Enviar a dirección</button>
-                <button class="btn success user-flow-btn" data-action="transition:approved_for_payment">Liberar pago</button>
-                <button class="btn success user-flow-btn" data-action="record-payment">Registrar pago</button>
-                <button class="btn success user-flow-btn" data-action="transition:closed">Cerrar solicitud</button>
+                <button class="btn user-flow-btn" data-role="treasury" data-action="transition:treasury_review">Revisar pago</button>
+                <button class="btn warning user-flow-btn" data-role="treasury" data-action="transition:accounting_manager_review">Regresar a gerente</button>
+                <button class="btn danger user-flow-btn" data-role="treasury" data-action="transition:rejected">Rechazar solicitud sin monto</button>
+                <button class="btn user-flow-btn" data-role="treasury" data-action="transition:direction_review">Enviar a dirección</button>
+                <button class="btn success user-flow-btn" data-role="treasury" data-action="transition:approved_for_payment">Liberar pago</button>
+                <button class="btn success user-flow-btn" data-role="treasury" data-action="record-payment">Registrar pago</button>
+                <button class="btn success user-flow-btn" data-role="treasury" data-action="transition:closed">Cerrar solicitud</button>
               </div>
             </div>
             <div class="user-flow-row">
@@ -1024,9 +1024,9 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Aprueba que tesorería realice el pago.</div>
               <div class="actions">
-                <button class="btn warning user-flow-btn" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
-                <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
-                <button class="btn success user-flow-btn" data-action="transition:direction_approved">Aprobar dirección</button>
+                <button class="btn warning user-flow-btn" data-role="director" data-action="transition:treasury_review">Regresar a tesorería</button>
+                <button class="btn danger user-flow-btn" data-role="director" data-action="transition:rejected">Rechazar solicitud sin monto</button>
+                <button class="btn success user-flow-btn" data-role="director" data-action="transition:direction_approved">Aprobar dirección</button>
               </div>
             </div>
           </div>
@@ -1482,8 +1482,8 @@ TEST_HUD_HTML = """<!doctype html>
         statuses: ["accounting_manager_approved"]
       },
       {
-        id: "transition:under_accounting_review",
-        label: "Regresar a contabilidad",
+        id: "transition:accounting_manager_review",
+        label: "Regresar a gerente",
         roles: ["treasury"],
         statuses: ["treasury_review"],
         style: "warning"
@@ -1495,8 +1495,8 @@ TEST_HUD_HTML = """<!doctype html>
         statuses: ["treasury_review"]
       },
       {
-        id: "transition:under_accounting_review",
-        label: "Regresar a contabilidad",
+        id: "transition:treasury_review",
+        label: "Regresar a tesorería",
         roles: ["director"],
         statuses: ["direction_review"],
         style: "warning"
@@ -1759,7 +1759,7 @@ TEST_HUD_HTML = """<!doctype html>
       });
       $("#recordPaymentBtn").disabled = !hasScenario || state?.scenario?.status !== "approved_for_payment";
 	      $$(".user-flow-btn").forEach((button) => {
-	        button.disabled = !isUserFlowActionAvailable(button.dataset.action);
+	        button.disabled = !isUserFlowActionAvailable(button.dataset.action, button.dataset.role);
 	      });
 	      $$(".product-action-btn").forEach((button) => {
 	        button.disabled = !isProductActionAvailable(
@@ -1786,7 +1786,7 @@ TEST_HUD_HTML = """<!doctype html>
       return ["draft", "correction_required"].includes(state?.scenario?.status);
     }
 
-    function isUserFlowActionAvailable(action) {
+    function isUserFlowActionAvailable(action, role = null) {
       const hasScenario = Boolean(state?.scenario?.exists);
       if (action === "seed-scenario") return true;
       if (!hasScenario) return false;
@@ -1796,7 +1796,9 @@ TEST_HUD_HTML = """<!doctype html>
         return roleActions
           .filter((roleAction) => roleAction.id === action)
           .some((roleAction) =>
-            roleAction.roles.some((role) => isRoleActionAvailableFor(role, roleAction))
+            role
+              ? isRoleActionAvailableFor(role, roleAction)
+              : roleAction.roles.some((item) => isRoleActionAvailableFor(item, roleAction))
           );
       }
       return true;

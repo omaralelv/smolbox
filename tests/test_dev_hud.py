@@ -82,6 +82,8 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "productQueueActive" in TEST_HUD_HTML
     assert "hasPendingAuthorization" in TEST_HUD_HTML
     assert "Regresar a contabilidad" in TEST_HUD_HTML
+    assert "Regresar a gerente" in TEST_HUD_HTML
+    assert "Regresar a tesorería" in TEST_HUD_HTML
     assert "requiresSubmissionReady" in TEST_HUD_HTML
 
 

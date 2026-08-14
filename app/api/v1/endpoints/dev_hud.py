@@ -30,7 +30,11 @@ from app.services.request_editability import is_request_editable
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.security import hash_password
 from app.services.storage import StorageService
-from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
+from app.services.workflow import (
+    REVIEW_STEP_RETURN_TARGETS,
+    WorkflowTransitionError,
+    transition_reimbursement_request,
+)
 
 router = APIRouter()
 
@@ -631,11 +635,11 @@ def transition_dev_hud_request(
             detail={"code": "INVALID_WORKFLOW_TRANSITION", "message": str(exc)},
         ) from exc
 
-    if _is_accounting_rework_return(from_status, to_status):
+    if _is_review_step_return(from_status, to_status):
         request.correction_requested_at = datetime.now(UTC)
         request.correction_requested_by_user_id = actor.id
-        request.correction_return_status = ReimbursementRequestStatus.under_accounting_review
-        request.correction_reason = f"HUD returned from {from_status.value} to accounting."
+        request.correction_return_status = to_status
+        request.correction_reason = f"HUD returned from {from_status.value} to {to_status.value}."
 
     db.add(
         AuditLog(
@@ -1684,13 +1688,10 @@ def _actor_for_transition(
     current_status: ReimbursementRequestStatus,
     target_status: ReimbursementRequestStatus,
 ) -> User:
-    if target_status == ReimbursementRequestStatus.submitted:
-        role = UserRole.store
-    elif (
-        target_status == ReimbursementRequestStatus.under_accounting_review
-        and _is_accounting_rework_status(current_status)
-    ):
+    if _is_review_step_return(current_status, target_status):
         role = _review_role_for_status(current_status)
+    elif target_status == ReimbursementRequestStatus.submitted:
+        role = UserRole.store
     elif target_status in {
         ReimbursementRequestStatus.authorization_review,
         ReimbursementRequestStatus.authorized,
@@ -1720,22 +1721,11 @@ def _actor_for_transition(
     return _hud_actor(db, role)
 
 
-def _is_accounting_rework_status(status_value: ReimbursementRequestStatus) -> bool:
-    return status_value in {
-        ReimbursementRequestStatus.accounting_manager_review,
-        ReimbursementRequestStatus.treasury_review,
-        ReimbursementRequestStatus.direction_review,
-    }
-
-
-def _is_accounting_rework_return(
+def _is_review_step_return(
     from_status: ReimbursementRequestStatus,
     to_status: ReimbursementRequestStatus,
 ) -> bool:
-    return (
-        _is_accounting_rework_status(from_status)
-        and to_status == ReimbursementRequestStatus.under_accounting_review
-    )
+    return REVIEW_STEP_RETURN_TARGETS.get(from_status) == to_status
 
 
 def _hud_actor(db: Session, role: UserRole) -> User:

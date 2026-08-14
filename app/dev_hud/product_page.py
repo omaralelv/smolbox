@@ -624,8 +624,8 @@ PRODUCT_VIEW_HTML = """<!doctype html>
         statuses: ["accounting_manager_approved"]
       },
       {
-        id: "transition:under_accounting_review",
-        label: "Regresar a contabilidad",
+        id: "transition:accounting_manager_review",
+        label: "Regresar a gerente",
         roles: ["treasury"],
         statuses: ["treasury_review"],
         style: "warning"
@@ -637,8 +637,8 @@ PRODUCT_VIEW_HTML = """<!doctype html>
         statuses: ["treasury_review"]
       },
       {
-        id: "transition:under_accounting_review",
-        label: "Regresar a contabilidad",
+        id: "transition:treasury_review",
+        label: "Regresar a tesorería",
         roles: ["director"],
         statuses: ["direction_review"],
         style: "warning"

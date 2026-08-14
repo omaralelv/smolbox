@@ -49,7 +49,7 @@ from app.services.storage import (
     read_upload_limited,
 )
 from app.services.workflow import (
-    ACCOUNTING_REWORK_STATUSES,
+    REVIEW_STEP_RETURN_TARGETS,
     WorkflowTransitionError,
     transition_reimbursement_request,
 )
@@ -877,10 +877,10 @@ def _transition_request_with_actor(
         reimbursement_request.correction_requested_by_user_id = actor.id
         reimbursement_request.correction_return_status = from_status
         reimbursement_request.correction_reason = note
-    elif _is_accounting_rework_return(from_status, to_status):
+    elif _is_review_step_return(from_status, to_status):
         reimbursement_request.correction_requested_at = datetime.now(UTC)
         reimbursement_request.correction_requested_by_user_id = actor.id
-        reimbursement_request.correction_return_status = ReimbursementRequestStatus.under_accounting_review
+        reimbursement_request.correction_return_status = to_status
         reimbursement_request.correction_reason = note
 
     db.add(
@@ -905,14 +905,11 @@ def _transition_request_with_actor(
     return reimbursement_request
 
 
-def _is_accounting_rework_return(
+def _is_review_step_return(
     from_status: ReimbursementRequestStatus,
     to_status: ReimbursementRequestStatus,
 ) -> bool:
-    return (
-        from_status in ACCOUNTING_REWORK_STATUSES
-        and to_status == ReimbursementRequestStatus.under_accounting_review
-    )
+    return REVIEW_STEP_RETURN_TARGETS.get(from_status) == to_status
 
 
 def _prepare_sap_policy_with_actor(

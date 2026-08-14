@@ -1045,3 +1045,136 @@ def test_later_review_returns_correction_to_accounting(
     )
     assert accountant_queue.status_code == 200, accountant_queue.text
     assert [item["id"] for item in accountant_queue.json()] == [base_records["request_id"]]
+
+
+def test_later_reviews_return_to_previous_step(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    receipt = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    store_user_id = _create_user(client, "store")
+    accountant_user_id = _create_user(client, "accountant")
+    manager_user_id = _create_user(client, "accounting_manager")
+    treasury_user_id = _create_user(client, "treasury")
+    director_user_id = _create_user(client, "director")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        manager_user_id,
+        "accounting_manager",
+    )
+    _assign_user_to_store(client, base_records["store_id"], treasury_user_id, "treasury")
+    _assign_user_to_store(client, base_records["store_id"], director_user_id, "director")
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="under_accounting_review",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_reviewed",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare",
+        json={
+            "actor_user_id": accountant_user_id,
+            "reference": "SAP-STEP-BACK-001",
+            "note": "Preparado antes de gerente.",
+        },
+    )
+    assert sap_policy.status_code == 200, sap_policy.text
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_review",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_approved",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="treasury_review",
+        actor_user_id=treasury_user_id,
+    ).status_code == 200
+
+    direct_accounting_return = _transition(
+        client,
+        base_records["request_id"],
+        target_status="under_accounting_review",
+        actor_user_id=treasury_user_id,
+    )
+    assert direct_accounting_return.status_code == 409
+
+    returned_to_manager = _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_review",
+        actor_user_id=treasury_user_id,
+    )
+    assert returned_to_manager.status_code == 200, returned_to_manager.text
+    assert returned_to_manager.json()["status"] == "accounting_manager_review"
+    assert returned_to_manager.json()["correction_return_status"] == "accounting_manager_review"
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_approved",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="treasury_review",
+        actor_user_id=treasury_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="direction_review",
+        actor_user_id=treasury_user_id,
+    ).status_code == 200
+
+    direct_manager_return = _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_review",
+        actor_user_id=director_user_id,
+    )
+    assert direct_manager_return.status_code == 409
+
+    returned_to_treasury = _transition(
+        client,
+        base_records["request_id"],
+        target_status="treasury_review",
+        actor_user_id=director_user_id,
+    )
+    assert returned_to_treasury.status_code == 200, returned_to_treasury.text
+    assert returned_to_treasury.json()["status"] == "treasury_review"
+    assert returned_to_treasury.json()["correction_return_status"] == "treasury_review"

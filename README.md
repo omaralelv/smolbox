@@ -205,6 +205,9 @@ draft
 -> closed
 ```
 
+Si una revision posterior pide ajuste, la solicitud regresa solo un paso: gerente a
+contabilidad, tesoreria a gerente y direccion a tesoreria.
+
 Durante autorizacion, si un gasto/producto no procede, se rechaza solo ese gasto con
 `POST /api/v1/expenses/{expense_id}/reject`; la solicitud puede seguir con los gastos
 restantes si el total queda cuadrado. Los gastos que tienen `requires_authorization=true`
