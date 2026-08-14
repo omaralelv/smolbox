@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.services.security import hash_password
 
 router = APIRouter()
 
@@ -18,7 +19,10 @@ def create_user(
     user_in: UserCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    user = User(**user_in.model_dump())
+    user_data = user_in.model_dump(exclude={"password"})
+    if user_in.password:
+        user_data["password_hash"] = hash_password(user_in.password)
+    user = User(**user_data)
     db.add(user)
     try:
         db.commit()
@@ -61,8 +65,11 @@ def update_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     updates = user_in.model_dump(exclude_unset=True)
+    password = updates.pop("password", None)
     for field, value in updates.items():
         setattr(user, field, value)
+    if password:
+        user.password_hash = hash_password(password)
 
     try:
         db.commit()

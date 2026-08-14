@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     ]
     cfdi_receiver_rfc: str | None = None
     auto_create_schema: bool = False
+    auth_token_secret: str = "local-dev-secret-change-me"
+    auth_token_ttl_minutes: int = 8 * 60
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

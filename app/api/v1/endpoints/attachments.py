@@ -9,8 +9,10 @@ from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
+from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.attachment import AttachmentRead
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
     StorageService,
@@ -36,6 +38,11 @@ async def upload_attachment(
     expense = db.get(Expense, expense_id)
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    if expense.reimbursement_request is not None:
+        _ensure_request_editable(
+            expense.reimbursement_request,
+            message="Attachments can only be uploaded while the request is draft or in correction.",
+        )
 
     storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
     try:
@@ -98,3 +105,14 @@ async def upload_attachment(
         raise
     db.refresh(attachment)
     return attachment
+
+
+def _ensure_request_editable(reimbursement_request: ReimbursementRequest, *, message: str) -> None:
+    if not is_request_editable(reimbursement_request):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_EDITABLE",
+                "message": message,
+            },
+        )

@@ -3,6 +3,8 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     attachment_files,
     attachments,
+    auth,
+    business_rules,
     cfdi,
     dev_hud,
     expenses,
@@ -11,12 +13,16 @@ from app.api.v1.endpoints import (
     reimbursement_requests,
     stores,
     users,
+    work_queue,
 )
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(stores.router, prefix="/stores", tags=["stores"])
+api_router.include_router(business_rules.router, prefix="/business-rules", tags=["business-rules"])
+api_router.include_router(work_queue.router, prefix="/work-queue", tags=["work-queue"])
 api_router.include_router(periods.router, prefix="/periods", tags=["periods"])
 api_router.include_router(
     reimbursement_requests.router,

@@ -30,26 +30,50 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
 - Migraciones Alembic para evolucionar PostgreSQL sin borrar datos locales.
 - Usuarios internos con rol `store`, `authorizer`, `accountant`,
   `accounting_manager`, `treasury`, `director` o `admin`.
+- Login basico con contrasena y token Bearer local.
+- Rutas autenticadas `/me` para que el frontend real ejecute transiciones y acciones
+  usando el usuario del token, no un `actor_user_id` editable desde la pantalla.
+- Asignacion formal usuario-tienda para roles que operan una tienda especifica.
 - Flujo de estados de solicitud alineado al proceso empresarial: tienda, autorizacion,
   contabilidad, gerente de contabilidad, tesoreria, direccion, pago y cierre.
 - Endpoint de transicion de estado con validacion de rol y reglas minimas de negocio.
-- Acciones por gasto para autorizar, observar, editar durante revision contable/gerencial
-  y remover con motivo obligatorio sin borrar historial.
-- Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI y cambios de estado.
+- Cola de trabajo `/work-queue/me` para que cada rol vea las solicitudes que le tocan.
+- Correcciones de revisiones posteriores con regreso a contabilidad, sin mandar el flujo de
+  vuelta a tienda.
+- Acciones por gasto para autorizar, rechazar en autorizacion, observar, editar durante
+  revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
+- Registro formal de pago en tabla `payments` cuando tesoreria confirma el reembolso.
+- Reglas de negocio configurables en `business_rules`, editables por admin.
+- Bitacora de auditoria para solicitudes, gastos, adjuntos, CFDI, pagos y cambios de estado.
 - Validacion ampliada por solicitud: gastos fuera de periodo, CFDI duplicados, CFDI
   invalidos, autorizaciones pendientes y readiness para envio/autorizacion/aprobacion
   contable.
-- Descarga de adjuntos por ID.
-- Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios.
+- Revision automatica de solicitud para CFDI, comprobantes, total, periodo, OCR pendiente,
+  alertas y datos base de poliza SAP sin aprobar decisiones humanas.
+- Descarga de adjuntos por ID y descarga protegida con token en `/download/me`.
+- Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios; las solicitudes,
+  gastos, adjuntos y CFDI quedan bloqueados despues de enviar. Los ajustes posteriores se
+  controlan desde revision contable/gerencial con auditoria.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
-- HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo.
+- HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo con una
+  vista guiada por rol cercana al usuario final.
+- Vista independiente de producto en `/product-view` para demostrar el flujo por rol sin
+  mostrar las herramientas tecnicas del HUD.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
-  y agregar pagos/gastos de prueba.
+  y agregar gastos de prueba.
+- Demo masivo del HUD para crear varias solicitudes en diferentes estados del flujo y probar
+  bandejas de trabajo por rol sin datos reales.
+- Panel de sesion en el HUD para iniciar como tienda, autorizacion, contabilidad, gerente,
+  tesoreria, direccion o admin, y probar rutas autenticadas con token.
+- Seccion de reglas de negocio en el HUD para revisar y editar configuracion tecnica
+  usando sesion admin.
+- Placeholder auditable de poliza SAP antes de enviar la solicitud a gerente de contabilidad.
 - Documentacion de alcance en `docs/etapa-2-backend.md`.
 
 Fuera de esta etapa:
 
 - Integraciones SAP.
+- Generacion real de poliza SAP; por ahora solo existe el punto de extension.
 - Integraciones Azure, Active Directory o SSO empresarial.
 - Validacion en linea contra SAT.
 - Dispersion bancaria o contabilizacion final automatica.
@@ -80,6 +104,12 @@ Fuera de esta etapa:
    http://localhost:8000/test-hud
    ```
 
+5. Abre la vista independiente de producto:
+
+   ```text
+   http://localhost:8000/product-view
+   ```
+
 Docker ejecuta `alembic upgrade head` antes de iniciar FastAPI. Si ya tenias una base local
 de prueba de Etapa 1 y quieres empezar limpio:
 
@@ -87,6 +117,17 @@ de prueba de Etapa 1 y quieres empezar limpio:
 docker compose down -v
 docker compose up --build
 ```
+
+## Datos de prueba
+
+El repo incluye datos ficticios para pruebas manuales en `docs/test-data`:
+
+- escenarios JSON para sembrar el HUD;
+- CSV validos e invalidos para importacion masiva;
+- XML CFDI ficticios para validacion;
+- un PDF minimo para probar subida de comprobantes.
+
+La guia de uso esta en `docs/test-data/README.md`.
 
 ## Desarrollo sin Docker
 
@@ -130,11 +171,18 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 8. Revisar el cierre en
    `GET /api/v1/reimbursement-requests/{request_id}/validation-summary`.
 9. Crear usuarios internos en `POST /api/v1/users`.
-10. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
-11. Revisar auditoria con
+10. Asignar usuarios a tienda con `POST /api/v1/stores/{store_id}/users`.
+11. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
+    La tienda solo puede enviar cuando cada gasto activo tenga comprobante/ticket y CFDI
+    vigente validado.
+12. Rechazar un gasto/producto individual de autorizacion, si no procede, con
+   `POST /api/v1/expenses/{expense_id}/reject`.
+13. Preparar la poliza SAP placeholder con
+   `POST /api/v1/reimbursement-requests/{request_id}/sap-policy/prepare`.
+14. Revisar auditoria con
    `GET /api/v1/reimbursement-requests/{request_id}/audit-events`.
-12. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
-13. Importar gastos desde Excel/CSV con
+15. Corregir datos con endpoints `PATCH`, por ejemplo `PATCH /api/v1/expenses/{expense_id}`.
+16. Importar gastos desde Excel/CSV con
    `POST /api/v1/reimbursement-requests/{request_id}/expenses/import`.
 
 Flujo de estados esperado:
@@ -142,34 +190,51 @@ Flujo de estados esperado:
 ```text
 draft
 -> submitted
--> authorization_review
--> authorized
+-> authorization_review (solo si hay gastos con requires_authorization=true)
+-> authorized (solo despues de resolver esos gastos)
 -> under_accounting_review
 -> accounting_reviewed
+-> preparar poliza SAP placeholder
 -> accounting_manager_review
 -> accounting_manager_approved
 -> treasury_review
 -> direction_review
 -> direction_approved
 -> approved_for_payment
--> paid
+-> registrar pago formal (paid)
 -> closed
 ```
 
-Durante revision se puede regresar a `correction_required` o rechazar con `rejected`.
-Los gastos que tienen `requires_authorization=true` deben autorizarse antes de mover la
-solicitud a `authorized`.
+Si una revision posterior pide ajuste, la solicitud regresa solo un paso: gerente a
+contabilidad, tesoreria a gerente y direccion a tesoreria.
+
+Durante autorizacion, si un gasto/producto no procede, se rechaza solo ese gasto con
+`POST /api/v1/expenses/{expense_id}/reject`; la solicitud puede seguir con los gastos
+restantes si el total queda cuadrado. Los gastos que tienen `requires_authorization=true`
+deben autorizarse, rechazarse o removerse antes de mover la solicitud a `authorized`.
+Si la solicitud enviada no tiene ningun gasto pendiente de autorizacion, no entra a la
+bandeja de autorizacion: contabilidad la puede tomar directo desde `submitted` y moverla a
+`under_accounting_review`.
+
+Si autorizacion o una revision posterior rechaza/remueve todos los gastos y ya no queda monto
+reembolsable, el resumen genera la alerta `no_payable_expenses`. En ese caso la solicitud no
+prepara poliza SAP y no puede llegar a pago; el rol revisor activo debe cerrarla como
+`rejected`.
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
-`Crear escenario`, luego prueba `Enviar tienda`, `Revision autorizacion`, `Autorizar gastos`,
-`Autorizar solicitud`, `Revision contable`, `Completar CFDI demo`, `Enviar gerente`,
-`Aprobar gerente`, `Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`,
-`Aprobar pago`, `Marcar pagado` y `Cerrar`.
+`Crear escenario` para una sola solicitud o `Crear demo masivo` para poblar varias bandejas.
+Si intentas `Enviar tienda` antes de `Completar CFDI`, el backend bloquea el avance. Luego
+prueba `Completar CFDI`, `Enviar tienda`, `Revision autorizacion`,
+`Autorizar gastos` o `Rechazar producto`, `Autorizar solicitud`, `Revision contable`,
+`Cerrar contabilidad`, `Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`,
+`Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`, `Aprobar pago`,
+`Registrar pago` y `Cerrar`.
 
 El HUD tambien permite crear tiendas y usuarios con prefijo/dominio `HUD`, asignar un
-usuario tienda o contador a una tienda y crear un pago/gasto dentro de la solicitud demo.
-Esa asignacion es operativa para pruebas; el modelo formal de permisos por tienda queda para
-una etapa posterior.
+usuario tienda o contador a una tienda, crear un gasto dentro de la solicitud demo,
+quitar gastos durante revision contable con motivo obligatorio, registrar pagos formales y
+editar reglas de negocio como admin. Esa asignacion ya se respalda con el modelo formal
+`store_user_assignments`.
 
 ## Importacion masiva de gastos
 

@@ -14,6 +14,7 @@ def _expense(
     requires_authorization: bool = False,
     authorized: bool = False,
     removed: bool = False,
+    rejected: bool = False,
 ):
     has_valid_cfdi = AttachmentType.cfdi_xml in attachment_types
     return SimpleNamespace(
@@ -23,7 +24,7 @@ def _expense(
         requires_authorization=requires_authorization,
         authorized_at=object() if authorized else None,
         removed_at=object() if removed else None,
-        status="removed" if removed else "draft",
+        status="removed" if removed else "rejected" if rejected else "draft",
         attachments=[SimpleNamespace(attachment_type=kind) for kind in attachment_types],
         cfdi_validations=[
             SimpleNamespace(is_current=True, is_valid=True)
@@ -79,6 +80,24 @@ def test_summarize_reimbursement_request_reports_missing_evidence() -> None:
     }
 
 
+def test_summarize_reimbursement_request_blocks_submission_without_cfdi() -> None:
+    missing_cfdi_expense = _expense("100.00", "papeleria", [AttachmentType.receipt])
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[missing_cfdi_expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.is_balanced is True
+    assert summary.missing_receipt_expense_ids == []
+    assert summary.missing_cfdi_expense_ids == [missing_cfdi_expense.id]
+    assert summary.ready_for_submission is False
+    assert summary.ready_for_authorization_approval is False
+    assert summary.ready_for_accounting_approval is False
+
+
 def test_summarize_reimbursement_request_tracks_authorization_and_removed_expenses() -> None:
     pending_authorization = _expense(
         "100.00",
@@ -108,3 +127,58 @@ def test_summarize_reimbursement_request_tracks_authorization_and_removed_expens
     assert summary.ready_for_authorization_approval is False
     assert summary.ready_for_accounting_approval is False
     assert "missing_authorization" in {issue.code for issue in summary.issues}
+
+
+def test_summarize_reimbursement_request_excludes_rejected_authorization_expenses() -> None:
+    approved = _expense(
+        "100.00",
+        "papeleria",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+    )
+    rejected = _expense(
+        "50.00",
+        "transporte",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+        requires_authorization=True,
+        rejected=True,
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[approved, rejected],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.calculated_total == Decimal("100.00")
+    assert summary.expense_count == 1
+    assert summary.rejected_expense_ids == [rejected.id]
+    assert summary.missing_authorization_expense_ids == []
+    assert summary.ready_for_authorization_approval is True
+
+
+def test_summarize_reimbursement_request_reports_no_payable_expenses() -> None:
+    rejected = _expense(
+        "50.00",
+        "transporte",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+        requires_authorization=True,
+        rejected=True,
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("0.00"),
+        expenses=[rejected],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.calculated_total == Decimal("0.00")
+    assert summary.difference == Decimal("0.00")
+    assert summary.expense_count == 0
+    assert summary.rejected_expense_ids == [rejected.id]
+    assert summary.ready_for_submission is False
+    assert summary.ready_for_authorization_approval is False
+    assert summary.ready_for_accounting_approval is False
+    assert summary.is_balanced is False
+    assert "no_payable_expenses" in {issue.code for issue in summary.issues}

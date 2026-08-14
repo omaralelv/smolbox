@@ -62,9 +62,17 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     treasury_reviewed_at: datetime | None = None
     direction_reviewed_at: datetime | None = None
     direction_approved_at: datetime | None = None
+    sap_policy_generated_at: datetime | None = None
+    sap_policy_generated_by_user_id: UUID | None = None
+    sap_policy_reference: str | None = None
+    sap_policy_payload: dict | None = None
     approved_for_payment_at: datetime | None = None
     paid_at: datetime | None = None
     closed_at: datetime | None = None
+    correction_requested_at: datetime | None = None
+    correction_requested_by_user_id: UUID | None = None
+    correction_return_status: ReimbursementRequestStatus | None = None
+    correction_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -73,6 +81,31 @@ class ReimbursementRequestTransition(BaseModel):
     target_status: ReimbursementRequestStatus
     actor_user_id: UUID
     note: str | None = Field(default=None, max_length=1000)
+
+
+class AuthenticatedReimbursementRequestTransition(BaseModel):
+    target_status: ReimbursementRequestStatus
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class SapPolicyPrepare(BaseModel):
+    actor_user_id: UUID
+    reference: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AuthenticatedSapPolicyPrepare(BaseModel):
+    reference: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class SapPolicyRead(BaseModel):
+    request_id: UUID
+    status: str
+    reference: str
+    generated_at: datetime
+    generated_by_user_id: UUID
+    payload: dict
 
 
 class CategoryTotal(BaseModel):
@@ -95,6 +128,7 @@ class ReimbursementValidationSummary(BaseModel):
     expense_count: int
     category_totals: list[CategoryTotal]
     removed_expense_ids: list[UUID]
+    rejected_expense_ids: list[UUID]
     missing_authorization_expense_ids: list[UUID]
     missing_receipt_expense_ids: list[UUID]
     missing_cfdi_expense_ids: list[UUID]
@@ -106,3 +140,24 @@ class ReimbursementValidationSummary(BaseModel):
     ready_for_accounting_approval: bool
     is_balanced: bool
     issues: list[ReimbursementValidationIssue]
+
+
+class AutomatedReviewStep(BaseModel):
+    code: str
+    label: str
+    responsibility: str = "automatic"
+    status: str
+    message: str
+    blocking: bool = False
+    issue_codes: list[str] = Field(default_factory=list)
+    expense_ids: list[UUID] = Field(default_factory=list)
+    data: dict = Field(default_factory=dict)
+
+
+class AutomatedReviewRead(BaseModel):
+    request_id: UUID
+    overall_status: str
+    automatic_steps: list[AutomatedReviewStep]
+    human_steps: list[AutomatedReviewStep]
+    alerts: list[ReimbursementValidationIssue]
+    summary: ReimbursementValidationSummary

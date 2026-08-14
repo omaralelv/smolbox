@@ -2,6 +2,24 @@ from conftest import create_expense
 from fastapi.testclient import TestClient
 
 
+def _cfdi_xml(amount: str) -> bytes:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Fecha="2026-08-07T12:10:00"
+    Total="{amount}"
+    Moneda="MXN">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Proveedor Demo"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="Smolbox Demo"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="21111111-2222-4333-8444-555555555555"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
+""".encode()
+
+
 def test_can_patch_core_records(client: TestClient, base_records: dict[str, str]) -> None:
     store = client.patch(
         f"/api/v1/stores/{base_records['store_id']}",
@@ -59,13 +77,32 @@ def test_can_patch_core_records(client: TestClient, base_records: dict[str, str]
 
 
 def test_rejects_edit_after_submission(client: TestClient, base_records: dict[str, str]) -> None:
-    expense = create_expense(client, base_records, amount="1500.00")
+    expense_response = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Proveedor con Autorizacion",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "papeleria",
+            "requires_authorization": True,
+        },
+    )
+    assert expense_response.status_code == 201, expense_response.text
+    expense = expense_response.json()
     receipt = client.post(
         f"/api/v1/expenses/{expense['id']}/attachments",
         data={"attachment_type": "receipt"},
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense['id']}/cfdi/validate",
+        files={"file": ("invoice.xml", _cfdi_xml("1500.00"), "application/xml")},
+    )
+    assert cfdi.status_code == 200, cfdi.text
+    assert cfdi.json()["is_valid"] is True
 
     user = client.post(
         "/api/v1/users/",
@@ -76,6 +113,26 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
         },
     )
     assert user.status_code == 201, user.text
+    authorizer = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "autorizador.submit@example.com",
+            "full_name": "Autorizador Submit",
+            "role": "authorizer",
+        },
+    )
+    assert authorizer.status_code == 201, authorizer.text
+
+    assignment = client.post(
+        f"/api/v1/stores/{base_records['store_id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+    authorizer_assignment = client.post(
+        f"/api/v1/stores/{base_records['store_id']}/users",
+        json={"user_id": authorizer.json()["id"], "role": "authorizer"},
+    )
+    assert authorizer_assignment.status_code == 201, authorizer_assignment.text
 
     submitted = client.post(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
@@ -87,9 +144,73 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
     )
     assert submitted.status_code == 200, submitted.text
 
-    blocked = client.patch(
+    blocked_request = client.patch(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}",
         json={"notes": "Cambio tardio"},
     )
-    assert blocked.status_code == 409
-    assert blocked.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+    assert blocked_request.status_code == 409
+    assert blocked_request.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+
+    blocked_expense_edit = client.patch(
+        f"/api/v1/expenses/{expense['id']}",
+        json={"category": "cambio-tardio"},
+    )
+    assert blocked_expense_edit.status_code == 409
+    assert blocked_expense_edit.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+
+    blocked_expense_create = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Proveedor Tardio",
+            "amount": "10.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "tardio",
+        },
+    )
+    assert blocked_expense_create.status_code == 409
+    assert blocked_expense_create.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+
+    blocked_attachment = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("late-receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert blocked_attachment.status_code == 409
+    assert blocked_attachment.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+
+    blocked_cfdi = client.post(
+        f"/api/v1/expenses/{expense['id']}/cfdi/validate",
+        files={"file": ("late.xml", b"<xml />", "application/xml")},
+    )
+    assert blocked_cfdi.status_code == 409
+    assert blocked_cfdi.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+
+    authorization_review = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
+        json={
+            "target_status": "authorization_review",
+            "actor_user_id": authorizer.json()["id"],
+            "note": "Revisar",
+        },
+    )
+    assert authorization_review.status_code == 200, authorization_review.text
+
+    correction = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
+        json={
+            "target_status": "correction_required",
+            "actor_user_id": authorizer.json()["id"],
+            "note": "Regresar a corrección",
+        },
+    )
+    assert correction.status_code == 409
+    assert correction.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+
+    corrected_expense = client.patch(
+        f"/api/v1/expenses/{expense['id']}",
+        json={"category": "corregido"},
+    )
+    assert corrected_expense.status_code == 409
+    assert corrected_expense.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"

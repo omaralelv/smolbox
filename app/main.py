@@ -7,6 +7,7 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.session import create_database_schema
 from app.dev_hud.page import TEST_HUD_HTML
+from app.dev_hud.product_page import PRODUCT_VIEW_HTML
 
 settings = get_settings()
 
@@ -36,6 +37,7 @@ def root() -> dict[str, str]:
         "docs": "/docs",
         "health": f"{settings.api_v1_prefix}/health",
         "test_hud": "/test-hud",
+        "product_view": "/product-view",
     }
 
 
@@ -44,3 +46,10 @@ def test_hud() -> HTMLResponse:
     if settings.environment.lower() == "production":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     return HTMLResponse(TEST_HUD_HTML)
+
+
+@app.get("/product-view", response_class=HTMLResponse, include_in_schema=False)
+def product_view() -> HTMLResponse:
+    if settings.environment.lower() == "production":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return HTMLResponse(PRODUCT_VIEW_HTML)

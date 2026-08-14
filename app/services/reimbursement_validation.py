@@ -43,6 +43,7 @@ def summarize_reimbursement_request(
     missing_receipt_expense_ids: list[UUID] = []
     missing_authorization_expense_ids: list[UUID] = []
     removed_expense_ids: list[UUID] = []
+    rejected_expense_ids: list[UUID] = []
     missing_cfdi_expense_ids: list[UUID] = []
     out_of_period_expense_ids: list[UUID] = []
     duplicate_cfdi_uuids: list[str] = []
@@ -58,6 +59,9 @@ def summarize_reimbursement_request(
     for expense in request.expenses:
         if _is_removed(expense):
             removed_expense_ids.append(expense.id)
+            continue
+        if _is_rejected(expense):
+            rejected_expense_ids.append(expense.id)
             continue
 
         active_expenses.append(expense)
@@ -96,8 +100,23 @@ def summarize_reimbursement_request(
 
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
     difference = None if reported_total is None else _money(calculated_total - reported_total)
+    has_any_expenses = bool(request.expenses)
+    has_no_payable_expenses = len(active_expenses) == 0
 
     issues: list[ReimbursementValidationIssue] = []
+    if has_no_payable_expenses:
+        message = (
+            "All expenses were rejected or removed; the request has no payable amount."
+            if has_any_expenses
+            else "The cash box request does not include any expenses."
+        )
+        issues.append(
+            ReimbursementValidationIssue(
+                code="no_payable_expenses",
+                message=message,
+            )
+        )
+
     if reported_total is None:
         issues.append(
             ReimbursementValidationIssue(
@@ -164,7 +183,17 @@ def summarize_reimbursement_request(
         )
 
     has_error = any(issue.severity == "error" for issue in issues)
-    ready_for_submission = reported_total is not None and len(active_expenses) > 0 and not has_error
+    has_required_store_evidence = (
+        not missing_receipt_expense_ids
+        and not missing_cfdi_expense_ids
+        and not invalid_cfdi_expense_ids
+    )
+    ready_for_submission = (
+        reported_total is not None
+        and len(active_expenses) > 0
+        and has_required_store_evidence
+        and not has_error
+    )
     ready_for_authorization_approval = (
         ready_for_submission and not missing_authorization_expense_ids
     )
@@ -191,6 +220,7 @@ def summarize_reimbursement_request(
             for category, total in sorted(category_totals.items())
         ],
         removed_expense_ids=removed_expense_ids,
+        rejected_expense_ids=rejected_expense_ids,
         missing_authorization_expense_ids=missing_authorization_expense_ids,
         missing_receipt_expense_ids=missing_receipt_expense_ids,
         missing_cfdi_expense_ids=missing_cfdi_expense_ids,
@@ -227,6 +257,11 @@ def _is_removed(expense: ExpenseLike) -> bool:
         return True
     status = getattr(expense, "status", None)
     return getattr(status, "value", status) == "removed"
+
+
+def _is_rejected(expense: ExpenseLike) -> bool:
+    status = getattr(expense, "status", None)
+    return getattr(status, "value", status) == "rejected"
 
 
 def _requires_authorization(expense: ExpenseLike) -> bool:
