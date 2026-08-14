@@ -38,8 +38,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   contabilidad, gerente de contabilidad, tesoreria, direccion, pago y cierre.
 - Endpoint de transicion de estado con validacion de rol y reglas minimas de negocio.
 - Cola de trabajo `/work-queue/me` para que cada rol vea las solicitudes que le tocan.
-- Correcciones con regreso al punto que pidio la correccion, por ejemplo de tienda de vuelta
-  a contabilidad.
+- Correcciones de revisiones posteriores con regreso a contabilidad, sin mandar el flujo de
+  vuelta a tienda.
 - Acciones por gasto para autorizar, rechazar en autorizacion, observar, editar durante
   revision contable/gerencial y remover con motivo obligatorio sin borrar historial.
 - Registro formal de pago en tabla `payments` cuando tesoreria confirma el reembolso.
@@ -52,7 +52,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   alertas y datos base de poliza SAP sin aprobar decisiones humanas.
 - Descarga de adjuntos por ID y descarga protegida con token en `/download/me`.
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios; las solicitudes,
-  gastos, adjuntos y CFDI quedan bloqueados despues de enviar, salvo que regresen a correccion.
+  gastos, adjuntos y CFDI quedan bloqueados despues de enviar. Los ajustes posteriores se
+  controlan desde revision contable/gerencial con auditoria.
 - Importacion masiva de gastos desde CSV o XLSX con validacion previa.
 - HUD local de pruebas en `/test-hud` para sembrar datos demo y recorrer el flujo con una
   vista guiada por rol cercana al usuario final.

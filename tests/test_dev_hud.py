@@ -79,6 +79,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "HUD_SELECTED_EXPENSE_NOT_REMOVABLE" in TEST_HUD_HTML
     assert "productQueueActive" in TEST_HUD_HTML
     assert "hasPendingAuthorization" in TEST_HUD_HTML
+    assert "Regresar a contabilidad" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -573,7 +574,6 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
         "direction_approved",
         "approved_for_payment",
         "paid",
-        "correction_required",
         "rejected",
     }.issubset(statuses)
 

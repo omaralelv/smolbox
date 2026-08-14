@@ -175,6 +175,87 @@ def test_accountant_cannot_take_submitted_request_with_authorization_pending() -
     assert "needs authorization review" in str(exc_info.value)
 
 
+def test_authorizer_cannot_return_request_to_store_for_correction() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.authorization_review)
+    actor = User(
+        email="autorizador.correccion@example.com",
+        full_name="Autorizador Correccion",
+        role=UserRole.authorizer,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.correction_required,
+            summary=_summary(),
+        )
+
+    assert "Cannot move request" in str(exc_info.value)
+
+
+def test_accountant_cannot_return_request_to_store_for_correction() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.under_accounting_review)
+    actor = User(
+        email="contador.correccion@example.com",
+        full_name="Contador Correccion",
+        role=UserRole.accountant,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.correction_required,
+            summary=_summary(),
+        )
+
+    assert "Cannot move request" in str(exc_info.value)
+
+
+def test_manager_can_return_request_to_accounting_for_rework() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.accounting_manager_review)
+    actor = User(
+        email="gerente.retrabajo@example.com",
+        full_name="Gerente Retrabajo",
+        role=UserRole.accounting_manager,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.under_accounting_review,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.accounting_manager_review
+    assert to_status == ReimbursementRequestStatus.under_accounting_review
+    assert request.status == ReimbursementRequestStatus.under_accounting_review
+
+
+def test_accountant_cannot_pull_later_review_back_to_accounting() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.accounting_manager_review)
+    actor = User(
+        email="contador.retrabajo@example.com",
+        full_name="Contador Retrabajo",
+        role=UserRole.accountant,
+        is_active=True,
+    )
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.under_accounting_review,
+            summary=_summary(),
+        )
+
+    assert "cannot return request" in str(exc_info.value)
+
+
 def test_authorizer_can_reject_request_when_no_payable_expenses_remain() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.authorization_review)
     actor = User(

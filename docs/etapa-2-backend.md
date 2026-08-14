@@ -105,7 +105,8 @@ El cuerpo necesita:
 
 Reglas principales:
 
-- La tienda puede mover `draft` o `correction_required` a `submitted`.
+- La tienda puede mover `draft` a `submitted`; `correction_required` se conserva solo como
+  compatibilidad para datos locales anteriores.
 - Autorizacion mueve `submitted` a `authorization_review` solo cuando existen gastos pendientes
   con `requires_authorization=true`.
 - Autorizacion puede autorizar o rechazar gastos individuales y luego mover la solicitud a
@@ -115,10 +116,11 @@ Reglas principales:
   contabilidad y contabilidad puede mover `submitted` a `under_accounting_review`.
 - Contabilidad mueve `authorized` o `submitted` sin autorizaciones pendientes a
   `under_accounting_review`.
-- Contabilidad puede pedir correccion o mover a `accounting_reviewed`.
-- Si contabilidad, gerente, tesoreria o direccion piden correccion, la solicitud regresa a
-  `correction_required`. Cuando tienda corrige y reenvia, el backend recuerda el estado que
-  pidio la correccion y permite regresar directo a ese punto de revision.
+- Autorizacion y contabilidad no pueden regresar la solicitud a tienda para correccion.
+- Contabilidad puede observar, editar durante revision, quitar gastos con motivo o mover a
+  `accounting_reviewed`.
+- Si gerente, tesoreria o direccion necesitan ajuste, regresan la solicitud a
+  `under_accounting_review`; el ultimo responsable de la correccion operativa es contabilidad.
 - Despues de `accounting_reviewed`, contabilidad debe preparar la poliza SAP placeholder.
 - Gerente de contabilidad recibe la solicitud en `accounting_manager_review` solo si la
   poliza SAP placeholder ya fue preparada, y despues puede mover a
@@ -255,9 +257,11 @@ Authorization: Bearer <token>
 
 La respuesta devuelve solicitudes filtradas por rol y estado:
 
-- tienda ve borradores y solicitudes en correccion de sus tiendas asignadas;
+- tienda ve borradores y, por compatibilidad con datos viejos, solicitudes en correccion de sus
+  tiendas asignadas;
 - autorizacion ve solicitudes enviadas o en revision de autorizacion de sus tiendas;
-- contabilidad ve solicitudes autorizadas o en revision contable de sus tiendas;
+- contabilidad ve solicitudes enviadas sin autorizaciones pendientes, autorizadas o en revision
+  contable de sus tiendas;
 - gerente contable ve solicitudes revisadas por contabilidad o en revision gerencial;
 - tesoreria ve solicitudes aprobadas por gerente, en revision de tesoreria o listas para pago;
 - direccion ve solicitudes en revision de direccion;
@@ -391,7 +395,9 @@ Reglas:
 
 ## Edicion de datos
 
-La API permite corregir datos antes de enviar o cuando la solicitud esta en correccion:
+La API permite corregir datos antes de enviar. El estado `correction_required` queda como
+compatibilidad para datos locales anteriores, pero el flujo nuevo no lo usa para regresar a
+tienda:
 
 - `PATCH /api/v1/stores/{store_id}`
 - `PATCH /api/v1/periods/{period_id}`
@@ -401,9 +407,9 @@ La API permite corregir datos antes de enviar o cuando la solicitud esta en corr
 - `POST /api/v1/users/{user_id}/deactivate`
 
 Las solicitudes, gastos, importaciones, adjuntos y validaciones CFDI se bloquean despues de
-`submitted` para evitar cambios silenciosos mientras contabilidad o tesoreria revisan. Si hay
-que cambiar comprobantes, montos o CFDI, el revisor debe mandar la solicitud a
-`correction_required`.
+`submitted` para evitar cambios silenciosos mientras contabilidad o tesoreria revisan. Si una
+revision posterior necesita ajuste, gerente, tesoreria o direccion regresan la solicitud a
+`under_accounting_review` para que contabilidad haga el ultimo ajuste auditado.
 
 Las acciones especiales de revision siguen controladas por rol: contabilidad y gerente pueden
 observar, editar durante revision y quitar gastos con motivo sin borrar el historial.
@@ -474,7 +480,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - sembrar un demo masivo con varias solicitudes en distintos estados para probar bandejas;
 - intentar transiciones de estado;
 - ver que contabilidad queda bloqueada si faltan CFDI vigentes;
-- completar CFDI sinteticos de prueba solo en borrador o correccion;
+- completar CFDI sinteticos de prueba solo antes de enviar;
 - probar importacion CSV con `dry_run` o guardado real;
 - recorrer la seccion `Flujo usuario final`, agrupada por tienda, sistema, autorizacion,
   contabilidad, gerente, tesoreria y direccion;

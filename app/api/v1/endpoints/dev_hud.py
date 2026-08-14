@@ -56,7 +56,6 @@ BULK_DEMO_PROFILES = [
     {"name": "direction_approved", "status": ReimbursementRequestStatus.direction_approved},
     {"name": "approved_for_payment", "status": ReimbursementRequestStatus.approved_for_payment},
     {"name": "paid", "status": ReimbursementRequestStatus.paid},
-    {"name": "correction_required", "status": ReimbursementRequestStatus.correction_required},
     {"name": "rejected_no_payable", "status": ReimbursementRequestStatus.rejected},
 ]
 
@@ -631,6 +630,12 @@ def transition_dev_hud_request(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "INVALID_WORKFLOW_TRANSITION", "message": str(exc)},
         ) from exc
+
+    if _is_accounting_rework_return(from_status, to_status):
+        request.correction_requested_at = datetime.now(UTC)
+        request.correction_requested_by_user_id = actor.id
+        request.correction_return_status = ReimbursementRequestStatus.under_accounting_review
+        request.correction_reason = f"HUD returned from {from_status.value} to accounting."
 
     db.add(
         AuditLog(
@@ -1681,6 +1686,11 @@ def _actor_for_transition(
 ) -> User:
     if target_status == ReimbursementRequestStatus.submitted:
         role = UserRole.store
+    elif (
+        target_status == ReimbursementRequestStatus.under_accounting_review
+        and _is_accounting_rework_status(current_status)
+    ):
+        role = _review_role_for_status(current_status)
     elif target_status in {
         ReimbursementRequestStatus.authorization_review,
         ReimbursementRequestStatus.authorized,
@@ -1708,6 +1718,24 @@ def _actor_for_transition(
         role = UserRole.treasury
 
     return _hud_actor(db, role)
+
+
+def _is_accounting_rework_status(status_value: ReimbursementRequestStatus) -> bool:
+    return status_value in {
+        ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_review,
+    }
+
+
+def _is_accounting_rework_return(
+    from_status: ReimbursementRequestStatus,
+    to_status: ReimbursementRequestStatus,
+) -> bool:
+    return (
+        _is_accounting_rework_status(from_status)
+        and to_status == ReimbursementRequestStatus.under_accounting_review
+    )
 
 
 def _hud_actor(db: Session, role: UserRole) -> User:

@@ -980,7 +980,6 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="task">Revisa factura, CFDI, formato, observaciones y prepara póliza SAP.</div>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="transition:under_accounting_review">Tomar revisión</button>
-                <button class="btn warning user-flow-btn" data-action="transition:correction_required">Pedir corrección</button>
                 <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:accounting_reviewed">Cerrar revisión</button>
                 <button class="btn success user-flow-btn" data-action="prepare-sap-policy">Preparar póliza SAP</button>
@@ -994,6 +993,7 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="task">Recibe solicitud revisada y aprueba antes de tesorería.</div>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="transition:accounting_manager_review">Recibir solicitud</button>
+                <button class="btn warning user-flow-btn" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
                 <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:accounting_manager_approved">Aprobar gerente</button>
               </div>
@@ -1006,6 +1006,7 @@ TEST_HUD_HTML = """<!doctype html>
               <div class="task">Revisa pago, envía a dirección, confirma pago y cierra solicitud.</div>
               <div class="actions">
                 <button class="btn user-flow-btn" data-action="transition:treasury_review">Revisar pago</button>
+                <button class="btn warning user-flow-btn" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
                 <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn user-flow-btn" data-action="transition:direction_review">Enviar a dirección</button>
                 <button class="btn success user-flow-btn" data-action="transition:approved_for_payment">Liberar pago</button>
@@ -1020,6 +1021,7 @@ TEST_HUD_HTML = """<!doctype html>
               </div>
               <div class="task">Aprueba que tesorería realice el pago.</div>
               <div class="actions">
+                <button class="btn warning user-flow-btn" data-action="transition:under_accounting_review">Regresar a contabilidad</button>
                 <button class="btn danger user-flow-btn" data-action="transition:rejected">Rechazar solicitud sin monto</button>
                 <button class="btn success user-flow-btn" data-action="transition:direction_approved">Aprobar dirección</button>
               </div>
@@ -1111,7 +1113,6 @@ TEST_HUD_HTML = """<!doctype html>
             <button class="btn warning" id="rejectAuthorizationExpenseBtn">Rechazar producto</button>
             <button class="btn success flow-btn" data-target="authorized">Autorizar solicitud</button>
             <button class="btn flow-btn" data-target="under_accounting_review">Revisión contable</button>
-            <button class="btn warning flow-btn" data-target="correction_required">Pedir corrección</button>
             <button class="btn danger flow-btn" data-target="rejected">Rechazar solicitud sin monto</button>
             <button class="btn success flow-btn" data-target="accounting_reviewed">Cerrar contabilidad</button>
             <button class="btn success" id="prepareSapPolicyBtn">Preparar póliza SAP</button>
@@ -1422,20 +1423,6 @@ TEST_HUD_HTML = """<!doctype html>
         requiresNoAuthorizationPending: true
       },
       {
-        id: "transition:correction_required",
-        label: "Pedir corrección",
-        roles: ["authorizer"],
-        statuses: ["authorization_review"],
-        style: "warning"
-      },
-      {
-        id: "transition:correction_required",
-        label: "Pedir corrección",
-        roles: ["accountant"],
-        statuses: ["under_accounting_review"],
-        style: "warning"
-      },
-      {
         id: "remove-expense",
         label: "Quitar gasto",
         roles: ["accountant"],
@@ -1464,8 +1451,8 @@ TEST_HUD_HTML = """<!doctype html>
         requiresSap: true
       },
       {
-        id: "transition:correction_required",
-        label: "Pedir corrección",
+        id: "transition:under_accounting_review",
+        label: "Regresar a contabilidad",
         roles: ["accounting_manager"],
         statuses: ["accounting_manager_review"],
         style: "warning"
@@ -1491,8 +1478,8 @@ TEST_HUD_HTML = """<!doctype html>
         statuses: ["accounting_manager_approved"]
       },
       {
-        id: "transition:correction_required",
-        label: "Pedir corrección",
+        id: "transition:under_accounting_review",
+        label: "Regresar a contabilidad",
         roles: ["treasury"],
         statuses: ["treasury_review"],
         style: "warning"
@@ -1504,8 +1491,8 @@ TEST_HUD_HTML = """<!doctype html>
         statuses: ["treasury_review"]
       },
       {
-        id: "transition:correction_required",
-        label: "Pedir corrección",
+        id: "transition:under_accounting_review",
+        label: "Regresar a contabilidad",
         roles: ["director"],
         statuses: ["direction_review"],
         style: "warning"
@@ -1817,9 +1804,9 @@ TEST_HUD_HTML = """<!doctype html>
       if (!hasScenario) return false;
       if (actionId === "complete-cfdi") return isEditableScenarioStatus();
       if (actionId === "record-payment") return state?.scenario?.status === "approved_for_payment";
-      const action = roleActions.find((item) => item.id === actionId);
-      if (!action) return true;
-      return isRoleActionAvailableFor(role, action);
+      const actions = roleActions.filter((item) => item.id === actionId);
+      if (!actions.length) return true;
+      return actions.some((action) => isRoleActionAvailableFor(role, action));
     }
 
     function isRoleActionAvailableFor(role, action) {

@@ -16,6 +16,18 @@ class TransitionRule:
     allowed_roles: set[UserRole]
 
 
+ACCOUNTING_INTAKE_STATUSES = {
+    ReimbursementRequestStatus.submitted,
+    ReimbursementRequestStatus.authorized,
+}
+
+ACCOUNTING_REWORK_STATUSES = {
+    ReimbursementRequestStatus.accounting_manager_review,
+    ReimbursementRequestStatus.treasury_review,
+    ReimbursementRequestStatus.direction_review,
+}
+
+
 ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
     ReimbursementRequestStatus.submitted: TransitionRule(
         allowed_from={
@@ -34,27 +46,20 @@ ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
     ),
     ReimbursementRequestStatus.under_accounting_review: TransitionRule(
         allowed_from={
-            ReimbursementRequestStatus.submitted,
-            ReimbursementRequestStatus.authorized,
-        },
-        allowed_roles={UserRole.accountant, UserRole.admin},
-    ),
-    ReimbursementRequestStatus.correction_required: TransitionRule(
-        allowed_from={
-            ReimbursementRequestStatus.authorization_review,
-            ReimbursementRequestStatus.under_accounting_review,
-            ReimbursementRequestStatus.accounting_manager_review,
-            ReimbursementRequestStatus.treasury_review,
-            ReimbursementRequestStatus.direction_review,
+            *ACCOUNTING_INTAKE_STATUSES,
+            *ACCOUNTING_REWORK_STATUSES,
         },
         allowed_roles={
-            UserRole.authorizer,
             UserRole.accountant,
             UserRole.accounting_manager,
             UserRole.treasury,
             UserRole.director,
             UserRole.admin,
         },
+    ),
+    ReimbursementRequestStatus.correction_required: TransitionRule(
+        allowed_from=set(),
+        allowed_roles={UserRole.admin},
     ),
     ReimbursementRequestStatus.accounting_reviewed: TransitionRule(
         allowed_from={ReimbursementRequestStatus.under_accounting_review},
@@ -150,6 +155,9 @@ def transition_reimbursement_request(
         raise WorkflowTransitionError(
             f"Role {actor.role.value} cannot move request to {target_status.value}"
         )
+
+    if target_status == ReimbursementRequestStatus.under_accounting_review:
+        _ensure_accounting_review_actor(current_status, actor)
 
     if target_status in {
         ReimbursementRequestStatus.correction_required,
@@ -269,6 +277,27 @@ def _review_roles_for_status(status: ReimbursementRequestStatus) -> set[UserRole
     if status == ReimbursementRequestStatus.direction_review:
         return {UserRole.director}
     return set()
+
+
+def _ensure_accounting_review_actor(
+    current_status: ReimbursementRequestStatus,
+    actor: User,
+) -> None:
+    if current_status in ACCOUNTING_INTAKE_STATUSES:
+        if actor.role not in {UserRole.accountant, UserRole.admin}:
+            raise WorkflowTransitionError(
+                f"Role {actor.role.value} cannot move request to "
+                f"{ReimbursementRequestStatus.under_accounting_review.value}"
+            )
+        return
+
+    if current_status in ACCOUNTING_REWORK_STATUSES:
+        current_review_roles = _review_roles_for_status(current_status)
+        if actor.role not in current_review_roles and actor.role != UserRole.admin:
+            raise WorkflowTransitionError(
+                f"Role {actor.role.value} cannot return request from "
+                f"{current_status.value} to accounting review"
+            )
 
 
 def _has_no_payable_expenses(summary: ReimbursementValidationSummary) -> bool:

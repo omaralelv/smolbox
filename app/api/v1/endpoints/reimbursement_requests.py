@@ -48,7 +48,11 @@ from app.services.storage import (
     UploadTooLarge,
     read_upload_limited,
 )
-from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
+from app.services.workflow import (
+    ACCOUNTING_REWORK_STATUSES,
+    WorkflowTransitionError,
+    transition_reimbursement_request,
+)
 
 router = APIRouter()
 
@@ -873,6 +877,11 @@ def _transition_request_with_actor(
         reimbursement_request.correction_requested_by_user_id = actor.id
         reimbursement_request.correction_return_status = from_status
         reimbursement_request.correction_reason = note
+    elif _is_accounting_rework_return(from_status, to_status):
+        reimbursement_request.correction_requested_at = datetime.now(UTC)
+        reimbursement_request.correction_requested_by_user_id = actor.id
+        reimbursement_request.correction_return_status = ReimbursementRequestStatus.under_accounting_review
+        reimbursement_request.correction_reason = note
 
     db.add(
         AuditLog(
@@ -894,6 +903,16 @@ def _transition_request_with_actor(
     db.commit()
     db.refresh(reimbursement_request)
     return reimbursement_request
+
+
+def _is_accounting_rework_return(
+    from_status: ReimbursementRequestStatus,
+    to_status: ReimbursementRequestStatus,
+) -> bool:
+    return (
+        from_status in ACCOUNTING_REWORK_STATUSES
+        and to_status == ReimbursementRequestStatus.under_accounting_review
+    )
 
 
 def _prepare_sap_policy_with_actor(

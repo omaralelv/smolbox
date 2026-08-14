@@ -181,11 +181,12 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
             "note": "Regresar a corrección",
         },
     )
-    assert correction.status_code == 200, correction.text
+    assert correction.status_code == 409
+    assert correction.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
 
     corrected_expense = client.patch(
         f"/api/v1/expenses/{expense['id']}",
         json={"category": "corregido"},
     )
-    assert corrected_expense.status_code == 200, corrected_expense.text
-    assert corrected_expense.json()["category"] == "corregido"
+    assert corrected_expense.status_code == 409
+    assert corrected_expense.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"

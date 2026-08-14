@@ -50,6 +50,24 @@ def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+def _cfdi_xml(amount: str, uuid: str = "11111111-2222-4333-8444-555555555555") -> bytes:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Fecha="2026-08-07T12:10:00"
+    Total="{amount}"
+    Moneda="MXN">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Proveedor Demo"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="Smolbox Demo"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="{uuid}"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
+""".encode()
+
+
 def test_request_moves_through_submission_and_accounting_review(
     client: TestClient,
     base_records: dict[str, str],
@@ -860,7 +878,7 @@ def test_work_queue_routes_authorization_required_submitted_requests_to_authoriz
     assert accountant_queue.json() == []
 
 
-def test_correction_returns_to_requesting_review_status(
+def test_later_review_returns_correction_to_accounting(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
@@ -871,11 +889,24 @@ def test_correction_returns_to_requesting_review_status(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense['id']}/cfdi/validate",
+        files={"file": ("invoice.xml", _cfdi_xml("1500.00"), "application/xml")},
+    )
+    assert cfdi.status_code == 200, cfdi.text
+    assert cfdi.json()["is_valid"] is True
 
     store_user_id = _create_user(client, "store")
     accountant_user_id = _create_user(client, "accountant")
+    manager_user_id = _create_user(client, "accounting_manager")
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
     _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        manager_user_id,
+        "accounting_manager",
+    )
 
     assert _transition(
         client,
@@ -889,31 +920,61 @@ def test_correction_returns_to_requesting_review_status(
         target_status="under_accounting_review",
         actor_user_id=accountant_user_id,
     ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_reviewed",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
 
-    correction = client.post(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
-        headers=_auth_headers(client, "accountant@example.com"),
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare",
         json={
-            "target_status": "correction_required",
-            "note": "Falta aclarar factura.",
+            "actor_user_id": accountant_user_id,
+            "reference": "SAP-REWORK-001",
+            "note": "Preparado antes de gerente.",
         },
     )
-    assert correction.status_code == 200, correction.text
-    assert correction.json()["status"] == "correction_required"
-    assert correction.json()["correction_return_status"] == "under_accounting_review"
-    assert correction.json()["correction_reason"] == "Falta aclarar factura."
+    assert sap_policy.status_code == 200, sap_policy.text
 
-    resubmitted = client.post(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
-        headers=_auth_headers(client, "store@example.com"),
-        json={"target_status": "submitted", "note": "Tienda corrigio factura."},
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_review",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+
+    blocked_store_correction = _transition(
+        client,
+        base_records["request_id"],
+        target_status="correction_required",
+        actor_user_id=manager_user_id,
     )
-    assert resubmitted.status_code == 200, resubmitted.text
+    assert blocked_store_correction.status_code == 409
 
     returned = client.post(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
-        headers=_auth_headers(client, "accountant@example.com"),
-        json={"target_status": "under_accounting_review", "note": "Regresa a contabilidad."},
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
+        json={
+            "target_status": "under_accounting_review",
+            "actor_user_id": manager_user_id,
+            "note": "Gerente pide ajuste a contabilidad.",
+        },
     )
     assert returned.status_code == 200, returned.text
     assert returned.json()["status"] == "under_accounting_review"
+    assert returned.json()["correction_return_status"] == "under_accounting_review"
+    assert returned.json()["correction_reason"] == "Gerente pide ajuste a contabilidad."
+
+    store_queue = client.get(
+        "/api/v1/work-queue/me",
+        headers=_auth_headers(client, "store@example.com"),
+    )
+    assert store_queue.status_code == 200, store_queue.text
+    assert store_queue.json() == []
+
+    accountant_queue = client.get(
+        "/api/v1/work-queue/me",
+        headers=_auth_headers(client, "accountant@example.com"),
+    )
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    assert [item["id"] for item in accountant_queue.json()] == [base_records["request_id"]]
