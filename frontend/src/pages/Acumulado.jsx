@@ -1,0 +1,455 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+
+function Acumulado( {currentRole} ) {
+
+    const navigate = useNavigate();
+    const location = useLocation();
+
+
+    // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
+    const solicitudSeleccionada = location.state?.solicitud;
+
+    // Si no viene ninguna desde la bandeja (p. ej. recargaron la página), usamos datos base
+    const datosSolicitud = {
+        folio: solicitudSeleccionada?.id || "Solicitud T-001",
+        fecha: solicitudSeleccionada?.fecha || "13/08/2026",
+        tienda: solicitudSeleccionada?.tienda || "T-001",
+        gerente: solicitudSeleccionada?.gerente || "Karen Ponce Hernández",
+        cuentaBancaria: solicitudSeleccionada?.cuentaBancaria || "101328508"
+    };
+
+    // 2. RECUPERAR LOS GASTOS DE ESTA SOLICITUD
+    // Si la solicitud trae gastos cargados los usa; si no, muestra el desglose por defecto
+    const gastosBrutos = solicitudSeleccionada?.gastos?.length > 0 
+        ? solicitudSeleccionada.gastos.map((g, index) => ({
+            id: index + 1,
+            tipo: g.tipo || g.type || 'Gasto General',
+            facturas: g.facturas || 1,
+            monto: parseFloat(g.monto) || 0,
+            folio: g.folio || 'N/A'
+            }))
+        : [
+            { id: 1, tipo: 'Servicio de Agua Municipio', facturas: 0, monto: 0.00 },
+            { id: 2, tipo: 'Papelería', facturas: 1, monto: 56.00 },
+            { id: 3, tipo: 'Alimentos', facturas: 0, monto: 0.00 },
+            { id: 4, tipo: 'Bolsas', facturas: 0, monto: 0.00 },
+            { id: 5, tipo: 'Sistemas', facturas: 2, monto: 268.01 },
+            { id: 6, tipo: 'Equipo Menor', facturas: 0, monto: 0.00 },
+            { id: 7, tipo: 'Artículos de Limpieza', facturas: 0, monto: 0.00 },
+        ];
+
+
+    // AGRUPACIÓN DINÁMICA CON REDUCE
+    const resumenGastos = Object.values(
+        gastosBrutos.reduce((acc, gastoActual) => {
+            const categoria = gastoActual.tipo || gastoActual.type || 'Gasto General';
+            const numFacturas = parseInt(gastoActual.facturas || 1, 10);
+            const montoGasto = parseFloat(gastoActual.monto || 0);
+
+            if (!acc[categoria]) {
+                acc[categoria] = {
+                    id: categoria,
+                    tipo: categoria,
+                    facturas: 0,
+                    monto: 0,
+                    elementosOriginales: [] // Guardamos el desglose individual para cuando den clic en "Ver detalle"
+                };
+            }
+
+            acc[categoria].facturas += numFacturas;
+            acc[categoria].monto += montoGasto;
+            acc[categoria].elementosOriginales.push(gastoActual);
+
+            return acc;
+        }, {})
+    );
+
+
+
+    // CÁLCULO DINÁMICO DE TOTALES
+    const totalFacturas = resumenGastos.reduce((acc, curr) => acc + curr.facturas, 0);
+    const totalMonto = resumenGastos.reduce((acc, curr) => acc + curr.monto, 0).toFixed(2);
+
+
+
+    // 1. OBTENER EL ROL ACTUAL (por defecto 'admin' si no está definido)
+    const [rolActual, setRolActual] = useState(() => {
+        return currentRole || 'admin';
+    });
+
+    // Si la prop 'currentRole' cambia desde App.jsx / TabsNav, actualizamos el estado
+
+
+    // Escuchar si el rol cambia desde otra pestaña o evento
+    useEffect(() => {
+        const handleStorageChange = () => {
+            const rolGuardado = currentRole || 'admin';
+            setRolEstado(rolGuardado);
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, []);
+
+    // Función para cambiar el estatus en localStorage y regresar a la Bandeja
+    function manejarCambioEstatus(nuevoEstatus) {
+        const idActual = solicitudSeleccionada?.id || datosSolicitud.folio;
+        const solicitudesGuardadas = JSON.parse(localStorage.getItem('bandejaSolicitudes') || '[]');
+
+        const solicitudesActualizadas = solicitudesGuardadas.map((sol) => {
+            if (sol.id === idActual || sol.folio === idActual) {
+                return { ...sol, status: nuevoEstatus };
+            }
+            return sol;
+        });
+
+        localStorage.setItem('bandejaSolicitudes', JSON.stringify(solicitudesActualizadas));
+        alert(`La solicitud cambió su estatus a: ${nuevoEstatus}`);
+        navigate('/bandeja');
+    }
+
+    // 3. MATRIZ DE CONFIGURACIÓN DE BOTONES POR ROL
+    const renderBotonesPorRol = () => {
+
+        switch (currentRole){
+            case 'tienda':
+                // Sin botones en el pie de página
+                return null;
+
+            case 'supervisor':
+                return null;
+
+            case 'contabilidad':
+                return (
+                    <>
+                        <button style={styles.btnOutline}>Póliza y Reembolso</button>
+                        <button style={styles.btnOutline}>Cargar Reembolso</button>
+                        <button style={styles.btnFilledCoral}>Enviar a Juanita</button>
+                    </>
+                );
+
+            case 'gerencia':
+                return (
+                    <>
+                        <button style={styles.btnOutline}>Regresar Acumulado</button>
+                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button style={styles.btnFilledCoral}>Enviar a Samuel</button>
+                    </>
+                );
+
+            case 'tesoreria':
+                return (
+                    <>
+                        <button style={styles.btnOutline}>Regresar acumulado</button>
+                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button style={styles.btnFilledCoral}>Enviar a Dirección</button>
+                        <button 
+                            style={styles.btnGreen}
+                            onClick={() => manejarCambioEstatus('Pagada')}
+                        >
+                            Confirmar pago
+                        </button>
+                    </>
+                );
+
+            case 'direccion':
+                return (
+                    <>
+                        <button style={styles.btnOutline}>Regresar Acumulado</button>
+                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button
+                            style={styles.btnBlue}
+                            onClick={() => manejarCambioEstatus('Aprobada')}
+                        >
+                            Aprobar pago
+                        </button>
+                    </>
+                );
+
+            case 'admin':
+            default:
+                // Muestra todos los botones de la suite
+                return (
+                    <>
+                        <button style={styles.btnOutline}>Póliza y Reembolso</button>
+                        <button style={styles.btnOutline}>Cargar Reembolso</button>
+                        <button style={styles.btnFilledCoral}>Enviar a Juanita</button>
+                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button style={styles.btnFilledCoral}>Enviar Dirección</button>
+
+                        <button
+                            style={styles.btnBlue}
+                            onClick={() => manejarCambioEstatus('Aprobada')}
+                        >
+                            Aprobar pago
+                        </button>
+
+                        <button 
+                            style={styles.btnGreen}
+                            onClick={() => manejarCambioEstatus('Pagada')}
+                        >
+                            Confirmar pago
+                        </button>
+                    </>
+                );
+        }
+    
+
+    
+};
+
+
+    const botonesGuardados = renderBotonesPorRol();
+
+    console.log("PROP currentRole RECIBIDA EN ACUMULADO:", currentRole);
+    console.log("BOTONES GENERADOS:", renderBotonesPorRol());
+
+
+
+    return (
+        <div style={styles.container}>
+            {/* CABECERA DE LA SOLICITUD */}
+            <div style={styles.headerRow}>
+                <h2 style={styles.title}> Solicitud {datosSolicitud.folio}</h2>
+                <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
+                    Regresar
+                </button>
+            </div>
+
+            {/* CAMPOS SUPERIORES DE DATOS */}
+            <div style={styles.gridAuto}>
+                <div style={styles.inputGroup}>
+                    <label style={styles.label}>Fecha</label>
+                    <div style={styles.disabledInput}>{datosSolicitud.fecha}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                    <label style={styles.label}>Tienda</label>
+                    <div style={styles.disabledInput}>{datosSolicitud.tienda}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                    <label style={styles.label}>Gerente</label>
+                    <div style={styles.disabledInput}>{datosSolicitud.gerente}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                    <label style={styles.label}>Cuenta bancaria</label>
+                    <div style={styles.disabledInput}>{datosSolicitud.cuentaBancaria}</div>
+                </div>
+            </div>
+
+            {/* TABLA DE RESUMEN DE GASTOS */}
+            <div style={styles.tableContainer}>
+                <div style={styles.tableHeader}>
+                    <span style={{ flex: 2, textAlign: 'left', paddingLeft: '20px' }}>TIPO DE GASTO</span>
+                    <span style={{ flex: 1, textAlign: 'center' }}># FACTURAS</span>
+                    <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
+                    <span style={{ width: '120px' }}></span>
+                </div>
+
+                {resumenGastos.map((item) => (
+                    <div key={item.id} style={styles.tableRow}>
+                        <span style={{ flex: 2, textAlign: 'left', paddingLeft: '20px' }}>{item.tipo}</span>
+                        <span style={{ flex: 1, textAlign: 'center' }}>{item.facturas}</span>
+                        <span style={{ flex: 1, textAlign: 'center' }}>{item.monto.toFixed(2)}</span>
+                        <span style={styles.verDetalleLink}
+                            onClick={() => {
+                                navigate('/detalle', { 
+                                    state: { 
+                                        categoria: item.tipo, 
+                                        solicitudFolio: datosSolicitud.folio,
+                                        desglose: item.elementosOriginales || []
+                                    } 
+                                });
+                            }}
+                        > Ver detalle</span>
+                    </div>
+                ))}
+            </div>
+
+            {/* FILA DE TOTALES */}
+            <div style={styles.totalRow}>
+                <span style={{ flex: 2, textAlign: 'left', paddingLeft: '20px', fontWeight: 'bold' }}>TOTAL</span>
+                <span style={{ flex: 1, textAlign: 'center', fontWeight: 'bold' }}>{totalFacturas}</span>
+                <span style={{ flex: 1, textAlign: 'center', fontWeight: 'bold' }}>{totalMonto}</span>
+                <span style={{ width: '120px' }}></span>
+            </div>
+
+            {/* PIE DE PÁGINA FIJO DE ACCIONES DINÁMICAS */}
+
+            {botonesGuardados && (
+                <div style={styles.fixedStickyFooter}>
+                    <div style={styles.footerActionContainer}>
+                        {botonesGuardados}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// 🎨 ESTILOS INTEGRADOS Y FIJO EN INFERIOR
+const styles = {
+    container: {
+        maxWidth: '1000px',
+        margin: '0 auto',
+        padding: '20px',
+        paddingBottom: '120px',
+        textAlign: 'left',
+    },
+    headerRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '20px',
+    },
+    title: {
+        margin: 0,
+        fontSize: '22px',
+        color: '#333',
+    },
+    regresarBtn: {
+        backgroundColor: 'transparent',
+        border: '1px solid var(--sb-btnBorder)',
+        color: 'var(--text-WBtn)',
+        borderRadius: '20px',
+        padding: '6px 20px',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow)',
+        cursor: 'pointer',
+    },
+    gridAuto: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '20px',
+        marginBottom: '30px',
+    },
+    inputGroup: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '5px',
+    },
+    label: {
+        fontSize: '13px',
+        fontWeight: 'bold',
+        textAlign: 'center',
+        padding: '6px 0px',
+        color: '#333',
+    },
+    disabledInput: {
+        backgroundColor: '#ffffff',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '7px',
+        padding: '8px 12px',
+        fontSize: '14px',
+        textAlign: 'center',
+        color: '#444',
+    },
+    tableContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        marginBottom: '15px',
+    },
+    tableHeader: {
+        display: 'flex',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        color: '#000',
+        padding: '0 10px',
+    },
+    tableRow: {
+        display: 'flex',
+        alignItems: 'center',
+        backgroundColor: '#ffffff',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '7px',
+        padding: '8px 10px',
+        fontSize: '13px',
+        color: '#444',
+    },
+    verDetalleLink: {
+        width: '120px',
+        textAlign: 'center',
+        color: 'var(--text-WBtn)',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontSize: '13px',
+    },
+    totalRow: {
+        display: 'flex',
+        alignItems: 'center',
+        padding: '10px',
+        fontSize: '15px',
+        color: '#000',
+        marginBottom: '20px',
+    },
+    fixedStickyFooter: {
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        width: '100%',
+        backgroundColor: '#fffcfc',
+        boxShadow: '0 -4px 10px rgba(0, 0, 0, 0.04)',
+        padding: '18px 20px',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+        borderTop: '1px solid #ffe3e3',
+    },
+    footerActionContainer: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '15px',
+        justifyContent: 'center',
+        alignItems: 'center',
+        maxWidth: '1100px',
+    },
+    // Estilos para los tipos de botones
+    btnOutline: {
+        backgroundColor: '#ffffff',
+        border: '1px solid var(--sb-btnBorder)',
+        color: 'var(--text-WBtn)',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: '600',
+        cursor: 'pointer',
+    },
+    btnFilledCoral: {
+        backgroundColor: 'var(--sb-sendBtnBg)',
+        border: 'none',
+        color: '#ffffff',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow)',
+        cursor: 'pointer',
+    },
+    btnBlue: {
+        backgroundColor: 'var(--sb-aprobadaBg)',
+        border: '1px solid var(--text-aprobada)',
+        color: 'var(--text-aprobada)',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow-blue)',
+        cursor: 'pointer',
+    },
+    btnGreen: {
+        backgroundColor: 'var(--sb-pagadaBg)',
+        border: '1px solid var(--text-pagada)',
+        color: '#2e7d1f',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow-green)',
+        cursor: 'pointer',
+    }
+};
+
+export default Acumulado;
