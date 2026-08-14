@@ -71,6 +71,30 @@ def test_store_user_can_submit_ready_request() -> None:
     assert request.submitted_at is not None
 
 
+def test_store_user_cannot_submit_without_cfdi_or_receipt() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
+    actor = User(
+        email="tienda.sin.evidencia@example.com",
+        full_name="Tienda Sin Evidencia",
+        role=UserRole.store,
+        is_active=True,
+    )
+    summary = _summary(ready_for_submission=False)
+    summary.missing_receipt_expense_ids = [uuid4()]
+    summary.missing_cfdi_expense_ids = [uuid4()]
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.submitted,
+            summary=summary,
+        )
+
+    assert "receipt and valid CFDI evidence" in str(exc_info.value)
+    assert request.status == ReimbursementRequestStatus.draft
+
+
 def test_accounting_approval_requires_accounting_ready_request() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.under_accounting_review)
     actor = User(

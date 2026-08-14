@@ -183,7 +183,17 @@ def summarize_reimbursement_request(
         )
 
     has_error = any(issue.severity == "error" for issue in issues)
-    ready_for_submission = reported_total is not None and len(active_expenses) > 0 and not has_error
+    has_required_store_evidence = (
+        not missing_receipt_expense_ids
+        and not missing_cfdi_expense_ids
+        and not invalid_cfdi_expense_ids
+    )
+    ready_for_submission = (
+        reported_total is not None
+        and len(active_expenses) > 0
+        and has_required_store_evidence
+        and not has_error
+    )
     ready_for_authorization_approval = (
         ready_for_submission and not missing_authorization_expense_ids
     )

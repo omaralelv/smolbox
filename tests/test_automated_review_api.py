@@ -25,7 +25,8 @@ def test_automated_review_returns_machine_and_human_steps(
 
     automatic_steps = {step["code"]: step for step in body["automatic_steps"]}
     assert automatic_steps["receipt_check"]["status"] == "passed"
-    assert automatic_steps["cfdi_validation"]["status"] == "attention"
+    assert automatic_steps["cfdi_validation"]["status"] == "blocked"
+    assert automatic_steps["cfdi_validation"]["blocking"] is True
     assert automatic_steps["total_balance"]["status"] == "passed"
     assert automatic_steps["period_check"]["status"] == "passed"
     assert automatic_steps["ocr_extraction"]["status"] == "not_configured"

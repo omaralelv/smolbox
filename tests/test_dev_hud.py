@@ -82,6 +82,7 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "productQueueActive" in TEST_HUD_HTML
     assert "hasPendingAuthorization" in TEST_HUD_HTML
     assert "Regresar a contabilidad" in TEST_HUD_HTML
+    assert "requiresSubmissionReady" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -94,7 +95,7 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     scenario = seeded.json()["scenario"]
     assert scenario["exists"] is True
     assert scenario["status"] == "draft"
-    assert scenario["summary"]["ready_for_submission"] is True
+    assert scenario["summary"]["ready_for_submission"] is False
     assert scenario["summary"]["ready_for_authorization_approval"] is False
     assert scenario["summary"]["ready_for_accounting_approval"] is False
     assert len(scenario["expenses"]) == 2
@@ -109,6 +110,11 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
         step["code"] == "ocr_extraction"
         for step in automated_review.json()["review"]["automatic_steps"]
     )
+
+    blocked_submit = client.post("/api/v1/dev-hud/transition/submitted")
+    assert blocked_submit.status_code == 409
+    assert blocked_submit.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+    assert "receipt and valid CFDI evidence" in blocked_submit.json()["detail"]["message"]
 
     completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
     assert completed_cfdi.status_code == 200, completed_cfdi.text
@@ -261,6 +267,8 @@ def test_dev_hud_can_reject_one_authorization_expense(client: TestClient) -> Non
     seeded = client.post("/api/v1/dev-hud/seed-demo")
     assert seeded.status_code == 201, seeded.text
 
+    completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
+    assert completed_cfdi.status_code == 200, completed_cfdi.text
     submitted = client.post("/api/v1/dev-hud/transition/submitted")
     assert submitted.status_code == 200, submitted.text
     authorization_review = client.post("/api/v1/dev-hud/transition/authorization_review")
@@ -361,6 +369,8 @@ def test_dev_hud_routes_no_authorization_scenario_directly_to_accounting(
     assert seeded.status_code == 201, seeded.text
     assert seeded.json()["scenario"]["summary"]["missing_authorization_expense_ids"] == []
 
+    completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
+    assert completed_cfdi.status_code == 200, completed_cfdi.text
     submitted = client.post("/api/v1/dev-hud/transition/submitted")
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()["to_status"] == "submitted"
@@ -536,6 +546,8 @@ def test_dev_hud_can_target_multiple_scenarios_by_request_id(client: TestClient)
     assert selected_first.status_code == 200, selected_first.text
     assert selected_first.json()["scenario"]["store_code"] == "HUD-MULTI-1"
 
+    completed_cfdi = client.post(f"/api/v1/dev-hud/complete-cfdi?request_id={first_id}")
+    assert completed_cfdi.status_code == 200, completed_cfdi.text
     moved_first = client.post(f"/api/v1/dev-hud/transition/submitted?request_id={first_id}")
     assert moved_first.status_code == 200, moved_first.text
     assert moved_first.json()["scenario"]["store_code"] == "HUD-MULTI-1"

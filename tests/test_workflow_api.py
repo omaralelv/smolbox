@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from conftest import create_expense
 from fastapi.testclient import TestClient
 
@@ -68,6 +70,57 @@ def _cfdi_xml(amount: str, uuid: str = "11111111-2222-4333-8444-555555555555") -
 """.encode()
 
 
+def _attach_valid_cfdi(client: TestClient, expense_id: str, amount: str) -> None:
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense_id}/cfdi/validate",
+        files={
+            "file": (
+                "invoice.xml",
+                _cfdi_xml(amount, uuid=str(uuid4())),
+                "application/xml",
+            )
+        },
+    )
+    assert cfdi.status_code == 200, cfdi.text
+    assert cfdi.json()["is_valid"] is True
+
+
+def test_store_submission_requires_receipt_and_cfdi(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    receipt = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert receipt.status_code == 201, receipt.text
+
+    store_user_id = _create_user(client, "store")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+
+    blocked = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+    assert "receipt and valid CFDI evidence" in blocked.json()["detail"]["message"]
+
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["status"] == "submitted"
+
+
 def test_request_moves_through_submission_and_accounting_review(
     client: TestClient,
     base_records: dict[str, str],
@@ -79,6 +132,7 @@ def test_request_moves_through_submission_and_accounting_review(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -117,14 +171,14 @@ def test_request_moves_through_submission_and_accounting_review(
     assert review.status_code == 200, review.text
     assert review.json()["status"] == "under_accounting_review"
 
-    premature_approval = _transition(
+    accounting_reviewed = _transition(
         client,
         base_records["request_id"],
         target_status="accounting_reviewed",
         actor_user_id=accountant_user_id,
     )
-    assert premature_approval.status_code == 409
-    assert premature_approval.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+    assert accounting_reviewed.status_code == 200, accounting_reviewed.text
+    assert accounting_reviewed.json()["status"] == "accounting_reviewed"
 
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
@@ -158,6 +212,7 @@ def test_required_expense_authorization_blocks_request(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense.json()["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -231,6 +286,8 @@ def test_authorization_rejects_only_the_expense_and_request_can_continue(
             files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
         )
         assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, approved_expense["id"], "1000.00")
+    _attach_valid_cfdi(client, authorization_expense.json()["id"], "500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -326,6 +383,7 @@ def test_authorization_can_reject_request_when_all_expenses_are_rejected(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense.json()["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -411,6 +469,8 @@ def test_accounting_can_remove_expense_with_reason(
             files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
         )
         assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, first_expense["id"], "1000.00")
+    _attach_valid_cfdi(client, second_expense["id"], "500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -514,6 +574,7 @@ def test_authorizer_can_remove_required_expense_and_close_no_payable_request(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense.json()["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -591,6 +652,8 @@ def test_authorizer_cannot_remove_regular_expense_during_authorization_review(
             files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
         )
         assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense["id"], "1000.00")
+    _attach_valid_cfdi(client, authorization_expense.json()["id"], "500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -645,6 +708,7 @@ def test_authenticated_transition_uses_token_user_and_blocks_wrong_role(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense.json()["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -716,6 +780,7 @@ def test_authenticated_actions_require_store_assignment_and_role(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense.json()["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     assigned_authorizer_id = _create_user(client, "authorizer")
@@ -789,6 +854,7 @@ def test_work_queue_filters_by_role_status_and_store_assignment(
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")
@@ -847,6 +913,7 @@ def test_work_queue_routes_authorization_required_submitted_requests_to_authoriz
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    _attach_valid_cfdi(client, expense.json()["id"], "1500.00")
 
     store_user_id = _create_user(client, "store")
     authorizer_user_id = _create_user(client, "authorizer")

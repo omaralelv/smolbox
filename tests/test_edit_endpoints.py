@@ -2,6 +2,24 @@ from conftest import create_expense
 from fastapi.testclient import TestClient
 
 
+def _cfdi_xml(amount: str) -> bytes:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Fecha="2026-08-07T12:10:00"
+    Total="{amount}"
+    Moneda="MXN">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Proveedor Demo"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="Smolbox Demo"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="21111111-2222-4333-8444-555555555555"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
+""".encode()
+
+
 def test_can_patch_core_records(client: TestClient, base_records: dict[str, str]) -> None:
     store = client.patch(
         f"/api/v1/stores/{base_records['store_id']}",
@@ -79,6 +97,12 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
         files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
     )
     assert receipt.status_code == 201, receipt.text
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense['id']}/cfdi/validate",
+        files={"file": ("invoice.xml", _cfdi_xml("1500.00"), "application/xml")},
+    )
+    assert cfdi.status_code == 200, cfdi.text
+    assert cfdi.json()["is_valid"] is True
 
     user = client.post(
         "/api/v1/users/",

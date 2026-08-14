@@ -176,8 +176,18 @@ def transition_reimbursement_request(
             "Requests can be rejected only when no payable expenses remain"
         )
 
-    if target_status == ReimbursementRequestStatus.submitted and not summary.ready_for_submission:
-        raise WorkflowTransitionError("Request is not ready to be submitted")
+    if target_status == ReimbursementRequestStatus.submitted:
+        if (
+            summary.missing_receipt_expense_ids
+            or summary.missing_cfdi_expense_ids
+            or summary.invalid_cfdi_expense_ids
+            or summary.duplicate_cfdi_uuids
+        ):
+            raise WorkflowTransitionError(
+                "Request needs receipt and valid CFDI evidence for every active expense before submission"
+            )
+        if not summary.ready_for_submission:
+            raise WorkflowTransitionError("Request is not ready to be submitted")
 
     if (
         target_status == ReimbursementRequestStatus.authorized

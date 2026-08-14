@@ -173,6 +173,8 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 9. Crear usuarios internos en `POST /api/v1/users`.
 10. Asignar usuarios a tienda con `POST /api/v1/stores/{store_id}/users`.
 11. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
+    La tienda solo puede enviar cuando cada gasto activo tenga comprobante/ticket y CFDI
+    vigente validado.
 12. Rechazar un gasto/producto individual de autorizacion, si no procede, con
    `POST /api/v1/expenses/{expense_id}/reject`.
 13. Preparar la poliza SAP placeholder con
@@ -218,7 +220,8 @@ prepara poliza SAP y no puede llegar a pago; el rol revisor activo debe cerrarla
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
 `Crear escenario` para una sola solicitud o `Crear demo masivo` para poblar varias bandejas.
-Luego prueba `Completar CFDI`, `Enviar tienda`, `Revision autorizacion`,
+Si intentas `Enviar tienda` antes de `Completar CFDI`, el backend bloquea el avance. Luego
+prueba `Completar CFDI`, `Enviar tienda`, `Revision autorizacion`,
 `Autorizar gastos` o `Rechazar producto`, `Autorizar solicitud`, `Revision contable`,
 `Cerrar contabilidad`, `Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`,
 `Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`, `Aprobar pago`,

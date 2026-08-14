@@ -1372,6 +1372,7 @@ TEST_HUD_HTML = """<!doctype html>
         label: "Enviar solicitud",
         roles: ["store"],
         statuses: ["draft", "correction_required"],
+        requiresSubmissionReady: true,
         style: "primary"
       },
       {
@@ -1818,6 +1819,8 @@ TEST_HUD_HTML = """<!doctype html>
       const roleAllowed = role === "admin" || action.roles.includes(role);
       const statusAllowed = action.statuses === null || action.statuses.includes(status);
       const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
+      const submissionReady =
+        !action.requiresSubmissionReady || Boolean(state?.scenario?.summary?.ready_for_submission);
       const receiptReady = !action.requiresReceipt || hasReceiptAttachment();
       const noPayableReady = !action.requiresNoPayable || state?.scenario?.summary?.expense_count === 0;
       const authorizationExpenseReady =
@@ -1830,6 +1833,7 @@ TEST_HUD_HTML = """<!doctype html>
         roleAllowed &&
         statusAllowed &&
         sapReady &&
+        submissionReady &&
         receiptReady &&
         noPayableReady &&
         authorizationExpenseReady &&

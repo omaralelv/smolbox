@@ -76,8 +76,9 @@ def _cfdi_step(summary: ReimbursementValidationSummary) -> AutomatedReviewStep:
         return _step(
             "cfdi_validation",
             "Validar CFDI",
-            "attention",
-            "Falta CFDI XML en uno o mas gastos.",
+            "blocked",
+            "Falta CFDI XML vigente en uno o mas gastos.",
+            blocking=True,
             issue_codes=["missing_cfdi_xml"],
             expense_ids=summary.missing_cfdi_expense_ids,
         )

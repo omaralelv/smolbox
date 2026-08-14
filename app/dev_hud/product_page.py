@@ -506,6 +506,7 @@ PRODUCT_VIEW_HTML = """<!doctype html>
         label: "Enviar solicitud",
         roles: ["store"],
         statuses: ["draft", "correction_required"],
+        requiresSubmissionReady: true,
         style: "primary"
       },
       {
@@ -1092,6 +1093,8 @@ PRODUCT_VIEW_HTML = """<!doctype html>
       const roleAllowed = action.roles.includes(roleId);
       const statusAllowed = action.statuses === null || action.statuses.includes(state?.scenario?.status);
       const sapReady = !action.requiresSap || Boolean(state?.scenario?.sap_policy?.is_prepared);
+      const submissionReady =
+        !action.requiresSubmissionReady || Boolean(state?.scenario?.summary?.ready_for_submission);
       const noPayableReady = !action.requiresNoPayable || hasNoPayableExpenses();
       const authorizationReady = !action.requiresAuthorizationPending || hasAuthorizationPending();
       const noAuthorizationReady = !action.requiresNoAuthorizationPending || !hasAuthorizationPending();
@@ -1102,6 +1105,7 @@ PRODUCT_VIEW_HTML = """<!doctype html>
         roleAllowed &&
         statusAllowed &&
         sapReady &&
+        submissionReady &&
         noPayableReady &&
         authorizationReady &&
         noAuthorizationReady &&

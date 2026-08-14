@@ -139,12 +139,14 @@ Para enviar una solicitud, el resumen debe estar listo para envio:
 - total reportado presente;
 - al menos un gasto;
 - suma de gastos igual al total reportado;
-- comprobantes obligatorios presentes;
+- comprobante/ticket presente en cada gasto activo;
+- XML CFDI vigente y valido en cada gasto activo;
 - gastos dentro del periodo.
 
-Para aprobacion contable, ademas se requiere que no falten XML CFDI y que no existan errores
-de CFDI persistidos. Si se edita monto, moneda o RFC de proveedor despues de validar un CFDI,
-la validacion CFDI se marca como no vigente y debe repetirse.
+Si falta ticket, falta CFDI o el CFDI vigente es invalido, la transicion de tienda a
+`submitted` responde `409 INVALID_WORKFLOW_TRANSITION` y la solicitud permanece en tienda.
+Si se edita monto, moneda o RFC de proveedor despues de validar un CFDI, la validacion CFDI
+se marca como no vigente y debe repetirse antes de enviar.
 
 Para autorizacion, los gastos con `requires_authorization=true` deben estar autorizados o
 rechazados. Los gastos rechazados quedan fuera del total activo de reembolso, conservan
@@ -479,7 +481,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 - sembrar un escenario demo con tienda, periodo, usuarios, solicitud, gastos y tickets;
 - sembrar un demo masivo con varias solicitudes en distintos estados para probar bandejas;
 - intentar transiciones de estado;
-- ver que contabilidad queda bloqueada si faltan CFDI vigentes;
+- ver que tienda queda bloqueada si faltan tickets o CFDI vigentes;
 - completar CFDI sinteticos de prueba solo antes de enviar;
 - probar importacion CSV con `dry_run` o guardado real;
 - recorrer la seccion `Flujo usuario final`, agrupada por tienda, sistema, autorizacion,

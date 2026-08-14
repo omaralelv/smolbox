@@ -22,6 +22,7 @@ def test_product_view_html_uses_local_api_and_user_flow() -> None:
     assert "selectedExpenseId" in PRODUCT_VIEW_HTML
     assert "executeProductAction" in PRODUCT_VIEW_HTML
     assert "transition:under_accounting_review" in PRODUCT_VIEW_HTML
+    assert "requiresSubmissionReady" in PRODUCT_VIEW_HTML
     assert "seedBulkDemo" in PRODUCT_VIEW_HTML
 
 
