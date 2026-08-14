@@ -503,6 +503,18 @@ TEST_HUD_HTML = """<!doctype html>
 	      justify-content: flex-end;
 	    }
 
+	    .expense-action-list {
+	      display: flex;
+	      flex-wrap: wrap;
+	      gap: 6px;
+	    }
+
+	    .expense-action-list .btn {
+	      min-height: 30px;
+	      padding: 5px 8px;
+	      font-size: 12px;
+	    }
+
 	    .user-flow {
 	      display: grid;
 	      gap: 0;
@@ -776,11 +788,12 @@ TEST_HUD_HTML = """<!doctype html>
               <h2>1. Escenario HUD</h2>
               <p class="subtle">Datos aislados con prefijo HUD.</p>
             </div>
-            <div class="toolbar">
-              <button class="btn" id="refreshBtn">Actualizar</button>
-              <button class="btn primary" id="seedBtn">Crear escenario</button>
-              <button class="btn danger" id="resetBtn">Limpiar HUD</button>
-            </div>
+	            <div class="toolbar">
+	              <button class="btn" id="refreshBtn">Actualizar</button>
+	              <button class="btn primary" id="seedBtn">Crear escenario</button>
+	              <button class="btn success" id="seedBulkBtn">Crear demo masivo</button>
+	              <button class="btn danger" id="resetBtn">Limpiar HUD</button>
+	            </div>
           </div>
           <h3>Personalizar escenario</h3>
           <div class="form-grid">
@@ -1901,7 +1914,7 @@ TEST_HUD_HTML = """<!doctype html>
 	                  <h3>Gastos</h3>
 	                  <span class="subtle">${scenario.expenses?.length || 0} registro(s)</span>
 	                </div>
-	                ${productExpensesTable(scenario.expenses || [])}
+		                ${productExpensesTable(scenario.expenses || [], config.id)}
 	              </section>
 	            </div>
 
@@ -1982,7 +1995,7 @@ TEST_HUD_HTML = """<!doctype html>
 	      `;
 	    }
 
-	    function productExpensesTable(expenses) {
+	    function productExpensesTable(expenses, role) {
 	      if (!expenses.length) {
 	        return "<p class='subtle'>Sin gastos.</p>";
 	      }
@@ -1996,6 +2009,7 @@ TEST_HUD_HTML = """<!doctype html>
 	              <th>Ticket</th>
 	              <th>CFDI</th>
 	              <th>Estado</th>
+		              <th>Acciones</th>
 	            </tr>
 	          </thead>
 	          <tbody>
@@ -2007,10 +2021,55 @@ TEST_HUD_HTML = """<!doctype html>
 	                <td>${badge(expense.has_receipt)}</td>
 	                <td>${badge(expense.has_current_valid_cfdi)}</td>
 	                <td>${expenseStatusBadge(expense)}</td>
+		                <td>${productExpenseActions(expense, role)}</td>
 	              </tr>
 	            `).join("")}
 	          </tbody>
 	        </table>
+	      `;
+	    }
+
+	    function productExpenseActions(expense, role) {
+	      const actions = [];
+	      if (
+	        role === "authorizer" &&
+	        state?.scenario?.status === "authorization_review" &&
+	        expense.requires_authorization &&
+	        !expense.is_authorized &&
+	        !expense.is_rejected &&
+	        !expense.is_removed
+	      ) {
+	        actions.push(expenseActionButton(role, "authorize", expense.id, "Autorizar", "success"));
+	        actions.push(expenseActionButton(role, "reject", expense.id, "Rechazar", "warning"));
+	      }
+	      if (
+	        ["accountant", "accounting_manager"].includes(role) &&
+	        ["under_accounting_review", "accounting_manager_review"].includes(state?.scenario?.status) &&
+	        !expense.is_removed &&
+	        !expense.is_rejected
+	      ) {
+	        actions.push(expenseActionButton(role, "remove", expense.id, "Quitar", "warning"));
+	        actions.push(expenseActionButton(role, "observe", expense.id, "Observar", ""));
+	      }
+	      if (expense.receipt_attachment_id && role !== "system") {
+	        actions.push(expenseActionButton(role, "download-receipt", expense.id, "Recibo", ""));
+	      }
+	      if (!actions.length) {
+	        return "<span class='subtle'>-</span>";
+	      }
+	      return `<div class="expense-action-list">${actions.join("")}</div>`;
+	    }
+
+	    function expenseActionButton(role, actionId, expenseId, label, style) {
+	      return `
+	        <button
+	          class="btn ${escapeHtml(style)} expense-action-btn"
+	          data-product-role="${escapeHtml(role)}"
+	          data-expense-action="${escapeHtml(actionId)}"
+	          data-expense-id="${escapeHtml(expenseId)}"
+	        >
+	          ${escapeHtml(label)}
+	        </button>
 	      `;
 	    }
 
@@ -2323,12 +2382,23 @@ TEST_HUD_HTML = """<!doctype html>
 	      };
 	    }
 
-	    async function seedScenario() {
-	      const payload = await jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload());
-	      activeRequestId = payload.scenario?.request_id || activeRequestId;
-	      persistActiveRequestId();
-	      return payload;
-	    }
+		    async function seedScenario() {
+		      const payload = await jsonRequest("/dev-hud/seed-demo", scenarioSeedPayload());
+		      activeRequestId = payload.scenario?.request_id || activeRequestId;
+		      persistActiveRequestId();
+		      return payload;
+		    }
+
+		    async function seedBulkScenario() {
+		      const payload = await jsonRequest("/dev-hud/seed-bulk-demo", {
+		        reset_existing: true,
+		        request_count: 24,
+		        store_count: 8
+		      });
+		      activeRequestId = payload.scenario?.request_id || activeRequestId;
+		      persistActiveRequestId();
+		      return payload;
+		    }
 
 	    async function resetHudData() {
 	      const payload = await request("/dev-hud/reset-demo", { method: "POST" });
@@ -2422,15 +2492,31 @@ TEST_HUD_HTML = """<!doctype html>
       return expense;
     }
 
-    function firstReceiptAttachmentId() {
-      const expense = (state?.scenario?.expenses || []).find((item) =>
-        item.receipt_attachment_id && !item.is_removed && !item.is_rejected
-      );
+	    function firstReceiptAttachmentId() {
+	      const expense = (state?.scenario?.expenses || []).find((item) =>
+	        item.receipt_attachment_id && !item.is_removed && !item.is_rejected
+	      );
       if (!expense) {
         throw { status: 409, payload: { message: "No hay recibo descargable." } };
       }
-      return expense.receipt_attachment_id;
-    }
+	      return expense.receipt_attachment_id;
+	    }
+
+	    function expenseById(expenseId) {
+	      const expense = (state?.scenario?.expenses || []).find((item) => item.id === expenseId);
+	      if (!expense) {
+	        throw {
+	          status: 404,
+	          payload: {
+	            detail: {
+	              code: "HUD_EXPENSE_NOT_FOUND",
+	              message: "No se encontro el gasto seleccionado."
+	            }
+	          }
+	        };
+	      }
+	      return expense;
+	    }
 
     function businessRulePayload(ruleCode) {
       const description = $(`[data-rule-description="${ruleCode}"]`).value.trim();
@@ -2489,11 +2575,30 @@ TEST_HUD_HTML = """<!doctype html>
       });
     }
 
-    async function downloadReceiptWithToken() {
-      const attachmentId = firstReceiptAttachmentId();
-      const response = await fetch(`${api}/attachments/${attachmentId}/download/me`, {
-        headers: authHeaders()
-      });
+	    async function downloadReceiptWithToken() {
+	      return downloadAttachmentWithToken(firstReceiptAttachmentId());
+	    }
+
+	    async function downloadReceiptByExpenseWithToken(expenseId) {
+	      const expense = expenseById(expenseId);
+	      if (!expense.receipt_attachment_id) {
+	        throw {
+	          status: 409,
+	          payload: {
+	            detail: {
+	              code: "HUD_RECEIPT_NOT_FOUND",
+	              message: "El gasto seleccionado no tiene recibo."
+	            }
+	          }
+	        };
+	      }
+	      return downloadAttachmentWithToken(expense.receipt_attachment_id);
+	    }
+
+	    async function downloadAttachmentWithToken(attachmentId) {
+	      const response = await fetch(`${api}/attachments/${attachmentId}/download/me`, {
+	        headers: authHeaders()
+	      });
       if (!response.ok) {
         const text = await response.text();
         let payload = text;
@@ -2508,12 +2613,12 @@ TEST_HUD_HTML = """<!doctype html>
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 30000);
-      return {
-        attachment_id: attachmentId,
-        content_type: blob.type,
-        size_bytes: blob.size
-      };
-    }
+	      return {
+	        attachment_id: attachmentId,
+	        content_type: blob.type,
+	        size_bytes: blob.size
+	      };
+	    }
 
     async function viewWorkQueueWithToken() {
       return request("/work-queue/me", { headers: authHeaders() });
@@ -2575,16 +2680,43 @@ TEST_HUD_HTML = """<!doctype html>
 	      return handler();
 	    }
 
-	    async function executeProductAction(role, actionId) {
-	      if (["seed-scenario", "complete-cfdi", "automated-review"].includes(actionId)) {
-	        return executeUserFlowAction(actionId);
-	      }
-	      await loginProductRole(role);
-	      return executeAuthAction(actionId);
-	    }
+		    async function executeProductAction(role, actionId) {
+		      if (["seed-scenario", "complete-cfdi", "automated-review"].includes(actionId)) {
+		        return executeUserFlowAction(actionId);
+		      }
+		      await loginProductRole(role);
+		      return executeAuthAction(actionId);
+		    }
 
-	    $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
-	    $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", seedScenario));
+		    async function executeExpenseAction(role, actionId, expenseId) {
+		      await loginProductRole(role);
+		      const actions = {
+		        authorize: () => jsonAuthRequest(`/expenses/${expenseId}/authorize/me`, {
+		          note: "Autorizado por fila desde HUD."
+		        }),
+		        reject: () => jsonAuthRequest(`/expenses/${expenseId}/reject/me`, {
+		          reason: "Rechazado por fila desde HUD.",
+		          adjust_reported_total: true
+		        }),
+		        remove: () => jsonAuthRequest(`/expenses/${expenseId}/remove/me`, {
+		          reason: "Gasto quitado por fila desde HUD.",
+		          adjust_reported_total: true
+		        }),
+		        observe: () => jsonAuthRequest(`/expenses/${expenseId}/observation/me`, {
+		          note: "Observacion registrada por fila desde HUD."
+		        }),
+		        "download-receipt": () => downloadReceiptByExpenseWithToken(expenseId)
+		      };
+		      const handler = actions[actionId];
+		      if (!handler) {
+		        throw { status: 400, payload: { message: `Acción de gasto no soportada: ${actionId}` } };
+		      }
+		      return handler();
+		    }
+
+		    $("#refreshBtn").addEventListener("click", () => runAction("Estado actualizado", loadStatus));
+		    $("#seedBtn").addEventListener("click", () => runAction("Escenario creado", seedScenario));
+		    $("#seedBulkBtn").addEventListener("click", () => runAction("Demo masivo creado", seedBulkScenario));
     $("#createStoreBtn").addEventListener("click", () => runAction("Tienda creada", () =>
       jsonRequest("/dev-hud/stores", {
         code: $("#storeCode").value,
@@ -2665,10 +2797,21 @@ TEST_HUD_HTML = """<!doctype html>
 	      renderProductPreview();
 	      applyButtonState();
 	    });
-	    $("#productPreview").addEventListener("click", (event) => {
-	      const button = event.target.closest(".product-action-btn");
-	      if (!button) return;
-	      runAction(button.textContent.trim(), () =>
+		    $("#productPreview").addEventListener("click", (event) => {
+		      const expenseButton = event.target.closest(".expense-action-btn");
+		      if (expenseButton) {
+		        runAction(expenseButton.textContent.trim(), () =>
+		          executeExpenseAction(
+		            expenseButton.dataset.productRole,
+		            expenseButton.dataset.expenseAction,
+		            expenseButton.dataset.expenseId
+		          )
+		        );
+		        return;
+		      }
+		      const button = event.target.closest(".product-action-btn");
+		      if (!button) return;
+		      runAction(button.textContent.trim(), () =>
 	        executeProductAction(button.dataset.productRole, button.dataset.productAction)
 	      );
 	    });

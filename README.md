@@ -58,6 +58,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   vista guiada por rol cercana al usuario final.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
   y agregar gastos de prueba.
+- Demo masivo del HUD para crear varias solicitudes en diferentes estados del flujo y probar
+  bandejas de trabajo por rol sin datos reales.
 - Panel de sesion en el HUD para iniciar como tienda, autorizacion, contabilidad, gerente,
   tesoreria, direccion o admin, y probar rutas autenticadas con token.
 - Seccion de reglas de negocio en el HUD para revisar y editar configuracion tecnica
@@ -198,7 +200,8 @@ restantes si el total queda cuadrado. Los gastos que tienen `requires_authorizat
 deben autorizarse o rechazarse antes de mover la solicitud a `authorized`.
 
 Tambien puedes probar ese recorrido desde `http://localhost:8000/test-hud`. Primero usa
-`Crear escenario`, luego `Completar CFDI`, `Enviar tienda`, `Revision autorizacion`,
+`Crear escenario` para una sola solicitud o `Crear demo masivo` para poblar varias bandejas.
+Luego prueba `Completar CFDI`, `Enviar tienda`, `Revision autorizacion`,
 `Autorizar gastos` o `Rechazar producto`, `Autorizar solicitud`, `Revision contable`,
 `Cerrar contabilidad`, `Preparar poliza SAP`, `Enviar gerente`, `Aprobar gerente`,
 `Revision tesoreria`, `Enviar direccion`, `Aprobar direccion`, `Aprobar pago`,

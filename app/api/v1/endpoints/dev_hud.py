@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -18,6 +18,7 @@ from app.models.audit_log import AuditActorType, AuditLog
 from app.models.business_rule import BusinessRule
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense, ExpenseStatus
+from app.models.payment import Payment, PaymentStatus
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.store import Store, StoreUserAssignment
@@ -39,6 +40,24 @@ HUD_EMAIL_DOMAIN = "hud.smolbox.example.com"
 HUD_DEMO_PASSWORD = "hud-password"
 
 DEMO_RECEIPT_BYTES = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n"
+
+BULK_DEMO_PROFILES = [
+    {"name": "draft_missing_evidence", "status": ReimbursementRequestStatus.draft},
+    {"name": "draft_ready", "status": ReimbursementRequestStatus.draft},
+    {"name": "submitted", "status": ReimbursementRequestStatus.submitted},
+    {"name": "authorization_review", "status": ReimbursementRequestStatus.authorization_review},
+    {"name": "authorized", "status": ReimbursementRequestStatus.authorized},
+    {"name": "under_accounting_review", "status": ReimbursementRequestStatus.under_accounting_review},
+    {"name": "accounting_reviewed", "status": ReimbursementRequestStatus.accounting_reviewed},
+    {"name": "accounting_manager_review", "status": ReimbursementRequestStatus.accounting_manager_review},
+    {"name": "accounting_manager_approved", "status": ReimbursementRequestStatus.accounting_manager_approved},
+    {"name": "treasury_review", "status": ReimbursementRequestStatus.treasury_review},
+    {"name": "direction_review", "status": ReimbursementRequestStatus.direction_review},
+    {"name": "direction_approved", "status": ReimbursementRequestStatus.direction_approved},
+    {"name": "approved_for_payment", "status": ReimbursementRequestStatus.approved_for_payment},
+    {"name": "paid", "status": ReimbursementRequestStatus.paid},
+    {"name": "correction_required", "status": ReimbursementRequestStatus.correction_required},
+]
 
 DEMO_USERS = {
     UserRole.store: ("hud.store@hud.smolbox.example.com", "HUD Usuario Tienda"),
@@ -193,6 +212,12 @@ class HudScenarioCreate(BaseModel):
         return self
 
 
+class HudBulkDemoCreate(BaseModel):
+    reset_existing: bool = True
+    request_count: int = Field(default=24, ge=1, le=80)
+    store_count: int = Field(default=8, ge=1, le=30)
+
+
 @router.get("/status")
 def get_dev_hud_status(
     db: Annotated[Session, Depends(get_db)],
@@ -237,6 +262,42 @@ def get_dev_hud_status(
         "scenarios": _scenario_list_payload(db),
         "workspace": _workspace_payload(db),
         "business_rules": _business_rules_payload(db),
+    }
+
+
+@router.post("/seed-bulk-demo", status_code=status.HTTP_201_CREATED)
+def seed_dev_hud_bulk_demo(
+    bulk_in: HudBulkDemoCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    _ensure_dev_hud_enabled(settings)
+
+    storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
+    if bulk_in.reset_existing:
+        _delete_demo_dataset(db, storage)
+        db.flush()
+
+    created_request_ids: list[UUID] = []
+    for index in range(bulk_in.request_count):
+        scenario = _bulk_scenario(index, bulk_in.store_count)
+        request = _ensure_demo_dataset(db, storage, scenario)
+        _apply_bulk_demo_profile(db, storage, settings, request, index)
+        created_request_ids.append(request.id)
+
+    db.commit()
+    active_request_id = created_request_ids[0] if created_request_ids else None
+    scenarios = _scenario_list_payload(db)
+    status_counts: dict[str, int] = {}
+    for scenario in scenarios:
+        status_counts[scenario["status"]] = status_counts.get(scenario["status"], 0) + 1
+
+    return {
+        "message": "HUD bulk demo data is ready",
+        "created": len(created_request_ids),
+        "status_counts": status_counts,
+        "scenario": _scenario_payload(db, active_request_id),
+        "scenarios": scenarios,
     }
 
 
@@ -798,6 +859,244 @@ def _ensure_dev_hud_enabled(settings: Settings) -> None:
 
 def _count(db: Session, model: type) -> int:
     return db.scalar(select(func.count()).select_from(model)) or 0
+
+
+def _bulk_scenario(index: int, store_count: int) -> HudScenarioCreate:
+    store_number = (index % store_count) + 1
+    period_index = index // store_count
+    starts_on, ends_on = _bulk_period_dates(period_index)
+    profile = BULK_DEMO_PROFILES[index % len(BULK_DEMO_PROFILES)]
+    missing_evidence = profile["name"] == "draft_missing_evidence"
+    amounts = [
+        Decimal("420.00") + Decimal(index * 3),
+        Decimal("180.50") + Decimal(store_number),
+        Decimal("95.25") + Decimal(period_index),
+    ]
+    reported_total = sum(amounts, Decimal("0.00"))
+    if missing_evidence:
+        reported_total += Decimal("17.00")
+
+    return HudScenarioCreate(
+        reset_existing=False,
+        store_code=f"HUD-BULK-{store_number:03d}",
+        store_name=f"HUD Sucursal Demo {store_number:03d}",
+        contact_email=f"hud.bulk.{store_number:03d}@{HUD_EMAIL_DOMAIN}",
+        assigned_accountant="HUD Usuario Contador",
+        period_name=f"HUD Bulk {starts_on.strftime('%Y-%m')}",
+        starts_on=starts_on,
+        ends_on=ends_on,
+        reported_total=reported_total.quantize(Decimal("0.01")),
+        previous_reimbursement_starts_on=starts_on - timedelta(days=31),
+        previous_reimbursement_ends_on=starts_on - timedelta(days=1),
+        previous_reimbursement_amount=(reported_total - Decimal("35.00")).quantize(Decimal("0.01")),
+        notes=f"Escenario masivo HUD: {profile['name']}.",
+        expenses=[
+            HudScenarioExpenseCreate(
+                merchant=f"HUD Papeleria Demo {index + 1}",
+                amount=amounts[0],
+                spent_on=starts_on + timedelta(days=4),
+                category="papeleria",
+                description="Material operativo demo.",
+                supplier_tax_id="XAXX010101000",
+                create_receipt=not missing_evidence,
+            ),
+            HudScenarioExpenseCreate(
+                merchant=f"HUD Taxi Autorizacion {index + 1}",
+                amount=amounts[1],
+                spent_on=starts_on + timedelta(days=9),
+                category="transporte",
+                description="Traslado que requiere autorizacion demo.",
+                supplier_tax_id="XEXX010101000",
+                requires_authorization=True,
+                create_receipt=True,
+            ),
+            HudScenarioExpenseCreate(
+                merchant=f"HUD Cafeteria Demo {index + 1}",
+                amount=amounts[2],
+                spent_on=starts_on + timedelta(days=14),
+                category="alimentos",
+                description="Consumo operativo demo.",
+                supplier_tax_id="XAXX010101000",
+                create_receipt=True,
+            ),
+        ],
+    )
+
+
+def _bulk_period_dates(period_index: int) -> tuple[date, date]:
+    month_number = 8 + period_index
+    year = 2026 + ((month_number - 1) // 12)
+    month = ((month_number - 1) % 12) + 1
+    starts_on = date(year, month, 1)
+    next_month_year = year + (1 if month == 12 else 0)
+    next_month = 1 if month == 12 else month + 1
+    ends_on = date(next_month_year, next_month, 1) - timedelta(days=1)
+    return starts_on, ends_on
+
+
+def _apply_bulk_demo_profile(
+    db: Session,
+    storage: StorageService,
+    settings: Settings,
+    request: ReimbursementRequest,
+    index: int,
+) -> None:
+    profile = BULK_DEMO_PROFILES[index % len(BULK_DEMO_PROFILES)]
+    target_status = profile["status"]
+    complete_evidence = profile["name"] != "draft_missing_evidence"
+    if complete_evidence:
+        for expense in request.expenses:
+            _ensure_demo_receipt(db, storage, expense)
+            _ensure_demo_cfdi(db, storage, expense, settings)
+
+    if target_status not in {
+        ReimbursementRequestStatus.draft,
+        ReimbursementRequestStatus.submitted,
+        ReimbursementRequestStatus.authorization_review,
+        ReimbursementRequestStatus.correction_required,
+    }:
+        _authorize_required_demo_expenses(request, _hud_actor(db, UserRole.authorizer))
+
+    if target_status in {
+        ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.accounting_manager_approved,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.status = ReimbursementRequestStatus.accounting_reviewed
+        prepare_sap_policy_placeholder(
+            request,
+            actor=_hud_actor(db, UserRole.accountant),
+            reference=f"HUD-BULK-SAP-{index + 1:03d}",
+        )
+
+    _set_demo_request_status(request, target_status)
+    if target_status == ReimbursementRequestStatus.paid:
+        _ensure_demo_paid_payment(db, request, _hud_actor(db, UserRole.treasury), index)
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            actor_user_id=_hud_actor(db, UserRole.admin).id,
+            actor_type=AuditActorType.user,
+            action="dev_hud_bulk_profile_applied",
+            from_status=None,
+            to_status=request.status.value,
+            message=f"HUD bulk profile applied: {profile['name']}.",
+            event_payload={"profile": profile["name"], "index": index},
+        )
+    )
+
+
+def _authorize_required_demo_expenses(request: ReimbursementRequest, actor: User) -> None:
+    for expense in request.expenses:
+        if not expense.requires_authorization:
+            continue
+        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}:
+            continue
+        expense.authorized_at = datetime.now(UTC)
+        expense.authorized_by_user_id = actor.id
+        expense.authorization_note = "Autorizado por perfil demo masivo."
+        expense.status = ExpenseStatus.approved
+
+
+def _set_demo_request_status(
+    request: ReimbursementRequest,
+    target_status: ReimbursementRequestStatus,
+) -> None:
+    now = datetime.now(UTC)
+    request.status = target_status
+    if target_status not in {ReimbursementRequestStatus.draft, ReimbursementRequestStatus.correction_required}:
+        request.submitted_at = request.submitted_at or now
+    if target_status in {
+        ReimbursementRequestStatus.authorized,
+        ReimbursementRequestStatus.under_accounting_review,
+        ReimbursementRequestStatus.accounting_reviewed,
+        ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.accounting_manager_approved,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.authorization_reviewed_at = request.authorization_reviewed_at or now
+    if target_status in {
+        ReimbursementRequestStatus.accounting_reviewed,
+        ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.accounting_manager_approved,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.accounting_reviewed_at = request.accounting_reviewed_at or now
+    if target_status in {
+        ReimbursementRequestStatus.accounting_manager_approved,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.accounting_manager_reviewed_at = request.accounting_manager_reviewed_at or now
+    if target_status in {
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.treasury_reviewed_at = request.treasury_reviewed_at or now
+    if target_status in {
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.direction_reviewed_at = request.direction_reviewed_at or now
+        request.direction_approved_at = request.direction_approved_at or now
+    if target_status in {
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+    }:
+        request.approved_for_payment_at = request.approved_for_payment_at or now
+    if target_status == ReimbursementRequestStatus.paid:
+        request.paid_at = request.paid_at or now
+    if target_status == ReimbursementRequestStatus.correction_required:
+        request.correction_requested_at = request.correction_requested_at or now
+        request.correction_reason = request.correction_reason or "Correccion requerida por perfil demo."
+
+
+def _ensure_demo_paid_payment(
+    db: Session,
+    request: ReimbursementRequest,
+    actor: User,
+    index: int,
+) -> None:
+    existing_payment = db.scalar(
+        select(Payment).where(
+            Payment.reimbursement_request_id == request.id,
+            Payment.status == PaymentStatus.paid,
+        )
+    )
+    if existing_payment is not None:
+        return
+
+    payment = Payment(
+        reimbursement_request_id=request.id,
+        amount=_active_expense_total(request),
+        currency="MXN",
+        payment_method="transfer",
+        reference=f"HUD-BULK-PAGO-{index + 1:03d}",
+        note="Pago creado por perfil demo masivo.",
+        status=PaymentStatus.paid,
+        paid_at=request.paid_at or datetime.now(UTC),
+        paid_by_user_id=actor.id,
+    )
+    db.add(payment)
 
 
 def _ensure_demo_dataset(

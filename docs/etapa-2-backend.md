@@ -460,6 +460,7 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
 
 - revisar salud de API y base de datos;
 - sembrar un escenario demo con tienda, periodo, usuarios, solicitud, gastos y tickets;
+- sembrar un demo masivo con varias solicitudes en distintos estados para probar bandejas;
 - intentar transiciones de estado;
 - ver que contabilidad queda bloqueada si faltan CFDI vigentes;
 - completar CFDI sinteticos de prueba solo en borrador o correccion;
@@ -470,6 +471,8 @@ sirve una pantalla interna de desarrollo. No es el frontend final. Permite:
   las que usara el frontend final;
 - probar errores controlados como gasto fuera de periodo y archivo inexistente;
 - descargar recibos demo por medio del endpoint protegido de adjuntos;
+- ejecutar acciones por gasto desde la vista por rol: autorizar, rechazar, observar,
+  quitar y descargar recibo cuando aplique;
 - crear tiendas HUD, usuarios HUD y asignarlos de forma operativa;
 - crear gastos de prueba en la solicitud HUD;
 - quitar gastos durante revision contable usando token;
@@ -491,6 +494,7 @@ Si `ENVIRONMENT=production`, el HUD responde como no encontrado.
 
 - `GET /api/v1/dev-hud/status`
 - `POST /api/v1/dev-hud/seed-demo`
+- `POST /api/v1/dev-hud/seed-bulk-demo`
 - `POST /api/v1/dev-hud/stores`
 - `POST /api/v1/dev-hud/users`
 - `POST /api/v1/dev-hud/assign-user`

@@ -44,7 +44,14 @@ de empresa, SAT, bancos ni proveedores.
    http://localhost:8000/test-hud
    ```
 
-6. Recorre los botones del flujo.
+6. Usa `Crear escenario` para una sola solicitud o `Crear demo masivo` para crear varias
+   solicitudes en diferentes estados.
+
+7. Recorre los botones del flujo.
+
+Con `Crear demo masivo`, el HUD genera datos ficticios para revisar bandejas de tienda,
+autorizacion, contabilidad, gerente, tesoreria y direccion. Sirve para probar multiples
+solicitudes sin usar datos reales.
 
 Para probar rechazo de producto, usa `hud-reject-product-flow.json` y luego:
 
@@ -103,4 +110,3 @@ Para probar error de monto, sube:
 ```text
 docs/test-data/cfdi/cfdi-total-mismatch.xml
 ```
-

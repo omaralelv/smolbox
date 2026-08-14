@@ -58,6 +58,13 @@ def test_dev_hud_html_uses_local_api() -> None:
     assert "Ejecutar automaticos" in TEST_HUD_HTML
     assert "Preparar póliza SAP" in TEST_HUD_HTML
     assert "Aprobar dirección" in TEST_HUD_HTML
+    assert "Crear demo masivo" in TEST_HUD_HTML
+    assert "/dev-hud/seed-bulk-demo" in TEST_HUD_HTML
+    assert "seedBulkScenario" in TEST_HUD_HTML
+    assert "expense-action-btn" in TEST_HUD_HTML
+    assert "executeExpenseAction" in TEST_HUD_HTML
+    assert "productExpenseActions" in TEST_HUD_HTML
+    assert "HUD_EXPENSE_NOT_FOUND" in TEST_HUD_HTML
 
 
 def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
@@ -206,6 +213,19 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     )
     assert payment.status_code == 201, payment.text
     assert payment.json()["reference"] == "HUD-PAGO-001"
+
+    duplicate_payment = client.post(
+        f"/api/v1/reimbursement-requests/{scenario['request_id']}/payments/me",
+        headers={"Authorization": f"Bearer {treasury_login.json()['access_token']}"},
+        json={
+            "reference": "HUD-PAGO-002",
+            "payment_method": "transfer",
+            "note": "Debe fallar por pago duplicado.",
+        },
+    )
+    assert duplicate_payment.status_code == 409
+    assert duplicate_payment.json()["detail"]["code"] == "PAYMENT_ALREADY_RECORDED"
+    assert "suggestion" in duplicate_payment.json()["detail"]
 
     payments = client.get(f"/api/v1/reimbursement-requests/{scenario['request_id']}/payments")
     assert payments.status_code == 200, payments.text
@@ -419,3 +439,75 @@ def test_dev_hud_can_target_multiple_scenarios_by_request_id(client: TestClient)
     assert second_after_move.status_code == 200, second_after_move.text
     assert second_after_move.json()["scenario"]["store_code"] == "HUD-MULTI-2"
     assert second_after_move.json()["scenario"]["status"] == "draft"
+
+
+def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
+    seeded = client.post(
+        "/api/v1/dev-hud/seed-bulk-demo",
+        json={"reset_existing": True, "request_count": 15, "store_count": 5},
+    )
+    assert seeded.status_code == 201, seeded.text
+    payload = seeded.json()
+    assert payload["created"] == 15
+    assert len(payload["scenarios"]) == 15
+
+    statuses = {scenario["status"] for scenario in payload["scenarios"]}
+    assert {
+        "draft",
+        "submitted",
+        "authorization_review",
+        "authorized",
+        "under_accounting_review",
+        "accounting_reviewed",
+        "accounting_manager_review",
+        "accounting_manager_approved",
+        "treasury_review",
+        "direction_review",
+        "direction_approved",
+        "approved_for_payment",
+        "paid",
+        "correction_required",
+    }.issubset(statuses)
+
+    status = client.get("/api/v1/dev-hud/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["counts"]["reimbursement_requests"] == 15
+    assert status.json()["counts"]["expenses"] == 45
+
+    def role_queue_statuses(role: str) -> set[str]:
+        login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": f"hud.{role}@hud.smolbox.example.com",
+                "password": "hud-password",
+            },
+        )
+        assert login.status_code == 200, login.text
+        queue = client.get(
+            "/api/v1/work-queue/me",
+            headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+        )
+        assert queue.status_code == 200, queue.text
+        return {item["status"] for item in queue.json()}
+
+    assert {"submitted", "authorization_review"}.issubset(role_queue_statuses("authorizer"))
+    assert {"authorized", "under_accounting_review"}.issubset(role_queue_statuses("accountant"))
+    assert {"accounting_reviewed", "accounting_manager_review"}.issubset(
+        role_queue_statuses("accounting.manager")
+    )
+    assert {"direction_review"}.issubset(role_queue_statuses("director"))
+    assert {
+        "accounting_manager_approved",
+        "treasury_review",
+        "direction_approved",
+        "approved_for_payment",
+        "paid",
+    }.issubset(role_queue_statuses("treasury"))
+
+    paid_request_id = next(
+        scenario["request_id"] for scenario in payload["scenarios"] if scenario["status"] == "paid"
+    )
+    payments = client.get(f"/api/v1/reimbursement-requests/{paid_request_id}/payments")
+    assert payments.status_code == 200, payments.text
+    assert len(payments.json()) == 1
+    assert payments.json()[0]["reference"].startswith("HUD-BULK-PAGO-")

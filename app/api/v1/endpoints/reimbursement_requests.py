@@ -437,6 +437,24 @@ def record_reimbursement_request_payment_as_current_user(
                 "message": "Actor must be assigned to the request store for this action",
             },
         )
+    existing_paid_payment = db.scalar(
+        select(Payment.id).where(
+            Payment.reimbursement_request_id == reimbursement_request.id,
+            Payment.status == PaymentStatus.paid,
+        )
+    )
+    if (
+        reimbursement_request.status == ReimbursementRequestStatus.paid
+        or existing_paid_payment is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PAYMENT_ALREADY_RECORDED",
+                "message": "This request already has a recorded treasury payment",
+                "suggestion": "Open the payment history instead of recording a second payment.",
+            },
+        )
     if reimbursement_request.status != ReimbursementRequestStatus.approved_for_payment:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
