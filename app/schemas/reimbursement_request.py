@@ -5,9 +5,17 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.reimbursement_request import ReimbursementRequestStatus
+from app.schemas.attachment import AttachmentRead
+from app.schemas.audit_log import AuditLogRead
+from app.schemas.cfdi import CfdiValidationRead
+from app.schemas.expense import ExpenseRead
+from app.schemas.payment import PaymentRead
+from app.schemas.period import PeriodRead
+from app.schemas.store import StoreRead
 
 
 class ReimbursementRequestBase(BaseModel):
+    folio: str | None = Field(default=None, max_length=80)
     store_id: UUID
     period_id: UUID
     reported_total: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
@@ -75,6 +83,30 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     correction_reason: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ExpenseDetailRead(ExpenseRead):
+    attachments: list[AttachmentRead] = Field(default_factory=list)
+    current_cfdi_validation: CfdiValidationRead | None = None
+
+
+class ReimbursementRequestQueueItemRead(ReimbursementRequestRead):
+    store: StoreRead
+    period: PeriodRead
+    calculated_total: Decimal
+    expense_count: int
+    available_actions: list[str] = Field(default_factory=list)
+
+
+class ReimbursementRequestDetailRead(ReimbursementRequestRead):
+    store: StoreRead
+    period: PeriodRead
+    expenses: list[ExpenseDetailRead] = Field(default_factory=list)
+    attachments: list[AttachmentRead] = Field(default_factory=list)
+    validation_summary: "ReimbursementValidationSummary"
+    payments: list[PaymentRead] = Field(default_factory=list)
+    audit_events: list[AuditLogRead] = Field(default_factory=list)
+    available_actions: list[str] = Field(default_factory=list)
 
 
 class ReimbursementRequestTransition(BaseModel):

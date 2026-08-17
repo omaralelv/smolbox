@@ -13,6 +13,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
+from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense, ExpenseStatus
 from app.models.payment import Payment, PaymentStatus
 from app.models.period import Period, PeriodStatus
@@ -27,7 +28,9 @@ from app.schemas.reimbursement_request import (
     AuthenticatedReimbursementRequestTransition,
     AuthenticatedSapPolicyPrepare,
     AutomatedReviewRead,
+    ExpenseDetailRead,
     ReimbursementRequestCreate,
+    ReimbursementRequestDetailRead,
     ReimbursementRequestRead,
     ReimbursementRequestTransition,
     ReimbursementRequestUpdate,
@@ -38,6 +41,7 @@ from app.schemas.reimbursement_request import (
 from app.services.automation_review import build_automated_review
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
@@ -74,22 +78,10 @@ def create_reimbursement_request(
             detail={"code": "PERIOD_CLOSED", "message": "The reimbursement period is closed"},
         )
 
-    duplicate = db.scalar(
-        select(ReimbursementRequest.id).where(
-            ReimbursementRequest.store_id == request_in.store_id,
-            ReimbursementRequest.period_id == request_in.period_id,
-        )
-    )
-    if duplicate is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "DUPLICATE_REIMBURSEMENT_REQUEST",
-                "message": "A request already exists for this store and period",
-            },
-        )
+    request_data = request_in.model_dump()
+    request_data["folio"] = request_data.get("folio") or _generate_request_folio(store, db)
 
-    reimbursement_request = ReimbursementRequest(**request_in.model_dump())
+    reimbursement_request = ReimbursementRequest(**request_data)
     db.add(reimbursement_request)
     try:
         db.flush()
@@ -108,8 +100,8 @@ def create_reimbursement_request(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
-                "code": "DUPLICATE_REIMBURSEMENT_REQUEST",
-                "message": "A request already exists for this store and period",
+                "code": "DUPLICATE_REIMBURSEMENT_FOLIO",
+                "message": "A request already exists with this folio",
             },
         ) from exc
     db.refresh(reimbursement_request)
@@ -149,6 +141,17 @@ def get_reimbursement_request(
             detail="Reimbursement request not found",
         )
     return reimbursement_request
+
+
+@router.get("/{request_id}/detail/me", response_model=ReimbursementRequestDetailRead)
+def get_reimbursement_request_detail_as_current_user(
+    request_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ReimbursementRequestDetailRead:
+    reimbursement_request = _get_request_detail_or_404(request_id, db)
+    _ensure_request_visible_to_user(reimbursement_request, current_user, db)
+    return _build_request_detail(reimbursement_request, current_user)
 
 
 @router.patch("/{request_id}", response_model=ReimbursementRequestRead)
@@ -903,6 +906,125 @@ def _transition_request_with_actor(
     db.commit()
     db.refresh(reimbursement_request)
     return reimbursement_request
+
+
+def _generate_request_folio(store: Store, db: Session) -> str:
+    prefix = f"{store.code}-{datetime.now(UTC).date():%d%m%Y}"
+    existing_folios = db.scalars(
+        select(ReimbursementRequest.folio).where(
+            ReimbursementRequest.folio.is_not(None),
+            ReimbursementRequest.folio.like(f"{prefix}%"),
+        )
+    )
+    highest_sequence = 0
+    for folio in existing_folios:
+        if folio is None or not folio.startswith(prefix):
+            continue
+        suffix = folio.removeprefix(prefix)
+        if suffix.isdecimal():
+            highest_sequence = max(highest_sequence, int(suffix))
+    return f"{prefix}{highest_sequence + 1}"
+
+
+def _get_request_detail_or_404(request_id: UUID, db: Session) -> ReimbursementRequest:
+    statement = (
+        select(ReimbursementRequest)
+        .options(
+            selectinload(ReimbursementRequest.store),
+            selectinload(ReimbursementRequest.period),
+            selectinload(ReimbursementRequest.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+            selectinload(ReimbursementRequest.payments),
+            selectinload(ReimbursementRequest.audit_events),
+        )
+        .where(ReimbursementRequest.id == request_id)
+    )
+    reimbursement_request = db.scalars(statement).first()
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+    return reimbursement_request
+
+
+def _ensure_request_visible_to_user(
+    reimbursement_request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> None:
+    if not user_can_transition_store_request(db, current_user, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store",
+            },
+        )
+
+
+def _build_request_detail(
+    reimbursement_request: ReimbursementRequest,
+    current_user: User,
+) -> ReimbursementRequestDetailRead:
+    summary = summarize_reimbursement_request(reimbursement_request)
+    return ReimbursementRequestDetailRead(
+        **ReimbursementRequestRead.model_validate(reimbursement_request).model_dump(),
+        store=reimbursement_request.store,
+        period=reimbursement_request.period,
+        expenses=[
+            _build_expense_detail(expense)
+            for expense in sorted(
+                reimbursement_request.expenses,
+                key=lambda expense: expense.created_at,
+            )
+        ],
+        attachments=sorted(
+            reimbursement_request.attachments,
+            key=lambda attachment: attachment.uploaded_at,
+            reverse=True,
+        ),
+        validation_summary=summary,
+        payments=sorted(
+            reimbursement_request.payments,
+            key=lambda payment: payment.created_at,
+            reverse=True,
+        ),
+        audit_events=sorted(
+            reimbursement_request.audit_events,
+            key=lambda audit_event: audit_event.created_at,
+            reverse=True,
+        ),
+        available_actions=available_actions_for_request(
+            reimbursement_request,
+            actor=current_user,
+            summary=summary,
+        ),
+    )
+
+
+def _build_expense_detail(expense: Expense) -> ExpenseDetailRead:
+    return ExpenseDetailRead(
+        **ExpenseDetailRead.model_validate(expense).model_dump(
+            exclude={"attachments", "current_cfdi_validation"}
+        ),
+        attachments=sorted(
+            expense.attachments,
+            key=lambda attachment: attachment.uploaded_at,
+            reverse=True,
+        ),
+        current_cfdi_validation=_current_cfdi_validation(expense),
+    )
+
+
+def _current_cfdi_validation(expense: Expense) -> CfdiValidation | None:
+    current_validations = [
+        validation for validation in expense.cfdi_validations if validation.is_current
+    ]
+    if not current_validations:
+        return None
+    return max(current_validations, key=lambda validation: validation.validated_at)
 
 
 def _is_review_step_return(

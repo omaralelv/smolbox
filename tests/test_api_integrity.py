@@ -2,11 +2,11 @@ from conftest import create_expense
 from fastapi.testclient import TestClient
 
 
-def test_rejects_duplicate_request_and_expense_outside_period(
+def test_allows_multiple_requests_per_store_period_and_rejects_expense_outside_period(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
-    duplicate = client.post(
+    second_request = client.post(
         "/api/v1/reimbursement-requests/",
         json={
             "store_id": base_records["store_id"],
@@ -14,8 +14,9 @@ def test_rejects_duplicate_request_and_expense_outside_period(
             "reported_total": "50.00",
         },
     )
-    assert duplicate.status_code == 409
-    assert duplicate.json()["detail"]["code"] == "DUPLICATE_REIMBURSEMENT_REQUEST"
+    assert second_request.status_code == 201, second_request.text
+    assert second_request.json()["id"] != base_records["request_id"]
+    assert second_request.json()["folio"] != ""
 
     outside_period = client.post(
         "/api/v1/expenses/",

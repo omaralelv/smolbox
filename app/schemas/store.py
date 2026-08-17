@@ -9,6 +9,9 @@ class StoreBase(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     contact_email: str | None = Field(default=None, max_length=255)
     assigned_accountant: str | None = Field(default=None, max_length=160)
+    manager_name: str | None = Field(default=None, max_length=160)
+    bank_account: str | None = Field(default=None, max_length=80)
+    state_region: str | None = Field(default=None, max_length=120)
 
     @field_validator("code")
     @classmethod
@@ -25,6 +28,9 @@ class StoreUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     contact_email: str | None = Field(default=None, max_length=255)
     assigned_accountant: str | None = Field(default=None, max_length=160)
+    manager_name: str | None = Field(default=None, max_length=160)
+    bank_account: str | None = Field(default=None, max_length=80)
+    state_region: str | None = Field(default=None, max_length=120)
 
     @field_validator("code")
     @classmethod

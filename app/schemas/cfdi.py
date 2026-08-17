@@ -1,7 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CfdiParseResult(BaseModel):
@@ -28,3 +30,23 @@ class CfdiValidationResult(BaseModel):
     is_valid: bool
     parsed: CfdiParseResult
     issues: list[CfdiValidationIssue] = Field(default_factory=list)
+
+
+class CfdiValidationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    expense_id: UUID
+    attachment_id: UUID
+    uuid: str | None = None
+    issuer_rfc: str | None = None
+    receiver_rfc: str | None = None
+    total: Decimal | None = None
+    currency: str | None = None
+    issued_at: datetime | None = None
+    is_valid: bool
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    checksum_sha256: str
+    validator_version: str
+    is_current: bool
+    validated_at: datetime

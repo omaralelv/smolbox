@@ -15,7 +15,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     func,
 )
@@ -54,15 +53,9 @@ class ReimbursementRequestStatus(str, enum.Enum):
 
 class ReimbursementRequest(Base):
     __tablename__ = "reimbursement_requests"
-    __table_args__ = (
-        UniqueConstraint(
-            "store_id",
-            "period_id",
-            name="uq_reimbursement_requests_store_period",
-        ),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    folio: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True, index=True)
     store_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("stores.id", ondelete="RESTRICT"),
