@@ -59,6 +59,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   vista guiada por rol cercana al usuario final.
 - Vista independiente de producto en `/product-view` para demostrar el flujo por rol sin
   mostrar las herramientas tecnicas del HUD.
+- Capa API `/api/v1/frontend` que entrega los datos en el formato que esperan las pantallas
+  actuales, sin cambiar su diseno visual.
 - Herramientas del HUD para crear tiendas HUD, usuarios HUD, asignarlos de forma operativa
   y agregar gastos de prueba.
 - Demo masivo del HUD para crear varias solicitudes en diferentes estados del flujo y probar

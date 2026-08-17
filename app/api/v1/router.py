@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     cfdi,
     dev_hud,
     expenses,
+    frontend,
     health,
     periods,
     reimbursement_requests,
@@ -34,3 +35,4 @@ api_router.include_router(attachments.router, prefix="/expenses", tags=["attachm
 api_router.include_router(attachment_files.router, prefix="/attachments", tags=["attachments"])
 api_router.include_router(cfdi.router, tags=["cfdi"])
 api_router.include_router(dev_hud.router, prefix="/dev-hud", tags=["dev-hud"])
+api_router.include_router(frontend.router, prefix="/frontend", tags=["frontend"])

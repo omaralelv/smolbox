@@ -1,0 +1,115 @@
+from datetime import date
+from decimal import Decimal
+from uuid import UUID
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+
+
+class FrontendStoreRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    code: str
+    name: str
+    gerente: str | None = None
+    cuenta_bancaria: str | None = Field(default=None, alias="cuentaBancaria")
+    estado_region: str | None = Field(default=None, alias="estadoRegion")
+
+
+class FrontendUserRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    email: str
+    nombre: str
+    rol: str
+    backend_role: str = Field(alias="backendRole")
+
+
+class FrontendContextRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    current_role: str = Field(alias="currentRole")
+    backend_role: str = Field(alias="backendRole")
+    usuario: FrontendUserRead
+    stores: list[FrontendStoreRead] = Field(default_factory=list)
+    active_store: FrontendStoreRead | None = Field(default=None, alias="activeStore")
+    current_period_id: UUID | None = Field(default=None, alias="currentPeriodId")
+    tienda: str | None = None
+    gerente: str | None = None
+    cuenta_bancaria: str | None = Field(default=None, alias="cuentaBancaria")
+    estado_region: str | None = Field(default=None, alias="estadoRegion")
+
+
+class FrontendGastoRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    backend_id: UUID = Field(alias="backendId")
+    nombre: str
+    monto: float
+    tipo: str
+    type: str
+    folio: str
+    folio_fiscal: str | None = Field(default=None, alias="folioFiscal")
+    facturas: int
+    autorizacion: str
+    status: str
+    backend_status: str = Field(alias="backendStatus")
+    requires_authorization: bool = Field(alias="requiresAuthorization")
+    download_url: str | None = Field(default=None, alias="downloadUrl")
+
+
+class FrontendSolicitudRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    backend_id: UUID = Field(alias="backendId")
+    folio: str
+    tienda: str
+    fecha: str
+    fecha_formateada: str = Field(alias="fechaFormateada")
+    status: str
+    backend_status: str = Field(alias="backendStatus")
+    gerente: str | None = None
+    cuenta_bancaria: str | None = Field(default=None, alias="cuentaBancaria")
+    estado_region: str | None = Field(default=None, alias="estadoRegion")
+    gastos: list[FrontendGastoRead] = Field(default_factory=list)
+    monto_total: float = Field(alias="montoTotal")
+    reported_total: float | None = Field(default=None, alias="reportedTotal")
+    calculated_total: float = Field(alias="calculatedTotal")
+    expense_count: int = Field(alias="expenseCount")
+    available_actions: list[str] = Field(default_factory=list, alias="availableActions")
+    action_labels: dict[str, str] = Field(default_factory=dict, alias="actionLabels")
+
+
+class FrontendGastoCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    fecha: str | date | None = None
+    categoria: str | None = None
+    monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    folio: str | None = None
+    observaciones: str | None = None
+    proveedor: str | None = None
+    merchant: str | None = None
+    moneda: str = "MXN"
+    requiere_autorizacion: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("requiere_autorizacion", "requiresAuthorization"),
+    )
+
+
+class FrontendSolicitudCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    store_id: UUID | None = None
+    period_id: UUID | None = None
+    tienda: str | None = None
+    reported_total: Decimal | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("reported_total", "reportedTotal", "montoTotal"),
+    )
+    notes: str | None = None
+    gastos: list[FrontendGastoCreate] = Field(default_factory=list)

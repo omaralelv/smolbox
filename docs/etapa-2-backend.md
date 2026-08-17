@@ -270,6 +270,40 @@ La respuesta devuelve solicitudes filtradas por rol y estado:
 - direccion ve solicitudes en revision de direccion;
 - admin ve todo.
 
+## Puente para frontend actual
+
+Para conectar las pantallas actuales sin cambiar su diseno ni nombres de campos, el backend
+expone una capa de compatibilidad bajo:
+
+```text
+/api/v1/frontend
+```
+
+Estos endpoints no reemplazan la API formal; solamente traducen el modelo tecnico a la forma
+que hoy espera la UI, por ejemplo `tienda`, `fecha`, `status`, `gastos`, `montoTotal`,
+`fechaFormateada`, `cuentaBancaria` y `backendId`.
+
+Endpoints:
+
+```text
+GET  /api/v1/frontend/context/me
+GET  /api/v1/frontend/bandeja/me
+GET  /api/v1/frontend/solicitudes/{request_id_o_folio}/me
+POST /api/v1/frontend/solicitudes/me
+POST /api/v1/frontend/solicitudes/{request_id_o_folio}/gastos/me
+```
+
+Reglas:
+
+- todos requieren `Authorization: Bearer <token>`;
+- el rol se toma del token y se devuelve tambien en formato UI: `tienda`, `supervisor`,
+  `contabilidad`, `gerencia`, `tesoreria`, `direccion` o `admin`;
+- cada solicitud devuelve `id` como folio visible y `backendId` como UUID real;
+- cada gasto devuelve `id` para la UI y `backendId` para acciones reales;
+- la bandeja ya viene filtrada por rol y tienda asignada;
+- `availableActions` contiene las acciones tecnicas disponibles;
+- `actionLabels` contiene el texto listo para pintar botones sin inventar reglas en frontend.
+
 ## Pagos de tesoreria
 
 Cuando la solicitud esta en `approved_for_payment`, tesoreria o admin registra el pago:
