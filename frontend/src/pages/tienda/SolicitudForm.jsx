@@ -1,208 +1,112 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation} from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
+import {
+    apiErrorMessage,
+    createFrontendSolicitud,
+    currentToken,
+    executeRequestAction,
+    getFrontendContext,
+    getFrontendSolicitud,
+    uploadExpenseAttachment,
+    validateExpenseCfdi,
+} from '../../lib/api';
+import { clearDraftGastos, loadDraftGastos } from '../../lib/draftSolicitud';
 
-const GASTOS_INICIALES = [
-    
-];
+const DATOS_INICIALES = {
+    fecha: new Date().toLocaleDateString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    }),
+    tienda: 'T001',
+    gerente: 'Karen Ponce Hernández',
+    cuentaBancaria: '101328508',
+    estadoRegion: 'CDMX'
+};
 
-function SolicitudForm() {
+function SolicitudForm({ currentRole }) {
     const navigate = useNavigate();
-
-    // 1. DATOS AUTOMÁTICOS (Se llenan solos)
-    const datosIniciales = {
-        fecha: new Date().toLocaleDateString('es-MX', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric'
-            }),
-        tienda: "T001",
-        gerente: "Karen Ponce Hernández",
-        cuentaBancaria: "101328508",
-        estadoRegion: "CDMX"
-    };
+    const [datosIniciales, setDatosIniciales] = useState(DATOS_INICIALES);
+    const [enviando, setEnviando] = useState(false);
 
     // 2. ESTADOS PARA LA LISTA DE GASTOS Y FORMULARIO
-    const [gastos, setGastos] = useState(() => {
-        const guardados = localStorage.getItem('listaGastosSmolbox');
-        return guardados ? JSON.parse(guardados) : GASTOS_INICIALES;
-    });
+    const [gastos] = useState(() => loadDraftGastos());
 
-    // AÑADIR GASTO A LA LISTA
     useEffect(() => {
-  // 1. Intentamos leer si dejamos algún gasto guardado en el navegador
-    const gastoGuardado = localStorage.getItem('pendienteGasto');
+        if (!currentToken()) {
+            navigate('/login');
+            return;
+        }
 
-        if (gastoGuardado) {
-            // 2. Convertimos el texto de regreso a un objeto de Javascript
-            const nuevoGasto = JSON.parse(gastoGuardado);
-
-            // 3. Lo agregamos al arreglo de la tabla
-            setGastos(prevGastos => {
-                const listaActualizada = [...prevGastos, nuevoGasto];
-                localStorage.setItem('listaGastosSmolbox', JSON.stringify(listaActualizada));
-                return listaActualizada;
+        let activo = true;
+        getFrontendContext()
+            .then((contexto) => {
+                if (!activo) return;
+                setDatosIniciales({
+                    fecha: DATOS_INICIALES.fecha,
+                    tienda: contexto.tienda || DATOS_INICIALES.tienda,
+                    gerente: contexto.gerente || DATOS_INICIALES.gerente,
+                    cuentaBancaria: contexto.cuentaBancaria || DATOS_INICIALES.cuentaBancaria,
+                    estadoRegion: contexto.estadoRegion || DATOS_INICIALES.estadoRegion,
+                });
+            })
+            .catch(() => {
+                if (activo) setDatosIniciales(DATOS_INICIALES);
             });
 
-            // 4. Limpiamos la memoria para que no se vuelva a sumar si el usuario refresca (F5)
-            localStorage.removeItem('pendienteGasto');
-
-            console.log("✅ Gasto recuperado de localStorage e inyectado con éxito!");
-        }
-    }, []);
-
-
-    // Estado para controlar la visibilidad del bloque de captura manual
-    const [mostrarFormGasto, setMostrarFormGasto] = useState(false);
-    
-    // Estado para los inputs manuales del nuevo gasto
-    const [nuevoMonto, setNuevoMonto] = useState('');
-    const [nuevoTipo, setNuevoTipo] = useState('');
-    const[nuevoFolio, setNuevoFolio] = useState('');
-
-    // Categorías del menú desplegable
-    const categoriasGasto = ["Sistemas", "Papelería", "Mantenimiento", "Transporte", "Otros"];
-
-    // 3. FUNCIONES DE LÓGICA
-    // QUITAR /  BORRAR DESPUÉS
-    const handleAñadirGasto = (e) => {
-        e.preventDefault();
-        if (!nuevoMonto || isNaN(nuevoMonto) || parseFloat(nuevoMonto) <= 0) {
-        alert("Por favor, ingresa un monto válido.");
-        return;
-        }
-
-        const nuevoGastoItem = {
-        id: gastos.length + 1,
-        nombre: `Gasto ${gastos.length + 1}`,
-        monto: parseFloat(nuevoMonto),
-        tipo: nuevoTipo,
-        folio: nuevoFolio,
+        return () => {
+            activo = false;
         };
-
-        setGastos([...gastos, nuevoGastoItem]);
-        setNuevoMonto(''); // Limpiar input
-        setMostrarFormGasto(false); // Ocultar bloque de insercción
-    };
+    }, [currentRole, navigate]);
 
     // Calcular el TOTAL dinámicamente basándose en la lista actual
     const calcularTotal = () => {
         return gastos.reduce((sum, item) => sum + item.monto, 0).toFixed(2);
     };
 
-    const handleEnviarSolicitud = () => {
+    const handleEnviarSolicitud = async () => {
         if (gastos.length === 0) {
             alert("Debes añadir al menos un gasto antes de enviar.");
-        return;
+            return;
         }
 
-        // 1. Recuperamos las solicitudes existentes o iniciamos un arreglo nuevo
-        /*const solicitudesGuardadas = JSON.parse(localStorage.getItem('bandejaSolicitudes')) || [
-            { id: 'Solicitud 3', tienda: 'T-003', fecha: '12/08/2026', status: 'Aprobada' },
-            { id: 'Solicitud 2', tienda: 'T-025', fecha: '10/08/2026', status: 'Pagada' },
-            { id: 'Solicitud 1', tienda: 'T-009', fecha: '10/08/2026', status: 'Pagada' }
-        ];*/
+        const errorEvidencia = validarEvidenciaAntesDeEnviar(gastos);
+        if (errorEvidencia) {
+            alert(errorEvidencia);
+            return;
+        }
 
-        // 2. Calculamos el nombre o número de la nueva solicitud
-        //const numeroSolicitud = solicitudesGuardadas.length + 1;
+        setEnviando(true);
 
-
-
-
-
-
-// =========================================================================
-        // GENERACIÓN DE FOLIO DINÁMICO: TIENDA-DDMMAAAA#
-        // =========================================================================
-
-        const codigoTienda = (datosIniciales.tienda || "T001").trim(); 
-
-        // Formateador robusto de fecha
-        const formatearFechaDDMMAAAA = (fechaStr) => {
-            if (!fechaStr) {
-                const hoy = new Date();
-                const d = String(hoy.getDate()).padStart(2, '0');
-                const m = String(hoy.getMonth() + 1).padStart(2, '0');
-                const y = hoy.getFullYear();
-                return `${d}${m}${y}`;
-            }
-            // Quita '/' y '-'
-            const limpia = fechaStr.replace(/[-/]/g, '').trim();
-            
-            // Si viene en formato ISO (YYYY-MM-DD -> YYYYMMDD)
-            if (fechaStr.includes('-') && limpia.length === 8) {
-                const [y, m, d] = fechaStr.split('-');
-                return `${d.padStart(2, '0')}${m.padStart(2, '0')}${y}`;
-            }
-            
-            return limpia;
-        };
-
-        const fechaFormateada = formatearFechaDDMMAAAA(datosIniciales.fecha);
-
-        // 1. Obtener historial fresco directamente de localStorage
-        const solicitudesGuardadas = JSON.parse(localStorage.getItem('bandejaSolicitudes') || '[]');
-
-        // 2. Filtrar solicitudes que coincidan en TIENDA y FECHA
-        const solicitudesMismoDia = solicitudesGuardadas.filter((sol) => {
-            const tiendaSol = (sol.tienda || '').trim();
-            const fechaSol = (sol.fechaFormateada || formatearFechaDDMMAAAA(sol.fecha) || '').trim();
-
-            const esMismaTienda = tiendaSol === codigoTienda;
-            const esMismaFecha = fechaSol === fechaFormateada;
-
-            console.log("Comparando registro previo:", {
-                tiendaGuardada: tiendaSol,
-                tiendaActual: codigoTienda,
-                esMismaTienda,
-                fechaGuardada: fechaSol,
-                fechaActual: fechaFormateada,
-                esMismaFecha
+        try {
+            const nuevaSolicitud = await createFrontendSolicitud({
+                tienda: datosIniciales.tienda,
+                montoTotal: calcularTotal(),
+                gastos: gastos.map((gasto) => ({
+                    fecha: gasto.fecha,
+                    categoria: gasto.tipo || gasto.type,
+                    monto: String(gasto.monto),
+                    folio: folioManual(gasto.folio),
+                    observaciones: gasto.observaciones || null,
+                    requiresAuthorization: Boolean(gasto.requiresAuthorization),
+                })),
             });
 
-            return esMismaTienda && esMismaFecha;
-        });
+            await subirArchivosPendientes(nuevaSolicitud, gastos);
+            await executeRequestAction(nuevaSolicitud.backendId, 'submit_request');
+            const solicitudActualizada = await getFrontendSolicitud(nuevaSolicitud.backendId);
 
-        console.log("Coincidencias encontradas hoy para esta tienda:", solicitudesMismoDia.length);
-        // 5. El consecutivo es el total del mismo día + 1
-        const contadorDia = solicitudesMismoDia.length + 1;
-        
+            clearDraftGastos();
+            localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitudActualizada]));
 
-        // 6. Generar el ID/Folio final (Ej. T001-140820261)
-        const numeroSolicitud = `${codigoTienda}-${fechaFormateada}${contadorDia}`;
-
-
-
-
-
-
-
-
-
-
-        const nuevaSolicitud = {
-            id: numeroSolicitud,
-            folio: numeroSolicitud,
-            tienda: codigoTienda,
-            status: 'En revisión', // ◄--- Estatus inicial
-            fecha: new Date().toLocaleDateString(),
-            fechaFormateada: fechaFormateada,
-            gastos: gastos, // Todos los gastos cargados
-            montoTotal: gastos.reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
-        };
-
-        // 3. Insertamos la nueva solicitud AL PRINCIPIO de la bandeja
-        const listaActualizada = [nuevaSolicitud, ...solicitudesGuardadas];
-        localStorage.setItem('bandejaSolicitudes', JSON.stringify(listaActualizada));
-
-        // 4. Limpiamos el borrador de gastos de la pantalla actual
-        localStorage.removeItem('listaGastosSmolbox');
-        localStorage.removeItem('pendienteGasto');
-
-        alert(`¡Solicitud ${nuevaSolicitud.id} enviada con éxito!`);
-
-        // 5. Redirigimos a la Bandeja / Monitoreo
-        navigate('/bandeja');
+            alert(`¡Solicitud ${solicitudActualizada.id} enviada con éxito!`);
+            navigate('/bandeja', { state: { solicitud: solicitudActualizada } });
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setEnviando(false);
+        }
 
     };
 
@@ -293,14 +197,63 @@ function SolicitudForm() {
 
         {/* BARRA FIJA INFERIOR (Solo para esta pantalla) */}
         <div style={styles.fixedStickyFooter}>
-            <button onClick={handleEnviarSolicitud} style={styles.enviarSolicitudBtnFixed}>
-            Enviar Solicitud
+            <button
+                onClick={handleEnviarSolicitud}
+                style={styles.enviarSolicitudBtnFixed}
+                disabled={enviando}
+            >
+            {enviando ? 'Enviando...' : 'Enviar Solicitud'}
             </button>
         </div>
 
     </div>
     );
     }
+
+async function subirArchivosPendientes(nuevaSolicitud, gastosOriginales) {
+    const gastosBackend = nuevaSolicitud.gastos || [];
+    for (const [index, gasto] of gastosOriginales.entries()) {
+        const gastoBackend = gastosBackend[index];
+        if (!gastoBackend?.backendId) continue;
+
+        if (gasto.valeFile) {
+            await uploadExpenseAttachment(gastoBackend.backendId, gasto.valeFile, 'receipt');
+        }
+
+        if (gasto.facturaFile) {
+            if (esXml(gasto.facturaFile)) {
+                await validateExpenseCfdi(gastoBackend.backendId, gasto.facturaFile);
+            } else {
+                await uploadExpenseAttachment(gastoBackend.backendId, gasto.facturaFile, 'other');
+            }
+        }
+    }
+}
+
+function validarEvidenciaAntesDeEnviar(gastos) {
+    const sinTicket = gastos.filter((gasto) => !gasto.valeFile);
+    const sinCfdi = gastos.filter((gasto) => !gasto.facturaFile || !esXml(gasto.facturaFile));
+
+    if (sinTicket.length || sinCfdi.length) {
+        return [
+            'Antes de enviar, cada gasto debe tener ticket/vale y CFDI XML.',
+            sinTicket.length ? `Faltan tickets/vales en ${sinTicket.length} gasto(s).` : '',
+            sinCfdi.length ? `Falta CFDI XML válido en ${sinCfdi.length} gasto(s).` : '',
+        ].filter(Boolean).join('\n');
+    }
+    return null;
+}
+
+function esXml(file) {
+    const nombre = file?.name?.toLowerCase() || '';
+    const tipo = file?.type?.toLowerCase() || '';
+    return nombre.endsWith('.xml') || tipo.includes('xml');
+}
+
+function folioManual(folio) {
+    if (!folio || folio === '5FB2822E-396D-4725-8521-CDC4BDD20CCF') return null;
+    return folio;
+}
 
     // 🎨 ESTILOS INTEGRADOS CON TU INDEX.CSS
     const styles = {

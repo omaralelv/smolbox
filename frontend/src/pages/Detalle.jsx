@@ -1,5 +1,6 @@
-import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+
+import { apiErrorMessage, openProtectedFile } from '../lib/api';
 
 function Detalle({ currentRole }) {
     const navigate = useNavigate();
@@ -48,6 +49,19 @@ function Detalle({ currentRole }) {
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
 
+    const abrirArchivo = async (gasto) => {
+        if (!gasto.downloadUrl) {
+            alert('Este gasto no tiene archivo disponible para abrir.');
+            return;
+        }
+
+        try {
+            await openProtectedFile(gasto.downloadUrl);
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
+    };
+
     // 4. HELPER PARA MOSTRAR EL BADGE DE AUTORIZACIÓN
     const renderBadgeAutorizacion = (estatus) => {
         if (estatus === 'autorizado') {
@@ -76,8 +90,8 @@ function Detalle({ currentRole }) {
                 {/* ENCABEZADO DE COLUMNAS */}
                 <div style={styles.tableHeader}>
                     <span style={{ flex: 1.25}}></span>
-                    <span style={{ flex: 1, textAlign: 'left', width: '30px', textAlign: 'left', paddingLeft: '110px'}}>MONTO</span>
-                    <span style={{ flex: 1, textAlign: 'left' , width: '20px', textAlign: 'left', paddingLeft: '0px'}}>FOLIO FISCAL</span>
+                    <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>MONTO</span>
+                    <span style={{ flex: 1, textAlign: 'left' , width: '20px', paddingLeft: '0px'}}>FOLIO FISCAL</span>
                     <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px',  }}>AUTORIZACION</span>
                     <span style={{ flex: 1, textAlign: 'right', paddingRight: '5px' }}>HERRAMIENTAS</span>
                 </div>
@@ -108,12 +122,12 @@ function Detalle({ currentRole }) {
                         {/* BOTONES DE HERRAMIENTAS (ICONOS) */}
                         <div style={styles.herramientasContainer}>
                             {puedeVer('vale') && (
-                                <button style={styles.iconBtn} title="Ver Vale">
+                                <button style={styles.iconBtn} title="Ver Vale" onClick={() => abrirArchivo(gasto)}>
                                     <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                                 </button>
                             )}
                             {puedeVer('factura') && (
-                                <button style={styles.iconBtn} title="Ver Factura">
+                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => abrirArchivo(gasto)}>
                                     <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
                                 </button>
                             )}

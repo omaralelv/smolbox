@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+import { addDraftGasto } from '../../lib/draftSolicitud';
 
 function AnadirGasto() {
     const navigate = useNavigate();
 
     // 1. ESTADOS DEL FORMULARIO
-    const [fecha, setFecha] = useState('19-07-2026');
+    const [fecha, setFecha] = useState(() => fechaHoyFormulario());
     const [categoria, setCategoria] = useState('Papelería');
     const [monto, setMonto] = useState('56.00');
     const [folio, setFolio] = useState('5FB2822E-396D-4725-8521-CDC4BDD20CCF');
@@ -52,15 +54,15 @@ function AnadirGasto() {
             nombre: `Gasto - ${categoria}`,
             monto: parseFloat(monto) || 0,
             tipo: categoria,
-            folio: folio
+            folio: folio,
+            fecha: fecha,
+            observaciones: observaciones,
+            facturaFile: facturaFile,
+            valeFile: valeFile,
         };
 
-        //console.log("📦 Empaquetando gasto para llevar a SolicitudForm:", nuevoGastoItem);
         alert("¡Gasto guardado exitosamente en la solicitud!");
-        
-        localStorage.setItem('pendienteGasto', JSON.stringify(nuevoGastoItem));
-
-        console.log("💾 Gasto guardado en localStorage:", nuevoGastoItem);
+        addDraftGasto(nuevoGastoItem);
         
         // 2. Pasamos el objeto dentro de la propiedad 'state' al regresar
         navigate('/solicitud/nueva');
@@ -117,7 +119,7 @@ function AnadirGasto() {
                     <span style={styles.fileName}>{facturaFile ? facturaFile.name : "RIOR58416843EC48.pdf"}</span>
                     <label style={styles.fileButtonLabel}>
                     Seleccionar archivo...
-                    <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setFacturaFile(e.target.files[0])} />
+                    <input type="file" accept=".pdf,.xml" style={{ display: 'none' }} onChange={(e) => setFacturaFile(e.target.files[0])} />
                     </label>
                 </div>
                 </div>
@@ -436,3 +438,11 @@ function AnadirGasto() {
 };
 
 export default AnadirGasto;
+
+function fechaHoyFormulario() {
+    const hoy = new Date();
+    const dia = String(hoy.getDate()).padStart(2, '0');
+    const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+    const anio = hoy.getFullYear();
+    return `${dia}-${mes}-${anio}`;
+}

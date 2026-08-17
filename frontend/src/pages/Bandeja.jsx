@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { currentToken, getFrontendBandeja } from '../lib/api';
 
-// Solicitudes base si es la primera vez que se entra
 const SOLICITUDES_BASE = [
     { id: 'Solicitud 3', tienda: 'T-001', fecha: '12/08/2026', status: 'Aprobada' },
     { id: 'Solicitud 2', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' },
@@ -13,20 +13,36 @@ function Bandeja({currentRole}) {
     const navigate = useNavigate();
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem('bandejaSolicitudes');
-        return guardadas ? JSON.parse(guardadas) : SOLICITUDES_INICIALES;
+        return guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
     });
 
 
     useEffect(() => {
-        // Leemos la bandeja del localStorage
-        const guardadas = localStorage.getItem('bandejaSolicitudes');
-        if (guardadas) {
-            setSolicitudes(JSON.parse(guardadas));
-        } else {
-            setSolicitudes(SOLICITUDES_BASE);
-            localStorage.setItem('bandejaSolicitudes', JSON.stringify(SOLICITUDES_BASE));
+        let activo = true;
+
+        if (!currentToken()) {
+            navigate('/login');
+            return () => {
+                activo = false;
+            };
         }
-    }, []);
+
+        getFrontendBandeja()
+            .then((datos) => {
+                if (!activo) return;
+                setSolicitudes(datos);
+                localStorage.setItem('bandejaSolicitudes', JSON.stringify(datos));
+            })
+            .catch(() => {
+                if (!activo) return;
+                const guardadas = localStorage.getItem('bandejaSolicitudes');
+                setSolicitudes(guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE);
+            });
+
+        return () => {
+            activo = false;
+        };
+    }, [currentRole, navigate]);
 
 
 

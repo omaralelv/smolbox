@@ -5,6 +5,8 @@ import AnadirGasto from '../pages/tienda/AnadirGasto';
 import Bandeja from '../pages/Bandeja';
 import Acumulado from '../pages/Acumulado';
 import Detalle from '../pages/Detalle';
+import Dashboard from '../pages/Dashboard';
+import Login from '../pages/Login';
 
 /*<Routes>
     <Route path="/solicitud/nueva" element={<ProtectedRoute roles={['tienda','admin']}><SolicitudForm/></ProtectedRoute>} />
@@ -15,28 +17,24 @@ import Detalle from '../pages/Detalle';
     <Route path="/usuarios" element={<ProtectedRoute roles={['admin']}><Usuarios/></ProtectedRoute>} />
 </Routes>*/
 
-import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-// ... tus imports de las páginas ...
 
-// Asegúrate de recibir "currentRole" o "roles" aquí si tu ProtectedRoute lo necesita
 function AppRouter({ currentRole }) { 
     return (
         <Routes>
-        {/* Redirección inicial */}
         <Route path="/" element={<Navigate to="/solicitud/nueva" replace />} />
 
-        {/* Tus rutas */}
-        <Route path="/solicitud/nueva" element={<SolicitudForm />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/solicitud/nueva" element={<SolicitudForm currentRole={currentRole} />} />
         <Route path="/gasto/nuevo" element={<AnadirGasto />} />
         <Route path="/bandeja" element={<Bandeja currentRole={currentRole}/>} />
 
         <Route path="/acumulado" element={<Acumulado currentRole={currentRole} />}/>
         <Route path="/detalle" element={<Detalle currentRole={currentRole} />}/>
+        <Route path="/dashboard" element={<Dashboard />} />
         
         </Routes>
     );
 }
 
-// ¡Súper importante que esta línea esté aquí abajo!
 export default AppRouter;

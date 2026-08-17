@@ -1,5 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+
+import {
+    apiErrorMessage,
+    currentToken,
+    executeRequestAction,
+    getFrontendSolicitud,
+    runAutomatedReview,
+} from '../lib/api';
 
 function Acumulado( {currentRole} ) {
 
@@ -8,7 +16,32 @@ function Acumulado( {currentRole} ) {
 
 
     // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
-    const solicitudSeleccionada = location.state?.solicitud;
+    const [solicitudActual, setSolicitudActual] = useState(location.state?.solicitud || null);
+    const solicitudSeleccionada = solicitudActual || location.state?.solicitud;
+    const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.folio || solicitudSeleccionada?.id;
+
+    useEffect(() => {
+        let activo = true;
+
+        if (!currentToken()) {
+            navigate('/login');
+            return () => {
+                activo = false;
+            };
+        }
+
+        if (!solicitudBackendId) return undefined;
+
+        getFrontendSolicitud(solicitudBackendId)
+            .then((solicitud) => {
+                if (activo) setSolicitudActual(solicitud);
+            })
+            .catch(() => {});
+
+        return () => {
+            activo = false;
+        };
+    }, [solicitudBackendId, currentRole, navigate]);
 
     // Si no viene ninguna desde la bandeja (p. ej. recargaron la página), usamos datos base
     const datosSolicitud = {
@@ -73,40 +106,35 @@ function Acumulado( {currentRole} ) {
 
 
 
-    // 1. OBTENER EL ROL ACTUAL (por defecto 'admin' si no está definido)
-    const [rolActual, setRolActual] = useState(() => {
-        return currentRole || 'admin';
-    });
+    async function ejecutarAcciones(acciones, mensajeExito) {
+        if (!solicitudBackendId) return;
 
-    // Si la prop 'currentRole' cambia desde App.jsx / TabsNav, actualizamos el estado
-
-
-    // Escuchar si el rol cambia desde otra pestaña o evento
-    useEffect(() => {
-        const handleStorageChange = () => {
-            const rolGuardado = currentRole || 'admin';
-            setRolEstado(rolGuardado);
-        };
-
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
-
-    // Función para cambiar el estatus en localStorage y regresar a la Bandeja
-    function manejarCambioEstatus(nuevoEstatus) {
-        const idActual = solicitudSeleccionada?.id || datosSolicitud.folio;
-        const solicitudesGuardadas = JSON.parse(localStorage.getItem('bandejaSolicitudes') || '[]');
-
-        const solicitudesActualizadas = solicitudesGuardadas.map((sol) => {
-            if (sol.id === idActual || sol.folio === idActual) {
-                return { ...sol, status: nuevoEstatus };
+        try {
+            let solicitud = await getFrontendSolicitud(solicitudBackendId);
+            for (const accion of acciones) {
+                const accionPermitida = solicitud.availableActions?.includes(accion) || accion === 'prepare_sap_policy';
+                if (!accionPermitida) continue;
+                await executeRequestAction(solicitud.backendId, accion);
+                solicitud = await getFrontendSolicitud(solicitud.backendId);
             }
-            return sol;
-        });
+            setSolicitudActual(solicitud);
+            localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitud]));
+            alert(mensajeExito);
+            navigate('/bandeja');
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
+    }
 
-        localStorage.setItem('bandejaSolicitudes', JSON.stringify(solicitudesActualizadas));
-        alert(`La solicitud cambió su estatus a: ${nuevoEstatus}`);
-        navigate('/bandeja');
+    async function ejecutarRevisionAutomatica() {
+        if (!solicitudSeleccionada?.backendId) return;
+
+        try {
+            await runAutomatedReview(solicitudSeleccionada.backendId);
+            alert('Revisión automática ejecutada.');
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
     }
 
     // 3. MATRIZ DE CONFIGURACIÓN DE BOTONES POR ROL
@@ -123,30 +151,54 @@ function Acumulado( {currentRole} ) {
             case 'contabilidad':
                 return (
                     <>
-                        <button style={styles.btnOutline}>Póliza y Reembolso</button>
-                        <button style={styles.btnOutline}>Cargar Reembolso</button>
-                        <button style={styles.btnFilledCoral}>Enviar a Juanita</button>
+                        <button
+                            style={styles.btnOutline}
+                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
+                        >Póliza y Reembolso</button>
+                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
+                        <button
+                            style={styles.btnFilledCoral}
+                            onClick={() => ejecutarAcciones(
+                                ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
+                                'Solicitud enviada a gerencia.'
+                            )}
+                        >Enviar a Juanita</button>
                     </>
                 );
 
             case 'gerencia':
                 return (
                     <>
-                        <button style={styles.btnOutline}>Regresar Acumulado</button>
+                        <button
+                            style={styles.btnOutline}
+                            onClick={() => ejecutarAcciones(['return_to_accounting'], 'Solicitud regresada a contabilidad.')}
+                        >Regresar Acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button style={styles.btnFilledCoral}>Enviar a Samuel</button>
+                        <button
+                            style={styles.btnFilledCoral}
+                            onClick={() => ejecutarAcciones(
+                                ['start_accounting_manager_review', 'approve_accounting_manager'],
+                                'Solicitud enviada a tesorería.'
+                            )}
+                        >Enviar a Samuel</button>
                     </>
                 );
 
             case 'tesoreria':
                 return (
                     <>
-                        <button style={styles.btnOutline}>Regresar acumulado</button>
+                        <button
+                            style={styles.btnOutline}
+                            onClick={() => ejecutarAcciones(['return_to_manager'], 'Solicitud regresada a gerencia.')}
+                        >Regresar acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button style={styles.btnFilledCoral}>Enviar a Dirección</button>
+                        <button
+                            style={styles.btnFilledCoral}
+                            onClick={() => ejecutarAcciones(['start_treasury_review', 'send_to_direction'], 'Solicitud enviada a dirección.')}
+                        >Enviar a Dirección</button>
                         <button 
                             style={styles.btnGreen}
-                            onClick={() => manejarCambioEstatus('Pagada')}
+                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
                         >
                             Confirmar pago
                         </button>
@@ -156,11 +208,14 @@ function Acumulado( {currentRole} ) {
             case 'direccion':
                 return (
                     <>
-                        <button style={styles.btnOutline}>Regresar Acumulado</button>
+                        <button
+                            style={styles.btnOutline}
+                            onClick={() => ejecutarAcciones(['return_to_treasury'], 'Solicitud regresada a tesorería.')}
+                        >Regresar Acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
                             style={styles.btnBlue}
-                            onClick={() => manejarCambioEstatus('Aprobada')}
+                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
                         >
                             Aprobar pago
                         </button>
@@ -172,22 +227,34 @@ function Acumulado( {currentRole} ) {
                 // Muestra todos los botones de la suite
                 return (
                     <>
-                        <button style={styles.btnOutline}>Póliza y Reembolso</button>
-                        <button style={styles.btnOutline}>Cargar Reembolso</button>
-                        <button style={styles.btnFilledCoral}>Enviar a Juanita</button>
+                        <button
+                            style={styles.btnOutline}
+                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
+                        >Póliza y Reembolso</button>
+                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
+                        <button
+                            style={styles.btnFilledCoral}
+                            onClick={() => ejecutarAcciones(
+                                ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
+                                'Solicitud enviada a gerencia.'
+                            )}
+                        >Enviar a Juanita</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button style={styles.btnFilledCoral}>Enviar Dirección</button>
+                        <button
+                            style={styles.btnFilledCoral}
+                            onClick={() => ejecutarAcciones(['start_treasury_review', 'send_to_direction'], 'Solicitud enviada a dirección.')}
+                        >Enviar Dirección</button>
 
                         <button
                             style={styles.btnBlue}
-                            onClick={() => manejarCambioEstatus('Aprobada')}
+                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
                         >
                             Aprobar pago
                         </button>
 
                         <button 
                             style={styles.btnGreen}
-                            onClick={() => manejarCambioEstatus('Pagada')}
+                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
                         >
                             Confirmar pago
                         </button>
@@ -257,6 +324,7 @@ function Acumulado( {currentRole} ) {
                                     state: { 
                                         categoria: item.tipo, 
                                         solicitudFolio: datosSolicitud.folio,
+                                        solicitudBackendId: solicitudSeleccionada?.backendId,
                                         desglose: item.elementosOriginales || []
                                     } 
                                 });

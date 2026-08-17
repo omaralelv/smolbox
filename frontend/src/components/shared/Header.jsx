@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { clearSession } from '../../lib/api';
 
 // Supongamos que recibes el "rolLogueado" y la función para cambiarlo desde el contexto o App.jsx
 // Esto te servirá para cambiar de rol con el botón de Perfil mientras pruebas los mocks.
@@ -49,7 +51,10 @@ function Header({ currentRole = 'admin', onRoleChange }) {
                     key={rol}
                     onClick={() => {
                     if (onRoleChange) onRoleChange(rol);
+                    clearSession();
+                    localStorage.setItem('smolboxFrontendRole', rol);
                     setShowProfileMenu(false);
+                    navigate('/login');
                     }}
                     style={{
                     ...styles.dropdownItem,
