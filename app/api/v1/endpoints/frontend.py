@@ -321,7 +321,7 @@ def _stores_for_user(current_user: User, db: Session) -> list[Store]:
 def _store_payload(store: Store) -> FrontendStoreRead:
     return FrontendStoreRead(
         id=store.id,
-        code=store.code,
+        code=_frontend_store_code(store),
         name=store.name,
         gerente=store.manager_name,
         cuenta_bancaria=store.bank_account,
@@ -343,7 +343,7 @@ def _request_payload(
         id=folio,
         backend_id=request.id,
         folio=folio,
-        tienda=request.store.code,
+        tienda=_frontend_store_code(request.store),
         fecha=_format_date(display_date),
         fecha_formateada=display_date.strftime("%d%m%Y"),
         status=_frontend_request_status(request.status),
@@ -392,6 +392,8 @@ def _resolve_store_for_create(
         store = db.get(Store, request_in.store_id)
     elif request_in.tienda:
         store = db.scalar(select(Store).where(Store.code == request_in.tienda))
+        if store is None:
+            store = db.scalar(select(Store).where(Store.code == f"HUD-{request_in.tienda}"))
     else:
         stores = _stores_for_user(current_user, db)
         store = stores[0] if stores else None
@@ -539,7 +541,7 @@ def _current_open_period(db: Session) -> Period | None:
 
 
 def _generate_request_folio(store: Store, db: Session) -> str:
-    prefix = f"{store.code}-{datetime.now(UTC).date():%d%m%Y}"
+    prefix = f"{_frontend_store_code(store)}-{datetime.now(UTC).date():%d%m%Y}"
     existing_folios = db.scalars(
         select(ReimbursementRequest.folio).where(
             ReimbursementRequest.folio.is_not(None),
@@ -554,6 +556,13 @@ def _generate_request_folio(store: Store, db: Session) -> str:
         if suffix.isdecimal():
             highest_sequence = max(highest_sequence, int(suffix))
     return f"{prefix}{highest_sequence + 1}"
+
+
+def _frontend_store_code(store: Store) -> str:
+    candidate = store.code.removeprefix("HUD-")
+    if len(candidate) == 4 and candidate.startswith("T") and candidate[1:].isdecimal():
+        return candidate
+    return store.code
 
 
 def _request_is_visible_for_role(request: ReimbursementRequest, role: UserRole) -> bool:

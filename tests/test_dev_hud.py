@@ -574,6 +574,9 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
     payload = seeded.json()
     assert payload["created"] == 16
     assert len(payload["scenarios"]) == 16
+    assert {scenario["store_code"] for scenario in payload["scenarios"]}.issubset(
+        {f"T{number:03d}" for number in range(1, 6)}
+    )
 
     statuses = {scenario["status"] for scenario in payload["scenarios"]}
     assert {
@@ -627,6 +630,33 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
         "approved_for_payment",
         "paid",
     }.issubset(role_queue_statuses("treasury"))
+
+    frontend_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "hud.accountant@hud.smolbox.example.com", "password": "hud-password"},
+    )
+    assert frontend_login.status_code == 200, frontend_login.text
+    frontend_queue = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers={"Authorization": f"Bearer {frontend_login.json()['access_token']}"},
+    )
+    assert frontend_queue.status_code == 200, frontend_queue.text
+    frontend_item = frontend_queue.json()[0]
+    assert frontend_item["tienda"].startswith("T")
+    assert frontend_item["id"].startswith(f"{frontend_item['tienda']}-")
+    assert frontend_item["status"] in {"En captura", "En revision", "En revisión", "Aprobada", "Pagada"}
+    assert frontend_item["gerente"] == "Karen Ponce Hernandez"
+    assert frontend_item["cuentaBancaria"] == "101328508"
+    assert {expense["tipo"] for expense in frontend_item["gastos"]}.issubset(
+        {
+            "Papeleria",
+            "Sistemas",
+            "Bolsas",
+            "Articulos de Limpieza",
+            "Alimentos",
+            "Equipo Menor",
+        }
+    )
 
     paid_request_id = next(
         scenario["request_id"] for scenario in payload["scenarios"] if scenario["status"] == "paid"

@@ -42,6 +42,9 @@ HUD_STORE_CODE = "HUD-001"
 HUD_PERIOD_NAME = "HUD Agosto 2026"
 HUD_EMAIL_DOMAIN = "hud.smolbox.example.com"
 HUD_DEMO_PASSWORD = "hud-password"
+FRONTEND_DEMO_MANAGER_NAME = "Karen Ponce Hernandez"
+FRONTEND_DEMO_BANK_ACCOUNT = "101328508"
+FRONTEND_DEMO_STATE_REGION = "CDMX"
 
 DEMO_RECEIPT_BYTES = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n"
 
@@ -75,6 +78,15 @@ DEMO_USERS = {
     UserRole.director: ("hud.director@hud.smolbox.example.com", "HUD Usuario Direccion"),
     UserRole.admin: ("hud.admin@hud.smolbox.example.com", "HUD Usuario Admin"),
 }
+
+
+def _is_frontend_demo_store_code(code: str) -> bool:
+    return len(code) == 4 and code.startswith("T") and code[1:].isdecimal()
+
+
+def _frontend_demo_store_code(code: str) -> str:
+    candidate = code.removeprefix("HUD-")
+    return candidate if _is_frontend_demo_store_code(candidate) else code
 
 
 class HudStoreCreate(BaseModel):
@@ -178,8 +190,8 @@ class HudScenarioCreate(BaseModel):
     @classmethod
     def normalize_store_code(cls, value: str) -> str:
         code = value.strip().upper()
-        if not code.startswith("HUD-"):
-            raise ValueError("HUD scenario store codes must start with HUD-")
+        if not code.startswith("HUD-") and not _is_frontend_demo_store_code(code):
+            raise ValueError("HUD scenario store codes must start with HUD- or match T###")
         return code
 
     @field_validator("contact_email")
@@ -877,55 +889,66 @@ def _bulk_scenario(index: int, store_count: int) -> HudScenarioCreate:
     starts_on, ends_on = _bulk_period_dates(period_index)
     profile = BULK_DEMO_PROFILES[index % len(BULK_DEMO_PROFILES)]
     missing_evidence = profile["name"] == "draft_missing_evidence"
-    amounts = [
-        Decimal("420.00") + Decimal(index * 3),
-        Decimal("180.50") + Decimal(store_number),
-        Decimal("95.25") + Decimal(period_index),
+    category_templates = [
+        ("Papeleria", "Compra de papeleria", Decimal("56.00")),
+        ("Sistemas", "Soporte de sistemas", Decimal("268.01")),
+        ("Bolsas", "Bolsas para tienda", Decimal("95.25")),
+        ("Articulos de Limpieza", "Articulos de limpieza", Decimal("120.50")),
+        ("Alimentos", "Alimentos operativos", Decimal("180.50")),
+        ("Equipo Menor", "Equipo menor operativo", Decimal("310.00")),
     ]
-    reported_total = sum(amounts, Decimal("0.00"))
+    first = category_templates[index % len(category_templates)]
+    second = category_templates[(index + 1) % len(category_templates)]
+    third = category_templates[(index + 2) % len(category_templates)]
+    amounts = [
+        first[2] + Decimal(index),
+        second[2] + Decimal(store_number),
+        third[2] + Decimal(period_index),
+    ]
+    reported_total = sum(amounts, Decimal("0.00")).quantize(Decimal("0.01"))
     if missing_evidence:
         reported_total += Decimal("17.00")
 
     return HudScenarioCreate(
         reset_existing=False,
-        store_code=f"HUD-BULK-{store_number:03d}",
-        store_name=f"HUD Sucursal Demo {store_number:03d}",
-        contact_email=f"hud.bulk.{store_number:03d}@{HUD_EMAIL_DOMAIN}",
+        store_code=f"HUD-T{store_number:03d}",
+        store_name=f"Tienda {store_number:03d}",
+        contact_email=f"hud.frontend.t{store_number:03d}@{HUD_EMAIL_DOMAIN}",
         assigned_accountant="HUD Usuario Contador",
-        period_name=f"HUD Bulk {starts_on.strftime('%Y-%m')}",
+        period_name=f"HUD Frontend {starts_on.strftime('%Y-%m')}",
         starts_on=starts_on,
         ends_on=ends_on,
         reported_total=reported_total.quantize(Decimal("0.01")),
         previous_reimbursement_starts_on=starts_on - timedelta(days=31),
         previous_reimbursement_ends_on=starts_on - timedelta(days=1),
         previous_reimbursement_amount=(reported_total - Decimal("35.00")).quantize(Decimal("0.01")),
-        notes=f"Escenario masivo HUD: {profile['name']}.",
+        notes=f"Escenario masivo para frontend original: {profile['name']}.",
         expenses=[
             HudScenarioExpenseCreate(
-                merchant=f"HUD Papeleria Demo {index + 1}",
+                merchant=f"{first[1]} {index + 1}",
                 amount=amounts[0],
                 spent_on=starts_on + timedelta(days=4),
-                category="papeleria",
-                description="Material operativo demo.",
+                category=first[0],
+                description="Gasto demo con estructura de la pantalla original.",
                 supplier_tax_id="XAXX010101000",
                 create_receipt=not missing_evidence,
             ),
             HudScenarioExpenseCreate(
-                merchant=f"HUD Taxi Autorizacion {index + 1}",
+                merchant=f"{second[1]} {index + 1}",
                 amount=amounts[1],
                 spent_on=starts_on + timedelta(days=9),
-                category="transporte",
-                description="Traslado que requiere autorizacion demo.",
+                category=second[0],
+                description="Gasto demo que requiere autorizacion cuando aplica.",
                 supplier_tax_id="XEXX010101000",
                 requires_authorization=True,
                 create_receipt=True,
             ),
             HudScenarioExpenseCreate(
-                merchant=f"HUD Cafeteria Demo {index + 1}",
+                merchant=f"{third[1]} {index + 1}",
                 amount=amounts[2],
                 spent_on=starts_on + timedelta(days=14),
-                category="alimentos",
-                description="Consumo operativo demo.",
+                category=third[0],
+                description="Gasto demo para agrupacion en acumulado.",
                 supplier_tax_id="XAXX010101000",
                 create_receipt=True,
             ),
@@ -1198,6 +1221,9 @@ def _get_or_create_store(db: Session, scenario: HudScenarioCreate) -> Store:
         store.name = scenario.store_name
         store.contact_email = scenario.contact_email
         store.assigned_accountant = scenario.assigned_accountant
+        store.manager_name = store.manager_name or FRONTEND_DEMO_MANAGER_NAME
+        store.bank_account = store.bank_account or FRONTEND_DEMO_BANK_ACCOUNT
+        store.state_region = store.state_region or FRONTEND_DEMO_STATE_REGION
         return store
 
     store = Store(
@@ -1205,6 +1231,9 @@ def _get_or_create_store(db: Session, scenario: HudScenarioCreate) -> Store:
         name=scenario.store_name,
         contact_email=scenario.contact_email,
         assigned_accountant=scenario.assigned_accountant,
+        manager_name=FRONTEND_DEMO_MANAGER_NAME,
+        bank_account=FRONTEND_DEMO_BANK_ACCOUNT,
+        state_region=FRONTEND_DEMO_STATE_REGION,
     )
     db.add(store)
     db.flush()
@@ -1278,11 +1307,13 @@ def _get_or_create_request(
         request.previous_reimbursement_ends_on = scenario.previous_reimbursement_ends_on
         request.previous_reimbursement_amount = scenario.previous_reimbursement_amount
         request.notes = scenario.notes
+        request.folio = _frontend_demo_request_folio(store, scenario)
         return request
 
     request = ReimbursementRequest(
         store_id=store.id,
         period_id=period.id,
+        folio=_frontend_demo_request_folio(store, scenario),
         reported_total=_scenario_reported_total(scenario),
         previous_reimbursement_starts_on=scenario.previous_reimbursement_starts_on,
         previous_reimbursement_ends_on=scenario.previous_reimbursement_ends_on,
@@ -1292,6 +1323,11 @@ def _get_or_create_request(
     db.add(request)
     db.flush()
     return request
+
+
+def _frontend_demo_request_folio(store: Store, scenario: HudScenarioCreate) -> str:
+    display_date = scenario.starts_on + timedelta(days=min(11, (scenario.ends_on - scenario.starts_on).days))
+    return f"{_frontend_demo_store_code(store.code)}-{display_date:%d%m%Y}1"
 
 
 def _create_demo_expenses(
@@ -1411,7 +1447,14 @@ def _ensure_demo_cfdi(
     cfdi_uuid = str(uuid5(NAMESPACE_URL, f"smolbox-hud-cfdi:{expense.id}")).upper()
     issuer_rfc = expense.supplier_tax_id or "XAXX010101000"
     receiver_rfc = settings.cfdi_receiver_rfc or "BBB010101BBB"
-    issued_at = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+    issued_at = datetime(
+        expense.spent_on.year,
+        expense.spent_on.month,
+        expense.spent_on.day,
+        12,
+        0,
+        tzinfo=UTC,
+    )
     content = _demo_cfdi_xml(
         uuid=cfdi_uuid,
         issuer_rfc=issuer_rfc,
@@ -1507,7 +1550,7 @@ def _load_demo_request(db: Session, request_id: UUID | None = None) -> Reimburse
         )
         .order_by(ReimbursementRequest.created_at.desc())
     )
-    statement = statement.where(Store.code.like("HUD-%"), Period.name.like("HUD %"))
+    statement = statement.where(Period.name.like("HUD %"))
     if request_id is not None:
         statement = statement.where(ReimbursementRequest.id == request_id)
     return db.scalars(statement).first()
@@ -1530,7 +1573,7 @@ def _scenario_payload(db: Session, request_id: UUID | None = None) -> dict[str, 
         "request_id": request.id,
         "status": request.status.value,
         "store_id": request.store_id,
-        "store_code": request.store.code,
+        "store_code": _frontend_demo_store_code(request.store.code),
         "store_name": request.store.name,
         "period_id": request.period_id,
         "period_name": request.period.name,
@@ -1569,7 +1612,7 @@ def _scenario_list_payload(db: Session) -> list[dict[str, Any]]:
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
         )
-        .where(Store.code.like("HUD-%"), Period.name.like("HUD %"))
+        .where(Period.name.like("HUD %"))
         .order_by(ReimbursementRequest.created_at.desc())
         .limit(100)
     )
@@ -1581,7 +1624,7 @@ def _scenario_list_item_payload(request: ReimbursementRequest) -> dict[str, Any]
     return {
         "request_id": request.id,
         "status": request.status.value,
-        "store_code": request.store.code,
+        "store_code": _frontend_demo_store_code(request.store.code),
         "store_name": request.store.name,
         "period_name": request.period.name,
         "reported_total": summary["reported_total"],
