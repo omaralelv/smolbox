@@ -174,7 +174,7 @@ const styles = {
         backgroundColor: '#ffffff',
         color: 'var(--text-h)',
         padding: '8px',
-        fontSize: '15px',
+        fontSize: '14px',
         outline: 'none',
     },
     error: {
