@@ -162,7 +162,7 @@ function Acumulado( {currentRole} ) {
                                 ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
                                 'Solicitud enviada a gerencia.'
                             )}
-                        >Enviar a Juanita</button>
+                        >Enviar a Gerencia</button>
                     </>
                 );
 
@@ -180,7 +180,7 @@ function Acumulado( {currentRole} ) {
                                 ['start_accounting_manager_review', 'approve_accounting_manager'],
                                 'Solicitud enviada a tesorería.'
                             )}
-                        >Enviar a Samuel</button>
+                        >Enviar a Tesorería</button>
                     </>
                 );
 
@@ -193,14 +193,10 @@ function Acumulado( {currentRole} ) {
                         >Regresar acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(['start_treasury_review', 'send_to_direction'], 'Solicitud enviada a dirección.')}
-                        >Enviar a Dirección</button>
-                        <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
+                            style={styles.btnBlue}
+                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
                         >
-                            Confirmar pago
+                            Aprobar pago
                         </button>
                     </>
                 );
@@ -213,12 +209,6 @@ function Acumulado( {currentRole} ) {
                             onClick={() => ejecutarAcciones(['return_to_treasury'], 'Solicitud regresada a tesorería.')}
                         >Regresar Acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
-                        >
-                            Aprobar pago
-                        </button>
                     </>
                 );
 
@@ -238,25 +228,21 @@ function Acumulado( {currentRole} ) {
                                 ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
                                 'Solicitud enviada a gerencia.'
                             )}
-                        >Enviar a Juanita</button>
+                        >Enviar a Gerencia</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(['start_treasury_review', 'send_to_direction'], 'Solicitud enviada a dirección.')}
-                        >Enviar Dirección</button>
+                            onClick={() => ejecutarAcciones(
+                                ['start_accounting_manager_review', 'approve_accounting_manager'],
+                                'Solicitud enviada a tesorería.'
+                            )}
+                        >Enviar a Tesorería</button>
 
                         <button
                             style={styles.btnBlue}
                             onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
                         >
                             Aprobar pago
-                        </button>
-
-                        <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
-                        >
-                            Confirmar pago
                         </button>
                     </>
                 );
