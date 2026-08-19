@@ -674,3 +674,26 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
     rejected_summary = rejected_status.json()["scenario"]["summary"]
     assert rejected_summary["expense_count"] == 0
     assert "no_payable_expenses" in {issue["code"] for issue in rejected_summary["issues"]}
+
+
+def test_admin_bandeja_and_work_queue_exclude_draft(client: TestClient) -> None:
+    seeded = client.post(
+        "/api/v1/dev-hud/seed-bulk-demo",
+        json={"reset_existing": True, "request_count": 16, "store_count": 5},
+    )
+    assert seeded.status_code == 201, seeded.text
+
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "hud.admin@hud.smolbox.example.com", "password": "hud-password"},
+    )
+    assert admin_login.status_code == 200, admin_login.text
+    headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+
+    work_queue = client.get("/api/v1/work-queue/me", headers=headers)
+    assert work_queue.status_code == 200, work_queue.text
+    assert "draft" not in {item["status"] for item in work_queue.json()}
+
+    bandeja = client.get("/api/v1/frontend/bandeja/me", headers=headers)
+    assert bandeja.status_code == 200, bandeja.text
+    assert "En captura" not in {item["status"] for item in bandeja.json()}

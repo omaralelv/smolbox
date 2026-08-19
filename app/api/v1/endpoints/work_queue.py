@@ -66,6 +66,9 @@ def list_my_work_queue(
     )
 
     if current_user.role == UserRole.admin:
+        statement = statement.where(
+            ReimbursementRequest.status != ReimbursementRequestStatus.draft
+        )
         return [
             _build_queue_item(request, current_user)
             for request in db.scalars(statement.limit(200))

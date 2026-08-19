@@ -136,6 +136,9 @@ def list_frontend_work_queue(
 ) -> list[FrontendSolicitudRead]:
     statement = _request_detail_statement().order_by(ReimbursementRequest.created_at.desc())
     if current_user.role == UserRole.admin:
+        statement = statement.where(
+            ReimbursementRequest.status != ReimbursementRequestStatus.draft
+        )
         requests = list(db.scalars(statement.limit(200)))
         return [_request_payload(request, current_user) for request in requests]
 
