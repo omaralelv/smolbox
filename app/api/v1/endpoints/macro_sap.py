@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
@@ -10,7 +10,20 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.drawing.image import Image 
+import os
 
+# 1. Definir el Router en lugar de la App
+router = APIRouter()
+
+# 2. Configurar las rutas absolutas para leer tus archivos (para que no falle al ejecutarlo)
+# Esto calcula la ruta basándose en dónde está este archivo macro_sap.py
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+
+ruta_tiendas = os.path.join(ASSETS_DIR, "Copia de BASE DE TIENDAS.xlsx")
+ruta_gastos = os.path.join(ASSETS_DIR, "TiposGastos.xlsx")
+ruta_plantilla = os.path.join(ASSETS_DIR, "COPIA FORMATO REEMBOLSO.xlsx")
+ruta_logo = os.path.join(ASSETS_DIR, "logoV.png")
 # =========================================================
 # 1. CARGA DE BASE DE DATOS (Se carga al iniciar el servidor)
 # =========================================================
@@ -31,8 +44,8 @@ def cargar_tipo_gastos(ruta_archivo):
         return {}
 
 # Cargamos en memoria RAM del servidor al iniciar
-diccionario_tiendas = cargar_base_tiendas("Copia de BASE DE TIENDAS.xlsx")
-diccionario_gastos = cargar_tipo_gastos("TiposGastos.xlsx")
+diccionario_tiendas = cargar_base_tiendas(ruta_tiendas)
+diccionario_gastos = cargar_tipo_gastos(ruta_gastos)
 
 # =========================================================
 # 2. ESQUEMAS DE VALIDACIÓN (Lo que enviará el Frontend)
@@ -56,9 +69,8 @@ class SolicitudPoliza(BaseModel):
 # =========================================================
 # 3. INICIO DE LA API
 # =========================================================
-app = FastAPI(title="Generador de Pólizas SAP")
 
-@app.post("/generar-polizas/")
+@router.post("/generar-polizas/")
 def generar_polizas(datos: SolicitudPoliza):
     # A) Validar tienda
     if datos.numero_tienda not in diccionario_tiendas:
@@ -180,11 +192,11 @@ def generar_polizas(datos: SolicitudPoliza):
         ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, '', f'{datos.numero_tienda} CAJA CHICA', col_h])
 
     # E) Creación del Archivo 2: Solicitud (En memoria)
-    wb_solicitud = load_workbook('COPIA FORMATO REEMBOLSO.xlsx')
+    wb_solicitud = load_workbook(ruta_plantilla)
     ws_solicitud = wb_solicitud.active
     
     try:
-        logo = Image('logoV.png')
+        logo = Image(ruta_logo)
         ws_solicitud.add_image(logo, 'C3')
     except Exception as e:
         print("Logo no insertado:", e)
@@ -229,8 +241,8 @@ def generar_polizas(datos: SolicitudPoliza):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         # Aquí definimos cómo se llamarán los archivos DENTRO del ZIP
-        zip_file.writestr(f"{datos.numero_tienda} CAJA CHICA.xlsx", buffer_sap.getvalue())
-        zip_file.writestr(f"{datos.numero_tienda} Poliza Reembolso.xlsx", buffer_solicitud.getvalue())
+        zip_file.writestr(f"CAJA CHICA {datos.numero_tienda}{fecha_poliza_sap}.xlsx", buffer_sap.getvalue())
+        zip_file.writestr(f"Poliza Reembolso {datos.numero_tienda}{fecha_poliza_sap}.xlsx", buffer_solicitud.getvalue())
 
     # Reiniciamos el cursor del buffer de ZIP al inicio antes de enviarlo
     zip_buffer.seek(0)
@@ -239,5 +251,5 @@ def generar_polizas(datos: SolicitudPoliza):
     return StreamingResponse(
         zip_buffer, 
         media_type="application/x-zip-compressed",
-        headers={"Content-Disposition": f"attachment; filename=Polizas_{datos.numero_tienda}.zip"}
+        headers={"Content-Disposition": f"attachment; filename=Polizas_{datos.numero_tienda}{fecha_poliza_sap}.zip"}
     )

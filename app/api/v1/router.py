@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     expenses,
     frontend,
     health,
+    macro_sap,
     periods,
     reimbursement_requests,
     stores,
@@ -36,3 +37,4 @@ api_router.include_router(attachment_files.router, prefix="/attachments", tags=[
 api_router.include_router(cfdi.router, tags=["cfdi"])
 api_router.include_router(dev_hud.router, prefix="/dev-hud", tags=["dev-hud"])
 api_router.include_router(frontend.router, prefix="/frontend", tags=["frontend"])
+api_router.include_router(macro_sap.router, prefix="/macro", tags=["macro-sap"])
