@@ -16,6 +16,13 @@ function AnadirGasto() {
     const [valeFile, setValeFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
 
+    const [folioValidado, setFolioValidado] = useState(false);
+
+    const handleValidarFolio = () => {
+        if (!folio.trim()) return;
+        setFolioValidado(true);
+    };
+
     
     // Estados para simular la IA de Validación Automática
     const [estadoValidacion, setEstadoValidacion] = useState(null); // 'listo', 'error', 'legibilidad'
@@ -66,6 +73,7 @@ function AnadirGasto() {
         
         // 2. Pasamos el objeto dentro de la propiedad 'state' al regresar
         navigate('/solicitud/nueva');
+
     };
 
 
@@ -101,13 +109,39 @@ function AnadirGasto() {
                 <label style={styles.label}>Monto *</label>
                 <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} style={styles.input} />
                 </div>
-                <div style={styles.inputGroup}>
-                <label style={styles.label}>Folio Fiscal *</label>
-                <input type="text" value={folio} onChange={(e) => setFolio(e.target.value)} style={styles.input} />
-                </div>
-                <div style={styles.inputGroup}>
-                <label style={styles.label}>% IMPUESTO *</label>
-                <input type="number" value={impuesto} onChange={(e) => setImpuesto(e.target.value)} style={styles.input} />
+
+
+
+
+                {/* FOLIO FISCAL OCUPANDO AMBAS COLUMNAS CON BOTÓN DE CONFIRMACIÓN */}
+                <div style={styles.inputGroupFull}>
+                    <label style={styles.label}>Folio Fiscal *</label>
+                    <div style={styles.inputWithButton}>
+                        <input 
+                            type="text" 
+                            value={folio} 
+                            onChange={(e) => {
+                                setFolio(e.target.value);
+                                setFolioValidado(false); // Resetea el estatus si el usuario edita el folio
+                            }} 
+                            placeholder="Ej. 12345678-ABCD-1234-ABCD-1234567890AB"
+                            style={{
+                                ...styles.input,
+                                flex: 1, // Toma todo el espacio disponible
+                                borderColor: folioValidado ? '#22c55e' : 'var(--border, #cbd5e1)'
+                            }} 
+                        />
+                        <button 
+                            type="button" 
+                            onClick={handleValidarFolio}
+                            style={{
+                                ...styles.btnValidar,
+                                backgroundColor: folioValidado ? '#22c55e' : 'var(--sb-sendBtnBg, #2563eb)'
+                            }}
+                        >
+                            {folioValidado ? '✓ Confirmado' : 'Confirmar'}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -228,7 +262,7 @@ function AnadirGasto() {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '25px',
+        marginBottom: '20px',
     },
     mainTitle: {
         margin: 0,
@@ -253,7 +287,7 @@ function AnadirGasto() {
         flex: 2,
         display: 'flex',
         flexDirection: 'column',
-        gap: '25px',
+        gap: '20px',
     },
     divider: {
         width: '1px',
@@ -278,7 +312,7 @@ function AnadirGasto() {
     formGrid: {
         display: 'grid',
         gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: '20px',
+        gap: '15px',
     },
     inputGroup: {
         display: 'flex',
@@ -291,11 +325,45 @@ function AnadirGasto() {
         color: 'var(--text-h)',
         textAlign: 'center',
     },
+
+
+
+    // 👈 Ocupa ambas columnas del Grid
+    inputGroupFull: {
+        gridColumn: 'span 2',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+    },
+    // 👈 Alinea el input y el botón en la misma línea
+    inputWithButton: {
+        display: 'flex',
+        gap: '10px',
+        alignItems: 'center',
+    },
+
+
+    // 👈 Estilo para el botón de confirmación
+    btnValidar: {
+        color: 'var(--text-CBtn)',
+        border: 'none',
+        borderRadius: '8px',
+        padding: '8px 15px',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap', // Evita que el texto del botón se corte
+        transition: 'background-color 0.2s ease',
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+    },
+
+
+
     input: {
         border: '1px solid var(--border)',
         borderRadius: '8px',
         padding: '10px',
-        fontSize: '15px',
+        fontSize: '14px',
         textAlign: 'center',
         outline: 'none',
         backgroundColor: 'var(--bg)',
@@ -305,7 +373,7 @@ function AnadirGasto() {
         border: '1px solid var(--border)',
         borderRadius: '8px',
         padding: '10px',
-        fontSize: '15px',
+        fontSize: '14px',
         textAlign: 'center',
         outline: 'none',
         backgroundColor: 'var(--bg)',

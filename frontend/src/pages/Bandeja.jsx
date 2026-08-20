@@ -65,6 +65,11 @@ function Bandeja({currentRole}) {
                 backgroundColor: 'var(--sb-revisionBg, #f2f2f2)',
                 color: 'var(--text-revision, #777777)'
             };
+        case 'Rechazada':
+            return{
+                backgroundColor: 'var(--sb-denegadaBg)',
+                color: 'var(--text-denegada)',
+            };
     }
     };
 
