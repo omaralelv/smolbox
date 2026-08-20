@@ -113,8 +113,13 @@ def generar_polizas(datos: SolicitudPoliza):
 
         iva_calculado = (gasto.monto_base / (1 + gasto.porcentaje_iva / 100)) * (gasto.porcentaje_iva / 100)
         subtotal_factura = gasto.monto_base - iva_calculado
-        indice_iva = mapa_indices_iva.get(gasto.porcentaje_iva, "W_ND")
 
+        # Condicional: si IVA es 0% Y la cuenta es 601158, entonces W2
+        if gasto.porcentaje_iva == Decimal("0.0") and gasto.cuenta == "601158":
+            indice_iva = "W2"
+        else:
+            indice_iva = mapa_indices_iva.get(gasto.porcentaje_iva, "W_ND")
+    # =========================
         registro = {
             "UIDD": gasto.uidd,
             "Cuenta": gasto.cuenta,
