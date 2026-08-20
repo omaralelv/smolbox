@@ -116,7 +116,7 @@ function AnadirGasto() {
                 <div style={styles.fileBox}>
                 <span style={styles.fileLabel}>Cargar Factura *</span>
                 <div style={styles.fileRow}>
-                    <span style={styles.fileName}>{facturaFile ? facturaFile.name : "RIOR58416843EC48.pdf"}</span>
+                    <span style={styles.fileName}>{facturaFile ? facturaFile.name : "Ningún archivo seleccionado"}</span>
                     <label style={styles.fileButtonLabel}>
                     Seleccionar archivo...
                     <input type="file" accept=".pdf,.xml" style={{ display: 'none' }} onChange={(e) => setFacturaFile(e.target.files[0])} />

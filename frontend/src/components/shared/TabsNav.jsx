@@ -73,7 +73,7 @@ function TabsNav({ currentRole }) {
     subNavContainer: {
         display: 'flex',
         gap: '12px',
-        padding: '15px 30px',
+        padding: '12px 30px',
         backgroundColor: 'var(--sb-subhead)', // Un fondo sutil para separar del Header, alineado a --sb-subhead
         borderBottom: '1px solid var(--border)',
         justifyContent: 'flex-start',

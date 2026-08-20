@@ -77,7 +77,7 @@ function Header({ currentRole = 'admin', onRoleChange }) {
 const styles = {
     header: {
         backgroundColor: 'var(--sb-header)', // Color salmón/coral claro de tu mockup
-        height: '70px',
+        height: '55px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',

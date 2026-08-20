@@ -7,6 +7,7 @@ import Acumulado from '../pages/Acumulado';
 import Detalle from '../pages/Detalle';
 import Dashboard from '../pages/Dashboard';
 import Login from '../pages/Login';
+import AutorizacionBandeja from '../pages/autorizacion/AutorizacionBandeja';
 
 /*<Routes>
     <Route path="/solicitud/nueva" element={<ProtectedRoute roles={['tienda','admin']}><SolicitudForm/></ProtectedRoute>} />
@@ -27,6 +28,7 @@ function AppRouter({ currentRole }) {
         <Route path="/login" element={<Login />} />
         <Route path="/solicitud/nueva" element={<SolicitudForm currentRole={currentRole} />} />
         <Route path="/gasto/nuevo" element={<AnadirGasto />} />
+        <Route path="/autorizacion" element={<AutorizacionBandeja/>} />
         <Route path="/bandeja" element={<Bandeja currentRole={currentRole}/>} />
 
         <Route path="/acumulado" element={<Acumulado currentRole={currentRole} />}/>
