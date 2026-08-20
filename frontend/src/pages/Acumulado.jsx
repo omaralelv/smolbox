@@ -198,6 +198,14 @@ function Acumulado( {currentRole} ) {
                         >
                             Aprobar pago
                         </button>
+
+                        <button 
+                            style={styles.btnGreen}
+                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
+                        >
+                            Confirmar pago
+                        </button>
+
                     </>
                 );
 
@@ -244,6 +252,14 @@ function Acumulado( {currentRole} ) {
                         >
                             Aprobar pago
                         </button>
+
+                        <button 
+                            style={styles.btnGreen}
+                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
+                        >
+                            Confirmar pago
+                        </button>
+
                     </>
                 );
         }
