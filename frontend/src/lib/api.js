@@ -2,7 +2,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:800
 const TOKEN_KEY = 'smolboxApiToken';
 const ROLE_KEY = 'smolboxFrontendRole';
 
-const ACTION_TARGET_STATUS = {
+export const ACTION_TARGET_STATUS = {
     submit_request: 'submitted',
     start_authorization_review: 'authorization_review',
     approve_authorization: 'authorized',

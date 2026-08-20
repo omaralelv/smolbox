@@ -2,12 +2,40 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import {
+    ACTION_TARGET_STATUS,
     apiErrorMessage,
     currentToken,
     executeRequestAction,
     getFrontendSolicitud,
     runAutomatedReview,
 } from '../lib/api';
+
+// Acciones que executeRequestAction() sabe ejecutar de verdad (transicion
+// generica por ACTION_TARGET_STATUS, o los dos endpoints especiales).
+// Cualquier otra accion (edit_expense, add_expense, authorize_expense...)
+// necesita su propia pantalla/formulario y no se debe pintar como boton aqui.
+const RENDERABLE_EXTRA_ACTIONS = new Set(['prepare_sap_policy', 'record_payment']);
+
+function esAccionRenderizable(accion) {
+    return Object.prototype.hasOwnProperty.call(ACTION_TARGET_STATUS, accion)
+        || RENDERABLE_EXTRA_ACTIONS.has(accion);
+}
+
+const ESTILO_POR_ACCION = {
+    submit_request: 'btnFilledCoral',
+    approve_authorization: 'btnFilledCoral',
+    start_accounting_manager_review: 'btnFilledCoral',
+    approve_accounting_manager: 'btnFilledCoral',
+    send_to_direction: 'btnFilledCoral',
+    approve_direction: 'btnBlue',
+    mark_approved_for_payment: 'btnBlue',
+    record_payment: 'btnGreen',
+    close_request: 'btnGreen',
+};
+
+function estiloParaAccion(accion) {
+    return ESTILO_POR_ACCION[accion] || 'btnOutline';
+}
 
 function Acumulado( {currentRole} ) {
 
@@ -137,127 +165,45 @@ function Acumulado( {currentRole} ) {
         }
     }
 
-    // 3. MATRIZ DE CONFIGURACIÓN DE BOTONES POR ROL
+    // 3. BOTONES DE ACCION: se generan a partir de lo que el backend dice que
+    // el usuario puede hacer ahora mismo (solicitud.availableActions), no de
+    // una lista fija por rol. Asi el boton nunca queda desincronizado del
+    // flujo real: si el backend agrega/quita una accion, el boton aparece o
+    // desaparece solo.
     const renderBotonesPorRol = () => {
-
-        switch (currentRole){
-            case 'tienda':
-                // Sin botones en el pie de página
-                return null;
-
-            case 'supervisor':
-                return null;
-
-            case 'contabilidad':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
-                        >Póliza y Reembolso</button>
-                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
-                                'Solicitud enviada a gerencia.'
-                            )}
-                        >Enviar a Gerencia</button>
-                    </>
-                );
-
-            case 'gerencia':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_accounting'], 'Solicitud regresada a contabilidad.')}
-                        >Regresar Acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_manager_review', 'approve_accounting_manager'],
-                                'Solicitud enviada a tesorería.'
-                            )}
-                        >Enviar a Tesorería</button>
-                    </>
-                );
-
-            case 'tesoreria':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_manager'], 'Solicitud regresada a gerencia.')}
-                        >Regresar acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
-                        >
-                            Aprobar pago
-                        </button>
-                    </>
-                );
-
-            case 'direccion':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_treasury'], 'Solicitud regresada a tesorería.')}
-                        >Regresar Acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                    </>
-                );
-
-            case 'admin':
-            default:
-                // Muestra todos los botones de la suite
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
-                        >Póliza y Reembolso</button>
-                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
-                                'Solicitud enviada a gerencia.'
-                            )}
-                        >Enviar a Gerencia</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_manager_review', 'approve_accounting_manager'],
-                                'Solicitud enviada a tesorería.'
-                            )}
-                        >Enviar a Tesorería</button>
-
-                        <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
-                        >
-                            Aprobar pago
-                        </button>
-                    </>
-                );
+        if (currentRole === 'tienda' || currentRole === 'supervisor') {
+            // Tienda captura desde Solicitud/Añadir Gasto; autorización todavía
+            // no tiene pantalla propia. Sin botones de flujo aquí.
+            return null;
         }
-    
 
-    
-};
+        const accionesDisponibles = (solicitudSeleccionada?.availableActions || [])
+            .filter(esAccionRenderizable);
+        const etiquetas = solicitudSeleccionada?.actionLabels || {};
 
+        const botonesAcciones = accionesDisponibles.map((accion) => (
+            <button
+                key={accion}
+                style={styles[estiloParaAccion(accion)]}
+                onClick={() => ejecutarAcciones([accion], `${etiquetas[accion] || accion} completado.`)}
+            >
+                {etiquetas[accion] || accion}
+            </button>
+        ));
+
+        if (currentRole === 'contabilidad' || currentRole === 'admin') {
+            return (
+                <>
+                    <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
+                    {botonesAcciones}
+                </>
+            );
+        }
+
+        return botonesAcciones.length > 0 ? botonesAcciones : null;
+    };
 
     const botonesGuardados = renderBotonesPorRol();
-
-    console.log("PROP currentRole RECIBIDA EN ACUMULADO:", currentRole);
-    console.log("BOTONES GENERADOS:", renderBotonesPorRol());
-
 
 
     return (
