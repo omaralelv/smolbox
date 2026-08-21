@@ -46,7 +46,9 @@ contabilidad, se pueda correr localmente y se pueda extender despues.
 `Period` representa una ventana de reembolso con fecha inicial, fecha final y estado.
 
 `Store` representa la tienda que solicita el reembolso de caja chica. Guarda codigo, nombre,
-correo de contacto y contador asignado cuando este dato exista.
+correo de contacto y contador asignado cuando este dato exista. El codigo visible de tienda
+es flexible para capturas de prueba: no se fuerza a mayusculas ni se usa como identificador
+unico. La relacion real entre registros usa el `id` interno de la tienda.
 
 `ReimbursementRequest` representa la solicitud que una tienda envia para un periodo. Guarda
 tienda, periodo, total reportado, datos del reembolso anterior y notas. En Etapa 2 esta
