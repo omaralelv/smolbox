@@ -19,7 +19,7 @@ class Store(Base):
     __tablename__ = "stores"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     contact_email: Mapped[str | None] = mapped_column(String(255))
     assigned_accountant: Mapped[str | None] = mapped_column(String(160))
