@@ -16,7 +16,18 @@ class StoreBase(BaseModel):
     @field_validator("code")
     @classmethod
     def normalize_code(cls, value: str) -> str:
-        return value.strip().upper()
+        code = value.strip()
+        if not code:
+            raise ValueError("Store code cannot be blank")
+        return code
+
+    @field_validator("contact_email")
+    @classmethod
+    def normalize_contact_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        email = value.strip()
+        return email or None
 
 
 class StoreCreate(StoreBase):
@@ -35,7 +46,20 @@ class StoreUpdate(BaseModel):
     @field_validator("code")
     @classmethod
     def normalize_code(cls, value: str | None) -> str | None:
-        return value.strip().upper() if value else value
+        if value is None:
+            return None
+        code = value.strip()
+        if not code:
+            raise ValueError("Store code cannot be blank")
+        return code
+
+    @field_validator("contact_email")
+    @classmethod
+    def normalize_contact_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        email = value.strip()
+        return email or None
 
 
 class StoreRead(StoreBase):
