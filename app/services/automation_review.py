@@ -43,13 +43,12 @@ def _receipt_step(summary: ReimbursementValidationSummary) -> AutomatedReviewSte
         return _step(
             "receipt_check",
             "Revisar comprobantes",
-            "blocked",
-            "Hay gastos sin comprobante.",
-            blocking=True,
+            "attention",
+            "Hay gastos sin vale adjunto, pero el vale es opcional.",
             issue_codes=["missing_receipts"],
             expense_ids=missing,
         )
-    return _step("receipt_check", "Revisar comprobantes", "passed", "Todos los gastos activos tienen comprobante.")
+    return _step("receipt_check", "Revisar comprobantes", "passed", "Todos los gastos activos tienen vale adjunto.")
 
 
 def _cfdi_step(summary: ReimbursementValidationSummary) -> AutomatedReviewStep:

@@ -98,6 +98,26 @@ def test_summarize_reimbursement_request_blocks_submission_without_cfdi() -> Non
     assert summary.ready_for_accounting_approval is False
 
 
+def test_summarize_reimbursement_request_allows_submission_without_receipt() -> None:
+    missing_receipt_expense = _expense("100.00", "papeleria", [AttachmentType.cfdi_xml])
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[missing_receipt_expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.is_balanced is True
+    assert summary.missing_receipt_expense_ids == [missing_receipt_expense.id]
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
+    assert summary.ready_for_authorization_approval is True
+    assert summary.ready_for_accounting_approval is True
+    missing_receipts = next(issue for issue in summary.issues if issue.code == "missing_receipts")
+    assert missing_receipts.severity == "warning"
+
+
 def test_summarize_reimbursement_request_tracks_authorization_and_removed_expenses() -> None:
     pending_authorization = _expense(
         "100.00",

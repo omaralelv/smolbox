@@ -159,7 +159,7 @@ function AnadirGasto() {
                 </div>
 
                 <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar Vale</span>
+                <span style={styles.fileLabel}>Cargar Vale (opcional)</span>
                 <div style={styles.fileRow}>
                     <span style={styles.fileName}>{valeFile ? valeFile.name : "Ningún archivo seleccionado"}</span>
                     <label style={styles.fileButtonLabel}>

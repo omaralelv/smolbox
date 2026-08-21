@@ -175,8 +175,8 @@ minima de 80 % contra PostgreSQL 16 mediante GitHub Actions.
 9. Crear usuarios internos en `POST /api/v1/users`.
 10. Asignar usuarios a tienda con `POST /api/v1/stores/{store_id}/users`.
 11. Cambiar estados con `POST /api/v1/reimbursement-requests/{request_id}/transition`.
-    La tienda solo puede enviar cuando cada gasto activo tenga comprobante/ticket y CFDI
-    vigente validado.
+    La tienda puede enviar cuando cada gasto activo tenga CFDI vigente validado; el
+    comprobante/ticket queda como evidencia opcional.
 12. Rechazar un gasto/producto individual de autorizacion, si no procede, con
    `POST /api/v1/expenses/{expense_id}/reject`.
 13. Preparar la poliza SAP placeholder con

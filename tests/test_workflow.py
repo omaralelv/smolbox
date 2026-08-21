@@ -71,7 +71,7 @@ def test_store_user_can_submit_ready_request() -> None:
     assert request.submitted_at is not None
 
 
-def test_store_user_cannot_submit_without_cfdi_or_receipt() -> None:
+def test_store_user_cannot_submit_without_cfdi() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
     actor = User(
         email="tienda.sin.evidencia@example.com",
@@ -91,8 +91,31 @@ def test_store_user_cannot_submit_without_cfdi_or_receipt() -> None:
             summary=summary,
         )
 
-    assert "receipt and valid CFDI evidence" in str(exc_info.value)
+    assert "valid CFDI evidence" in str(exc_info.value)
     assert request.status == ReimbursementRequestStatus.draft
+
+
+def test_store_user_can_submit_without_receipt_when_cfdi_is_valid() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
+    actor = User(
+        email="tienda.sin.vale@example.com",
+        full_name="Tienda Sin Vale",
+        role=UserRole.store,
+        is_active=True,
+    )
+    summary = _summary()
+    summary.missing_receipt_expense_ids = [uuid4()]
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.submitted,
+        summary=summary,
+    )
+
+    assert from_status == ReimbursementRequestStatus.draft
+    assert to_status == ReimbursementRequestStatus.submitted
+    assert request.status == ReimbursementRequestStatus.submitted
 
 
 def test_accounting_approval_requires_accounting_ready_request() -> None:

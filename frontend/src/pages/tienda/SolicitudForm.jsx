@@ -231,13 +231,11 @@ async function subirArchivosPendientes(nuevaSolicitud, gastosOriginales) {
 }
 
 function validarEvidenciaAntesDeEnviar(gastos) {
-    const sinTicket = gastos.filter((gasto) => !gasto.valeFile);
     const sinCfdi = gastos.filter((gasto) => !gasto.facturaFile || !esXml(gasto.facturaFile));
 
-    if (sinTicket.length || sinCfdi.length) {
+    if (sinCfdi.length) {
         return [
-            'Antes de enviar, cada gasto debe tener ticket/vale y CFDI XML.',
-            sinTicket.length ? `Faltan tickets/vales en ${sinTicket.length} gasto(s).` : '',
+            'Antes de enviar, cada gasto debe tener CFDI XML.',
             sinCfdi.length ? `Falta CFDI XML válido en ${sinCfdi.length} gasto(s).` : '',
         ].filter(Boolean).join('\n');
     }

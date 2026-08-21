@@ -137,6 +137,7 @@ def summarize_reimbursement_request(
             ReimbursementValidationIssue(
                 code="missing_receipts",
                 message="One or more expenses do not have a receipt attachment.",
+                severity="warning",
             )
         )
 
@@ -184,8 +185,7 @@ def summarize_reimbursement_request(
 
     has_error = any(issue.severity == "error" for issue in issues)
     has_required_store_evidence = (
-        not missing_receipt_expense_ids
-        and not missing_cfdi_expense_ids
+        not missing_cfdi_expense_ids
         and not invalid_cfdi_expense_ids
     )
     ready_for_submission = (

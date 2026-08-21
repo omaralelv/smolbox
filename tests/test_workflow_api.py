@@ -85,17 +85,11 @@ def _attach_valid_cfdi(client: TestClient, expense_id: str, amount: str) -> None
     assert cfdi.json()["is_valid"] is True
 
 
-def test_store_submission_requires_receipt_and_cfdi(
+def test_store_submission_requires_cfdi_but_not_receipt(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
     expense = create_expense(client, base_records, amount="1500.00")
-    receipt = client.post(
-        f"/api/v1/expenses/{expense['id']}/attachments",
-        data={"attachment_type": "receipt"},
-        files={"file": ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
-    )
-    assert receipt.status_code == 201, receipt.text
 
     store_user_id = _create_user(client, "store")
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
@@ -108,7 +102,7 @@ def test_store_submission_requires_receipt_and_cfdi(
     )
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
-    assert "receipt and valid CFDI evidence" in blocked.json()["detail"]["message"]
+    assert "valid CFDI evidence" in blocked.json()["detail"]["message"]
 
     _attach_valid_cfdi(client, expense["id"], "1500.00")
     submitted = _transition(

@@ -116,7 +116,7 @@ def test_dev_hud_seeds_and_exercises_workflow(client: TestClient) -> None:
     blocked_submit = client.post("/api/v1/dev-hud/transition/submitted")
     assert blocked_submit.status_code == 409
     assert blocked_submit.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
-    assert "receipt and valid CFDI evidence" in blocked_submit.json()["detail"]["message"]
+    assert "valid CFDI evidence" in blocked_submit.json()["detail"]["message"]
 
     completed_cfdi = client.post("/api/v1/dev-hud/complete-cfdi")
     assert completed_cfdi.status_code == 200, completed_cfdi.text

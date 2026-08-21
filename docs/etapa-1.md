@@ -30,7 +30,7 @@ contabilidad, se pueda correr localmente y se pueda extender despues.
 - Validar una solicitud de caja chica contra sus gastos:
   - Total reportado por tienda contra suma de gastos.
   - Suma por categoria.
-  - Gastos sin comprobante.
+  - Gastos sin comprobante como advertencia no bloqueante.
   - Gastos sin XML CFDI como advertencia inicial.
 
 ## Fuera de alcance
