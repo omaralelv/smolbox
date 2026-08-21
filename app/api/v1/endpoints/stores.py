@@ -24,8 +24,11 @@ def create_store(store_in: StoreCreate, db: Annotated[Session, Depends(get_db)])
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Store code already exists",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "STORE_VALUE_INVALID",
+                "message": "Store could not be saved because one of its values is invalid",
+            },
         ) from exc
     db.refresh(store)
     return store
@@ -148,8 +151,11 @@ def update_store(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Store code already exists",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "STORE_VALUE_INVALID",
+                "message": "Store could not be saved because one of its values is invalid",
+            },
         ) from exc
     db.refresh(store)
     return store
