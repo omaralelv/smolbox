@@ -1,16 +1,20 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import List
-from datetime import date
-from decimal import Decimal
+import uuid
+import os
 import io
 import zipfile
+from datetime import date
+from decimal import Decimal
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.drawing.image import Image 
-import os
+from app.db.session import get_db
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 # 1. Definir el Router en lugar de la App
 router = APIRouter()
@@ -25,135 +29,396 @@ ruta_gastos = os.path.join(ASSETS_DIR, "TiposGastos.xlsx")
 ruta_plantilla = os.path.join(ASSETS_DIR, "COPIA FORMATO REEMBOLSO.xlsx")
 ruta_logo = os.path.join(ASSETS_DIR, "logoV.png")
 # =========================================================
-# 1. CARGA DE BASE DE DATOS (Se carga al iniciar el servidor)
+# 1. SOLICITUD DESDE LA BASE DE DATOS
 # =========================================================
 def cargar_base_tiendas(ruta_archivo):
     try:
-        df = pd.read_excel(ruta_archivo, dtype=str)
-        return df.set_index('TDA').to_dict('index')
+        df = pd.read_excel(ruta_archivo, dtype=str).fillna("")
+
+        df["TDA"] = df["TDA"].str.strip()
+
+        return df.set_index("TDA").to_dict("index")
+
     except Exception as e:
         print(f"❌ Error tiendas: {e}")
         return {}
 
 def cargar_tipo_gastos(ruta_archivo):
     try:
-        df = pd.read_excel(ruta_archivo, dtype=str)
-        return df.set_index('CODIGO').to_dict('index')
+        df = pd.read_excel(ruta_archivo, dtype=str).fillna("")
+
+        df["CODIGO"] = df["CODIGO"].str.strip()
+        df["TIPO_GASTO"] = df["TIPO_GASTO"].str.strip()
+
+        if df["CODIGO"].duplicated().any():
+            duplicados = df.loc[
+                df["CODIGO"].duplicated(keep=False), "CODIGO"
+            ].tolist()
+
+            raise ValueError(
+                f"Códigos contables duplicados en el catálogo: {duplicados}"
+            )
+
+        return df.set_index("CODIGO").to_dict("index")
+
     except Exception as e:
         print(f"❌ Error gastos: {e}")
         return {}
 
+def normalizar_texto(valor):
+    return " ".join(str(valor or "").strip().casefold().split())
+
+
+def crear_indice_categorias(diccionario_gastos):
+    """
+    Convierte:
+
+    {
+        "601001": {"TIPO_GASTO": "Papelería"}
+    }
+
+    en:
+
+    {
+        "papelería": {
+            "codigo": "601001",
+            "descripcion": "Papelería"
+        }
+    }
+    """
+    indice = {}
+
+    for codigo, datos in diccionario_gastos.items():
+        descripcion = datos.get("TIPO_GASTO", "").strip()
+
+        if not descripcion:
+            continue
+
+        clave = normalizar_texto(descripcion)
+
+        if clave in indice:
+            raise ValueError(
+                f"TIPO_GASTO duplicado en TiposGastos.xlsx: {descripcion}"
+            )
+
+        indice[clave] = {
+            "codigo": codigo,
+            "descripcion": descripcion,
+        }
+
+    return indice
+
 # Cargamos en memoria RAM del servidor al iniciar
 diccionario_tiendas = cargar_base_tiendas(ruta_tiendas)
 diccionario_gastos = cargar_tipo_gastos(ruta_gastos)
-
-# =========================================================
-# 2. ESQUEMAS DE VALIDACIÓN (Lo que enviará el Frontend)
-# =========================================================
-class GastoItem(BaseModel):
-    uidd: str
-    cuenta: str
-    monto_base: Decimal
-    porcentaje_iva: Decimal
-
-class SolicitudPoliza(BaseModel):
-    numero_tienda: str
-    fecha_poliza: date       # FastAPI espera "YYYY-MM-DD"
-    inicio_caja: date
-    fin_caja: date
-    inicio_ant: date
-    fin_ant: date
-    cantidad_reembolsada: Decimal
-    gastos: List[GastoItem]  # Lista de los gastos capturados
+indice_categorias = crear_indice_categorias(diccionario_gastos)
 
 # =========================================================
 # 3. INICIO DE LA API
 # =========================================================
 
-@router.post("/generar-polizas/")
-def generar_polizas(datos: SolicitudPoliza):
-    # A) Validar tienda
-    if datos.numero_tienda not in diccionario_tiendas:
-        raise HTTPException(status_code=404, detail=f"La tienda {datos.numero_tienda} no existe.")
-    
-    tienda_info = diccionario_tiendas[datos.numero_tienda]
-    nombre_tienda = tienda_info.get('PLAZA', '')
-    gerente = tienda_info.get('NOMBRE_GERENTE', '')
-    cuenta_tienda = tienda_info.get('CUENTA', '')
-    fondo = tienda_info.get('CAJA_CHICA', '')
-    responsable = tienda_info.get('RESPONSABLE', '')
-    supervisor = tienda_info.get('SUPERVISOR', '')
+@router.post("/generar-polizas/{solicitud_id}")
+def generar_polizas(
+    solicitud_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
 
-    # B) Procesar fechas y cálculos básicos
-    diff_caja = (datos.fin_caja - datos.inicio_caja).days
-    diff_ant = (datos.fin_ant - datos.inicio_ant).days
+    # ========================================================
+    # 1. OBTENER LA SOLICITUD DESDE LA BASE DE DATOS
+    # ========================================================
+    # Hacemos una consulta directa (query) a la tabla que me mostraste
+    query_solicitud = text("""
+        SELECT *
+        FROM reimbursement_requests
+        WHERE id = :id
+    """)
 
-    if diff_caja < 0 or diff_ant < 0:
-        raise HTTPException(status_code=400, detail="La fecha de fin no puede ser anterior a la de inicio.")
+    solicitud = db.execute(
+        query_solicitud,
+        {"id": solicitud_id},
+    ).mappings().first()
 
-    # Formatos de texto para Excel
-    fecha_poliza_sap = datos.fecha_poliza.strftime("%d.%m.%Y")
-    str_inicio_caja = datos.inicio_caja.strftime("%d/%m/%Y")
-    str_fin_caja = datos.fin_caja.strftime("%d/%m/%Y")
-    str_inicio_ant = datos.inicio_ant.strftime("%d/%m/%Y")
-    str_fin_ant = datos.fin_ant.strftime("%d/%m/%Y")
+    if solicitud is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Solicitud de reembolso no encontrada.",
+        )
 
-    # C) Procesamiento de Gastos (Poliza Detallada y Agrupada)
-    mapa_indices_iva = {Decimal("0.0"): "W0", Decimal("16.0"): "W1", Decimal("8.0"): "W6"}
+
+    # Para obtener el ID de la tienda y el ID del periodo (que usaremos más abajo)
+    store_id = solicitud['store_id']
+    period_id = solicitud['period_id']
+    query_tienda = text("SELECT * FROM stores WHERE id = :id")
+    tienda_db = db.execute(query_tienda, {"id": store_id}).mappings().first()
+
+    if tienda_db is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe la tienda asociada al store_id {store_id}.",
+        )
+
+    numero_tienda = str(tienda_db["code"]).strip()
+
+    query_periodo = text("""
+        SELECT *
+        FROM periods
+        WHERE id = :id
+    """)
+
+    periodo = db.execute(
+        query_periodo,
+        {"id": period_id},
+    ).mappings().first()
+
+    if periodo is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No existe el periodo asociado al period_id {period_id}.",
+        )
+
+    # Cambia estos nombres si periods usa nombres distintos.
+    inicio_caja = periodo["starts_on"]
+    fin_caja = periodo["ends_on"]
+
+    inicio_ant = solicitud["previous_reimbursement_starts_on"]
+    fin_ant = solicitud["previous_reimbursement_ends_on"]
+    cantidad_reembolsada = Decimal(
+        str(solicitud["previous_reimbursement_amount"] or "0")
+    )
+
+    # Fechas del periodo actual de caja
+    inicio_caja = periodo["starts_on"]
+    fin_caja = periodo["ends_on"]
+
+    # Fechas del periodo anterior
+    inicio_ant = solicitud["previous_reimbursement_starts_on"]
+    fin_ant = solicitud["previous_reimbursement_ends_on"]
+
+    # Fecha de creación de la solicitud
+    created_at = solicitud["created_at"]
+
+    # Zona horaria oficial para mostrar fechas
+    zona_mexico = ZoneInfo("America/Mexico_City")
+
+    if created_at is not None:
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+
+        fecha_poliza_obj = created_at.astimezone(zona_mexico).date()
+    else:
+        fecha_poliza_obj = date.today()
+
+    # Validar periodo actual
+    if inicio_caja is None or fin_caja is None:
+        raise HTTPException(
+            status_code=422,
+            detail="La solicitud no tiene un periodo de caja completo.",
+        )
+
+    diff_caja = (fin_caja - inicio_caja).days
+
+    # Validar periodo anterior únicamente si existe
+    if inicio_ant is not None and fin_ant is not None:
+        diff_ant = (fin_ant - inicio_ant).days
+    else:
+        diff_ant = 0
+
+    if diff_caja < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="El fin del periodo de caja no puede ser anterior al inicio.",
+        )
+
+    if diff_ant < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="El fin del periodo anterior no puede ser anterior al inicio.",
+        )
+
+    # Formatos requeridos por el Excel
+    fecha_poliza_sap = fecha_poliza_obj.strftime("%d.%m.%Y")
+
+    str_inicio_caja = inicio_caja.strftime("%d/%m/%Y")
+    str_fin_caja = fin_caja.strftime("%d/%m/%Y")
+
+    str_inicio_ant = (
+        inicio_ant.strftime("%d/%m/%Y")
+        if inicio_ant is not None
+        else ""
+    )
+
+    str_fin_ant = (
+        fin_ant.strftime("%d/%m/%Y")
+        if fin_ant is not None
+        else ""
+    )
+
+    # ========================================================
+    # 3. CONECTAR CON TU BASE DE DATOS LOCAL DE EXCEL
+    # ========================================================
+    # Ya que tenemos el numero_tienda de la base de datos (ej. "V101"), 
+    # consultamos tu Excel como siempre lo hemos hecho:
+    if numero_tienda not in diccionario_tiendas:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"La tienda '{numero_tienda}' existe en SQL, "
+                "pero no en Copia de BASE DE TIENDAS.xlsx."
+            ),
+        )
+
+    tienda_info = diccionario_tiendas[numero_tienda]
+
+    nombre_tienda = tienda_info.get("PLAZA", "")
+    gerente = tienda_info.get("NOMBRE_GERENTE", "")
+    cuenta_tienda = tienda_info.get("CUENTA", "")
+    fondo = tienda_info.get("CAJA_CHICA", "")
+    responsable = tienda_info.get("RESPONSABLE", "")
+    supervisor = tienda_info.get("SUPERVISOR", "")
+
+    # ========================================================
+    # 4. OBTENER LOS GASTOS VINCULADOS A ESTA SOLICITUD
+    # ========================================================
+    # En la tabla 'expenses', veo que hay una columna 'reimbursement_request_id'
+    query_gastos = text("""
+        SELECT *
+        FROM expenses
+        WHERE reimbursement_request_id = :request_id
+          AND removed_at IS NULL
+        ORDER BY spent_on, created_at, id
+    """)
+
+    gastos_db = db.execute(
+        query_gastos,
+        {"request_id": solicitud_id},
+    ).mappings().all()
+
+    if not gastos_db:
+        raise HTTPException(
+            status_code=422,
+            detail="La solicitud no tiene gastos activos asociados.",
+        )
+
+    gastos_invalidos = [
+        str(gasto["id"])
+        for gasto in gastos_db
+        if gasto["status"] in {"removed", "rejected"}
+    ]
+
+    if gastos_invalidos:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Hay gastos no procesables: {gastos_invalidos}",
+        )
+
+    # ========================================================
+    # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA (TU MACRO)
+    # ========================================================
     poliza_detallada = []
     diccionario_agrupador = {}
     total_gran_factura = Decimal("0")
 
-    for gasto in datos.gastos:
-        if gasto.cuenta not in diccionario_gastos:
-            raise HTTPException(status_code=400, detail=f"Cuenta {gasto.cuenta} no válida en catálogo.")
-        
-        desc = diccionario_gastos[gasto.cuenta]
-        gasto_descripcion = list(desc.values())[0] if isinstance(desc, dict) else desc
+    mapa_indices_iva = {
+        Decimal("0"): "W0",
+        Decimal("8"): "W6",
+        Decimal("16"): "W1",
+    }
 
-        iva_calculado = (gasto.monto_base / (1 + gasto.porcentaje_iva / 100)) * (gasto.porcentaje_iva / 100)
-        subtotal_factura = gasto.monto_base - iva_calculado
+    # La BD actual no contiene porcentaje_iva.
+    # Es una regla provisional que debes confirmar con contabilidad.
+    porcentaje_iva_default = Decimal("16")
 
-        # Condicional: si IVA es 0% Y la cuenta es 601158, entonces W2
-        if gasto.porcentaje_iva == Decimal("0.0") and gasto.cuenta == "601158":
+    for gasto in gastos_db:
+        categoria_bd = str(gasto["category"] or "").strip()
+        clave_categoria = normalizar_texto(categoria_bd)
+
+        cuenta_info = indice_categorias.get(clave_categoria)
+
+        if cuenta_info is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"La categoría '{categoria_bd}' del gasto "
+                    f"{gasto['id']} no tiene equivalencia en "
+                    "TiposGastos.xlsx."
+                ),
+            )
+
+        cuenta_gasto = cuenta_info["codigo"]
+        gasto_descripcion = cuenta_info["descripcion"]
+
+        uidd_factura = (
+            str(gasto["cfdi_uuid"]).strip()
+            if gasto["cfdi_uuid"]
+            else "Sin Folio"
+        )
+
+        monto_base = Decimal(str(gasto["amount"]))
+        porcentaje_iva = porcentaje_iva_default
+
+        iva_calculado = (
+            monto_base
+            / (Decimal("1") + porcentaje_iva / Decimal("100"))
+            * (porcentaje_iva / Decimal("100"))
+        )
+
+        subtotal_factura = monto_base - iva_calculado
+
+        if porcentaje_iva == Decimal("0") and cuenta_gasto == "601158":
             indice_iva = "W2"
         else:
-            indice_iva = mapa_indices_iva.get(gasto.porcentaje_iva, "W_ND")
-    # =========================
+            indice_iva = mapa_indices_iva.get(
+                porcentaje_iva,
+                "W_ND",
+            )
+
         registro = {
-            "UIDD": gasto.uidd,
-            "Cuenta": gasto.cuenta,
+            "UIDD": uidd_factura,
+            "Cuenta": cuenta_gasto,
             "Identificador": "S",
             "Descripcion": gasto_descripcion,
+            "Porcentaje_IVA": porcentaje_iva,
             "Indice_IVA": indice_iva,
             "IVA": iva_calculado,
             "Subtotal": subtotal_factura,
-            "Total": gasto.monto_base,
-            "Tienda": datos.numero_tienda
+            "Total": monto_base,
+            "Tienda": numero_tienda,
+            "Expense_ID": str(gasto["id"]),
         }
-        poliza_detallada.append(registro)
-        total_gran_factura += gasto.monto_base
 
-        # Agrupador
-        if gasto.cuenta in diccionario_agrupador:
-            diccionario_agrupador[gasto.cuenta]['Total'] += gasto.monto_base
-            diccionario_agrupador[gasto.cuenta]['Subtotal'] += subtotal_factura
-            diccionario_agrupador[gasto.cuenta]['IVA'] += iva_calculado
-            diccionario_agrupador[gasto.cuenta]['Cantidad_facturas'] += 1
+        poliza_detallada.append(registro)
+        total_gran_factura += monto_base
+
+        if cuenta_gasto in diccionario_agrupador:
+            agrupado = diccionario_agrupador[cuenta_gasto]
+
+            agrupado["Total"] += monto_base
+            agrupado["Subtotal"] += subtotal_factura
+            agrupado["IVA"] += iva_calculado
+            agrupado["Cantidad_facturas"] += 1
         else:
-            nuevo = registro.copy()
-            nuevo['Cantidad_facturas'] = 1
-            nuevo['UIDD'] = "Varios"
-            diccionario_agrupador[gasto.cuenta] = nuevo
+            agrupado = registro.copy()
+            agrupado["UIDD"] = "Varios"
+            agrupado["Cantidad_facturas"] = 1
+
+            diccionario_agrupador[cuenta_gasto] = agrupado
 
     poliza_agrupada = list(diccionario_agrupador.values())
 
-    # La 'K' (Acreedor)
     registro_acreedor = {
-        "UIDD": "Varios", "Cuenta": "Acreedores Diversos / Proveedor", "Identificador": "K",
-        "Descripcion": "Total", "Indice_IVA": "N/A", "IVA": Decimal("0"), "Subtotal": Decimal("0"),
-        "Total": -total_gran_factura, "Tienda": datos.numero_tienda, "Cantidad_facturas": 0
+        "UIDD": "Varios",
+        "Cuenta": "Acreedores Diversos / Proveedor",
+        "Identificador": "K",
+        "Descripcion": "Total Cuenta por Pagar",
+        "Porcentaje_IVA": Decimal("0"),
+        "Indice_IVA": "N/A",
+        "IVA": Decimal("0"),
+        "Subtotal": Decimal("0"),
+        "Total": -total_gran_factura,
+        "Tienda": numero_tienda,
+        "Cantidad_facturas": 0,
     }
+
     poliza_detallada.append(registro_acreedor)
     poliza_agrupada.append(registro_acreedor)
 
@@ -184,17 +449,20 @@ def generar_polizas(datos: SolicitudPoliza):
     ws_sap['C1'] = f'{fecha_poliza_sap}' # Si el identificador es K, entonces va el total de la póliza (en negativo)
     ws_sap['D1'] = f'{fecha_poliza_sap}' # Si el identificador es K, no se escribe nada
     ws_sap['E1'] = f'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
-    ws_sap['F1'] = f'{datos.numero_tienda} CAJA CHICA' 
-    ws_sap['G1'] = f'{datos.numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' 
+    ws_sap['F1'] = f'{numero_tienda} CAJA CHICA' 
+    ws_sap['G1'] = f'{numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' 
     ws_sap['H1'] = f' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja} 
 
     for mov in poliza_detallada:
         es_k = (mov['Identificador'] == 'K')
-        col_b = datos.numero_tienda if es_k else mov['Cuenta']
+
+        col_b = numero_tienda if es_k else mov['Cuenta']
         col_d = '' if es_k else mov['Indice_IVA']
-        col_e = '' if es_k else datos.numero_tienda
-        col_h = f'{datos.numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' if es_k else mov['UIDD']
-        ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, '', f'{datos.numero_tienda} CAJA CHICA', col_h])
+        col_e = '' if es_k else numero_tienda
+
+        col_h = f'{numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' if es_k else mov['UIDD']
+        ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, "", f'{numero_tienda} CAJA CHICA', col_h])
+
 
     # E) Creación del Archivo 2: Solicitud (En memoria)
     wb_solicitud = load_workbook(ruta_plantilla)
@@ -207,7 +475,7 @@ def generar_polizas(datos: SolicitudPoliza):
         print("Logo no insertado:", e)
 
     ws_solicitud['I9'] = fecha_poliza_sap
-    ws_solicitud['I11'] = f'{datos.numero_tienda} - {nombre_tienda}'
+    ws_solicitud['I11'] = f'{numero_tienda} - {nombre_tienda}'
     ws_solicitud['D14'] = gerente
     ws_solicitud['D16'] = cuenta_tienda
     ws_solicitud['D18'] = float(total_gran_factura)
@@ -220,7 +488,7 @@ def generar_polizas(datos: SolicitudPoliza):
     ws_solicitud['K34'] = supervisor
     ws_solicitud['L29'] = f"{diff_caja} días"
     ws_solicitud['L31'] = f"{diff_ant} días"
-    ws_solicitud['K31'] = float(-datos.cantidad_reembolsada)
+    ws_solicitud['K31'] = float(cantidad_reembolsada)
     
     suma_ivas = sum(item['IVA'] for item in poliza_detallada if item['Identificador'] == 'S')
     ws_solicitud['I65'] = float(total_gran_factura)
@@ -246,8 +514,8 @@ def generar_polizas(datos: SolicitudPoliza):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         # Aquí definimos cómo se llamarán los archivos DENTRO del ZIP
-        zip_file.writestr(f"CAJA CHICA {datos.numero_tienda}{fecha_poliza_sap}.xlsx", buffer_sap.getvalue())
-        zip_file.writestr(f"Poliza Reembolso {datos.numero_tienda}{fecha_poliza_sap}.xlsx", buffer_solicitud.getvalue())
+        zip_file.writestr(f"CAJA CHICA {numero_tienda}{fecha_poliza_sap}.xlsx", buffer_sap.getvalue())
+        zip_file.writestr(f"Poliza Reembolso {numero_tienda}{fecha_poliza_sap}.xlsx", buffer_solicitud.getvalue())
 
     # Reiniciamos el cursor del buffer de ZIP al inicio antes de enviarlo
     zip_buffer.seek(0)
@@ -256,5 +524,5 @@ def generar_polizas(datos: SolicitudPoliza):
     return StreamingResponse(
         zip_buffer, 
         media_type="application/x-zip-compressed",
-        headers={"Content-Disposition": f"attachment; filename=Polizas_{datos.numero_tienda}{fecha_poliza_sap}.zip"}
+        headers={"Content-Disposition": f"attachment; filename=Polizas_{numero_tienda}{fecha_poliza_sap}.zip"}
     )
