@@ -8,6 +8,7 @@ import {
     executeRequestAction,
     getFrontendContext,
     getFrontendSolicitud,
+    parseCfdi,
     uploadExpenseAttachment,
     validateExpenseCfdi,
 } from '../../lib/api';
@@ -80,6 +81,8 @@ function SolicitudForm({ currentRole }) {
         setEnviando(true);
 
         try {
+            await validarCfdisAntesDeCrearSolicitud(gastos);
+
             const nuevaSolicitud = await createFrontendSolicitud({
                 tienda: datosIniciales.tienda,
                 montoTotal: calcularTotal(),
@@ -222,10 +225,45 @@ async function subirArchivosPendientes(nuevaSolicitud, gastosOriginales) {
 
         if (gasto.facturaFile) {
             if (esXml(gasto.facturaFile)) {
-                await validateExpenseCfdi(gastoBackend.backendId, gasto.facturaFile);
+                const resultado = await validateExpenseCfdi(gastoBackend.backendId, gasto.facturaFile);
+                if (!resultado.is_valid) {
+                    throw new Error(mensajeCfdiInvalido(gasto, resultado));
+                }
             } else {
                 await uploadExpenseAttachment(gastoBackend.backendId, gasto.facturaFile, 'other');
             }
+        }
+    }
+}
+
+async function validarCfdisAntesDeCrearSolicitud(gastos) {
+    for (const gasto of gastos) {
+        if (!gasto.facturaFile || !esXml(gasto.facturaFile)) continue;
+
+        const parsed = await parseCfdi(gasto.facturaFile);
+        const errores = [];
+        const montoGasto = Number(gasto.monto);
+        const totalCfdi = parsed.total === null || parsed.total === undefined ? null : Number(parsed.total);
+
+        if (!parsed.uuid) {
+            errores.push('El XML no trae UUID fiscal.');
+        }
+
+        if (totalCfdi === null || Number.isNaN(totalCfdi)) {
+            errores.push('El XML no trae total fiscal.');
+        } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
+            errores.push(`El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+        }
+
+        if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
+            errores.push(`La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
+        }
+
+        if (errores.length) {
+            throw new Error([
+                `El CFDI XML del gasto "${gasto.nombre}" no coincide con el gasto capturado:`,
+                ...errores,
+            ].join('\n'));
         }
     }
 }
@@ -246,6 +284,25 @@ function esXml(file) {
     const nombre = file?.name?.toLowerCase() || '';
     const tipo = file?.type?.toLowerCase() || '';
     return nombre.endsWith('.xml') || tipo.includes('xml');
+}
+
+function mensajeCfdiInvalido(gasto, resultado) {
+    const errores = (resultado.issues || [])
+        .filter((issue) => issue.severity !== 'warning')
+        .map((issue) => issue.message);
+
+    return [
+        `El CFDI XML del gasto "${gasto.nombre}" no es válido.`,
+        errores.length ? errores.join('\n') : 'Revisa que el total, moneda, UUID y RFC coincidan.',
+    ].join('\n');
+}
+
+function redondearMonto(value) {
+    return Number(value || 0).toFixed(2);
+}
+
+function formatoMonto(value) {
+    return `$${redondearMonto(value)}`;
 }
 
 function folioManual(folio) {

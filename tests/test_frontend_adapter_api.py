@@ -130,6 +130,105 @@ def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> 
     assert detail.json()["backendId"] == created_body["backendId"]
 
 
+def test_frontend_accounting_actions_follow_sap_policy_order(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    store_user_id = _create_user(client, "store", "frontend.sap.store@example.com")
+    accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.sap.accountant@example.com",
+    )
+    manager_user_id = _create_user(
+        client,
+        "accounting_manager",
+        "frontend.sap.manager@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        manager_user_id,
+        "accounting_manager",
+    )
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    accountant_headers = _auth_headers(client, "frontend.sap.accountant@example.com")
+    submitted_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=accountant_headers,
+    )
+    assert submitted_detail.status_code == 200, submitted_detail.text
+    assert submitted_detail.json()["availableActions"] == ["start_accounting_review"]
+
+    review = _transition(
+        client,
+        base_records["request_id"],
+        "under_accounting_review",
+        accountant_user_id,
+    )
+    assert review.status_code == 200, review.text
+
+    review_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=accountant_headers,
+    )
+    assert review_detail.status_code == 200, review_detail.text
+    assert "mark_accounting_reviewed" in review_detail.json()["availableActions"]
+    assert "prepare_sap_policy" not in review_detail.json()["availableActions"]
+
+    reviewed = _transition(
+        client,
+        base_records["request_id"],
+        "accounting_reviewed",
+        accountant_user_id,
+    )
+    assert reviewed.status_code == 200, reviewed.text
+
+    manager_headers = _auth_headers(client, "frontend.sap.manager@example.com")
+    manager_queue_before_policy = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=manager_headers,
+    )
+    assert manager_queue_before_policy.status_code == 200, manager_queue_before_policy.text
+    assert manager_queue_before_policy.json() == []
+
+    reviewed_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=accountant_headers,
+    )
+    assert reviewed_detail.status_code == 200, reviewed_detail.text
+    assert reviewed_detail.json()["availableActions"] == ["prepare_sap_policy"]
+
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare/me",
+        headers=accountant_headers,
+        json={"reference": "SAP-FRONTEND-ORDER"},
+    )
+    assert sap_policy.status_code == 200, sap_policy.text
+
+    manager_queue_after_policy = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=manager_headers,
+    )
+    assert manager_queue_after_policy.status_code == 200, manager_queue_after_policy.text
+    assert manager_queue_after_policy.json()[0]["availableActions"] == [
+        "start_accounting_manager_review"
+    ]
+
+
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
     login = client.post(
         "/api/v1/auth/login",
@@ -137,3 +236,74 @@ def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
     )
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+def _create_user(client: TestClient, role: str, email: str) -> str:
+    response = client.post(
+        "/api/v1/users/",
+        json={
+            "email": email,
+            "full_name": f"{role.title()} Demo",
+            "role": role,
+            "password": "secret-password",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def _assign_user_to_store(client: TestClient, store_id: str, user_id: str, role: str) -> None:
+    response = client.post(
+        f"/api/v1/stores/{store_id}/users",
+        json={"user_id": user_id, "role": role},
+    )
+    assert response.status_code == 201, response.text
+
+
+def _transition(
+    client: TestClient,
+    request_id: str,
+    target_status: str,
+    actor_user_id: str,
+):
+    return client.post(
+        f"/api/v1/reimbursement-requests/{request_id}/transition",
+        json={
+            "target_status": target_status,
+            "actor_user_id": actor_user_id,
+            "note": f"Move to {target_status}",
+        },
+    )
+
+
+def _attach_valid_cfdi(client: TestClient, expense_id: str, amount: str) -> None:
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense_id}/cfdi/validate",
+        files={
+            "file": (
+                "invoice.xml",
+                _cfdi_xml(amount),
+                "application/xml",
+            )
+        },
+    )
+    assert cfdi.status_code == 200, cfdi.text
+    assert cfdi.json()["is_valid"] is True
+
+
+def _cfdi_xml(amount: str) -> bytes:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Fecha="2026-08-07T12:10:00"
+    Total="{amount}"
+    Moneda="MXN">
+  <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Proveedor Demo"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="Smolbox Demo"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="22222222-2222-4222-8222-222222222222"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
+""".encode()

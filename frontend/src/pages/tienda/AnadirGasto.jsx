@@ -11,7 +11,6 @@ function AnadirGasto() {
     const [categoria, setCategoria] = useState('Papelería');
     const [monto, setMonto] = useState('56.00');
     const [folio, setFolio] = useState('5FB2822E-396D-4725-8521-CDC4BDD20CCF');
-    const [impuesto, setImpuesto] = useState('16');
     const [facturaFile, setFacturaFile] = useState(null);
     const [valeFile, setValeFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
@@ -35,10 +34,12 @@ function AnadirGasto() {
 
     // 2. LÓGICA DE SIMULACIÓN DE IA
     const handleValidarGasto = () => {
-        if (!facturaFile && !folio) {
-        alert("Por favor cargue una factura o llene los campos obligatorios (*).");
-        return;
+        const errorCfdi = validarCfdiXmlRequerido(facturaFile);
+        if (errorCfdi) {
+            alert(errorCfdi);
+            return;
         }
+
         setCargandoValidacion(true);
 
         // Simulamos un retraso de procesamiento inteligente
@@ -54,6 +55,12 @@ function AnadirGasto() {
 
     const handleGuardarGasto = (e) => {
         e.preventDefault();
+
+        const errorCfdi = validarCfdiXmlRequerido(facturaFile);
+        if (errorCfdi) {
+            alert(errorCfdi);
+            return;
+        }
 
         // 1. Creamos el objeto con la misma estructura que espera tu lista
         const nuevoGastoItem = {
@@ -148,12 +155,12 @@ function AnadirGasto() {
             {/* SECCIÓN DE CARGA DE ARCHIVOS */}
             <div style={styles.fileUploadContainer}>
                 <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar Factura *</span>
+                <span style={styles.fileLabel}>Cargar CFDI XML *</span>
                 <div style={styles.fileRow}>
                     <span style={styles.fileName}>{facturaFile ? facturaFile.name : "Ningún archivo seleccionado"}</span>
                     <label style={styles.fileButtonLabel}>
                     Seleccionar archivo...
-                    <input type="file" accept=".pdf,.xml" style={{ display: 'none' }} onChange={(e) => setFacturaFile(e.target.files[0])} />
+                    <input type="file" accept=".xml,application/xml,text/xml" style={{ display: 'none' }} onChange={(e) => setFacturaFile(e.target.files?.[0] || null)} />
                     </label>
                 </div>
                 </div>
@@ -513,4 +520,22 @@ function fechaHoyFormulario() {
     const mes = String(hoy.getMonth() + 1).padStart(2, '0');
     const anio = hoy.getFullYear();
     return `${dia}-${mes}-${anio}`;
+}
+
+function validarCfdiXmlRequerido(file) {
+    if (!file) {
+        return 'Debes cargar el CFDI XML antes de añadir el gasto.';
+    }
+
+    if (!esXml(file)) {
+        return 'El archivo de CFDI debe ser XML.';
+    }
+
+    return null;
+}
+
+function esXml(file) {
+    const nombre = file?.name?.toLowerCase() || '';
+    const tipo = file?.type?.toLowerCase() || '';
+    return nombre.endsWith('.xml') || tipo.includes('xml');
 }

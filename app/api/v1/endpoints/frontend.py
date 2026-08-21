@@ -55,6 +55,7 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
         ReimbursementRequestStatus.submitted,
         ReimbursementRequestStatus.authorized,
         ReimbursementRequestStatus.under_accounting_review,
+        ReimbursementRequestStatus.accounting_reviewed,
     },
     UserRole.accounting_manager: {
         ReimbursementRequestStatus.accounting_reviewed,
@@ -570,6 +571,11 @@ def _frontend_store_code(store: Store) -> str:
 
 def _request_is_visible_for_role(request: ReimbursementRequest, role: UserRole) -> bool:
     if request.status != ReimbursementRequestStatus.submitted:
+        if (
+            request.status == ReimbursementRequestStatus.accounting_reviewed
+            and role == UserRole.accounting_manager
+        ):
+            return request.sap_policy_generated_at is not None
         return True
 
     summary = summarize_reimbursement_request(request)

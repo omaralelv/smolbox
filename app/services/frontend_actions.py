@@ -67,16 +67,25 @@ def available_actions_for_request(
                 "edit_expense",
                 "observe_expense",
                 "remove_expense",
-                "prepare_sap_policy",
                 "mark_accounting_reviewed",
                 "reject_request",
             ]
         )
 
     if status == ReimbursementRequestStatus.accounting_reviewed and role in {
-        UserRole.accounting_manager,
+        UserRole.accountant,
         UserRole.admin,
-    }:
+    } and request.sap_policy_generated_at is None:
+        actions.append("prepare_sap_policy")
+
+    if (
+        status == ReimbursementRequestStatus.accounting_reviewed
+        and role in {
+            UserRole.accounting_manager,
+            UserRole.admin,
+        }
+        and request.sap_policy_generated_at is not None
+    ):
         actions.append("start_accounting_manager_review")
 
     if status == ReimbursementRequestStatus.accounting_manager_review and role in {

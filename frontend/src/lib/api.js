@@ -124,6 +124,15 @@ export async function uploadExpenseAttachment(expenseId, file, attachmentType = 
     });
 }
 
+export async function parseCfdi(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/cfdi/parse', {
+        method: 'POST',
+        body: formData,
+    });
+}
+
 export async function validateExpenseCfdi(expenseId, file) {
     const formData = new FormData();
     formData.append('file', file);

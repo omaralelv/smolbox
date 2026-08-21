@@ -9,6 +9,91 @@ import {
     runAutomatedReview,
 } from '../lib/api';
 
+const ACTION_BUTTONS = {
+    start_accounting_review: {
+        label: 'Iniciar revisión contable',
+        styleKey: 'btnFilledCoral',
+        success: 'Revisión contable iniciada.',
+    },
+    mark_accounting_reviewed: {
+        label: 'Cerrar contabilidad',
+        styleKey: 'btnFilledCoral',
+        success: 'Revisión contable cerrada.',
+    },
+    prepare_sap_policy: {
+        label: 'Póliza y Reembolso',
+        styleKey: 'btnOutline',
+        success: 'Póliza preparada.',
+    },
+    start_accounting_manager_review: {
+        label: 'Enviar a Gerencia',
+        styleKey: 'btnFilledCoral',
+        success: 'Solicitud enviada a gerencia.',
+    },
+    approve_accounting_manager: {
+        label: 'Enviar a Tesorería',
+        styleKey: 'btnFilledCoral',
+        success: 'Solicitud enviada a tesorería.',
+    },
+    return_to_accounting: {
+        label: 'Regresar Acumulado',
+        styleKey: 'btnOutline',
+        success: 'Solicitud regresada a contabilidad.',
+    },
+    start_treasury_review: {
+        label: 'Revisión tesorería',
+        styleKey: 'btnFilledCoral',
+        success: 'Revisión de tesorería iniciada.',
+    },
+    send_to_direction: {
+        label: 'Enviar Dirección',
+        styleKey: 'btnFilledCoral',
+        success: 'Solicitud enviada a dirección.',
+    },
+    return_to_manager: {
+        label: 'Regresar acumulado',
+        styleKey: 'btnOutline',
+        success: 'Solicitud regresada a gerencia.',
+    },
+    approve_direction: {
+        label: 'Aprobar Dirección',
+        styleKey: 'btnBlue',
+        success: 'Solicitud aprobada por dirección.',
+    },
+    return_to_treasury: {
+        label: 'Regresar Acumulado',
+        styleKey: 'btnOutline',
+        success: 'Solicitud regresada a tesorería.',
+    },
+    mark_approved_for_payment: {
+        label: 'Aprobar pago',
+        styleKey: 'btnBlue',
+        success: 'Pago aprobado.',
+    },
+    record_payment: {
+        label: 'Confirmar pago',
+        styleKey: 'btnGreen',
+        success: 'Pago confirmado.',
+    },
+    close_request: {
+        label: 'Cerrar solicitud',
+        styleKey: 'btnGreen',
+        success: 'Solicitud cerrada.',
+    },
+    reject_request: {
+        label: 'Rechazar solicitud',
+        styleKey: 'btnOutline',
+        success: 'Solicitud rechazada.',
+    },
+};
+
+const AUTOMATED_REVIEW_STATUSES = new Set([
+    'submitted',
+    'authorized',
+    'under_accounting_review',
+    'accounting_reviewed',
+]);
+
 function Acumulado( {currentRole} ) {
 
     const navigate = useNavigate();
@@ -112,8 +197,10 @@ function Acumulado( {currentRole} ) {
         try {
             let solicitud = await getFrontendSolicitud(solicitudBackendId);
             for (const accion of acciones) {
-                const accionPermitida = solicitud.availableActions?.includes(accion) || accion === 'prepare_sap_policy';
-                if (!accionPermitida) continue;
+                const accionPermitida = solicitud.availableActions?.includes(accion);
+                if (!accionPermitida) {
+                    throw new Error('La solicitud todavía no está lista para esa acción. Actualiza la bandeja e intenta el siguiente paso disponible.');
+                }
                 await executeRequestAction(solicitud.backendId, accion);
                 solicitud = await getFrontendSolicitud(solicitud.backendId);
             }
@@ -137,142 +224,42 @@ function Acumulado( {currentRole} ) {
         }
     }
 
-    // 3. MATRIZ DE CONFIGURACIÓN DE BOTONES POR ROL
-    const renderBotonesPorRol = () => {
-
-        switch (currentRole){
-            case 'tienda':
-                // Sin botones en el pie de página
-                return null;
-
-            case 'supervisor':
-                return null;
-
-            case 'contabilidad':
+    const renderBotonesDisponibles = () => {
+        const acciones = solicitudSeleccionada?.availableActions || [];
+        const botones = acciones
+            .map((accion) => {
+                const config = ACTION_BUTTONS[accion];
+                if (!config) return null;
                 return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
-                        >Póliza y Reembolso</button>
-                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
-                                'Solicitud enviada a gerencia.'
-                            )}
-                        >Enviar a Gerencia</button>
-                    </>
+                    <button
+                        key={accion}
+                        style={styles[config.styleKey]}
+                        onClick={() => ejecutarAcciones([accion], config.success)}
+                    >
+                        {config.label}
+                    </button>
                 );
+            })
+            .filter(Boolean);
 
-            case 'gerencia':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_accounting'], 'Solicitud regresada a contabilidad.')}
-                        >Regresar Acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_manager_review', 'approve_accounting_manager'],
-                                'Solicitud enviada a tesorería.'
-                            )}
-                        >Enviar a Tesorería</button>
-                    </>
-                );
-
-            case 'tesoreria':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_manager'], 'Solicitud regresada a gerencia.')}
-                        >Regresar acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
-                        >
-                            Aprobar pago
-                        </button>
-
-                        <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
-                        >
-                            Confirmar pago
-                        </button>
-
-                    </>
-                );
-
-            case 'direccion':
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_treasury'], 'Solicitud regresada a tesorería.')}
-                        >Regresar Acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                    </>
-                );
-
-            case 'admin':
-            default:
-                // Muestra todos los botones de la suite
-                return (
-                    <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
-                        >Póliza y Reembolso</button>
-                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
-                                'Solicitud enviada a gerencia.'
-                            )}
-                        >Enviar a Gerencia</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
-                        <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
-                                ['start_accounting_manager_review', 'approve_accounting_manager'],
-                                'Solicitud enviada a tesorería.'
-                            )}
-                        >Enviar a Tesorería</button>
-
-                        <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
-                        >
-                            Aprobar pago
-                        </button>
-
-                        <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
-                        >
-                            Confirmar pago
-                        </button>
-
-                    </>
-                );
+        if (
+            ['contabilidad', 'admin'].includes(currentRole)
+            && solicitudSeleccionada?.backendId
+            && AUTOMATED_REVIEW_STATUSES.has(solicitudSeleccionada?.backendStatus)
+        ) {
+            botones.splice(
+                1,
+                0,
+                <button key="automated-review" style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>
+                    Cargar Reembolso
+                </button>
+            );
         }
-    
 
-    
-};
+        return botones.length ? <>{botones}</> : null;
+    };
 
-
-    const botonesGuardados = renderBotonesPorRol();
-
-    console.log("PROP currentRole RECIBIDA EN ACUMULADO:", currentRole);
-    console.log("BOTONES GENERADOS:", renderBotonesPorRol());
+    const botonesGuardados = renderBotonesDisponibles();
 
 
 
