@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.user import UserRole
 from app.schemas.period import PeriodRead
@@ -9,8 +9,16 @@ from app.schemas.user import UserRead
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if not email:
+            raise ValueError("Email cannot be blank")
+        return email
 
 
 class TokenRead(BaseModel):
