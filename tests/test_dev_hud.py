@@ -460,15 +460,40 @@ def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
     assert any(expense["merchant"] == "HUD Pago Manual" for expense in scenario["expenses"])
 
 
+def test_dev_hud_accepts_free_form_store_code_and_user_email(client: TestClient) -> None:
+    store = client.post(
+        "/api/v1/dev-hud/stores",
+        json={
+            "code": " tienda libre 01 ",
+            "name": "Tienda Libre",
+            "contact_email": "correo cualquiera",
+        },
+    )
+    assert store.status_code == 201, store.text
+    assert store.json()["store"]["code"] == "tienda libre 01"
+    assert store.json()["store"]["contact_email"] == "correo cualquiera"
+
+    user = client.post(
+        "/api/v1/dev-hud/users",
+        json={
+            "email": " Usuario Libre ",
+            "full_name": "Usuario Libre",
+            "role": "accountant",
+        },
+    )
+    assert user.status_code == 201, user.text
+    assert user.json()["user"]["email"] == "usuario libre"
+
+
 def test_dev_hud_seeds_custom_scenario(client: TestClient) -> None:
     seeded = client.post(
         "/api/v1/dev-hud/seed-demo",
         json={
             "reset_existing": True,
-            "store_code": "HUD-CUSTOM",
-            "store_name": "HUD Tienda Custom",
-            "contact_email": "hud.custom@hud.smolbox.example.com",
-            "period_name": "HUD Septiembre 2026",
+            "store_code": " Tienda Custom 42 ",
+            "store_name": "Tienda Custom",
+            "contact_email": "correo custom sin arroba",
+            "period_name": "Septiembre Libre 2026",
             "starts_on": "2026-09-01",
             "ends_on": "2026-09-30",
             "reported_total": "333.00",
@@ -495,9 +520,9 @@ def test_dev_hud_seeds_custom_scenario(client: TestClient) -> None:
     assert seeded.status_code == 201, seeded.text
 
     scenario = seeded.json()["scenario"]
-    assert scenario["store_code"] == "HUD-CUSTOM"
-    assert scenario["store_name"] == "HUD Tienda Custom"
-    assert scenario["period_name"] == "HUD Septiembre 2026"
+    assert scenario["store_code"] == "Tienda Custom 42"
+    assert scenario["store_name"] == "Tienda Custom"
+    assert scenario["period_name"] == "Septiembre Libre 2026"
     assert scenario["summary"]["reported_total"] == "333.00"
     assert scenario["summary"]["calculated_total"] == "333.00"
     assert [expense["merchant"] for expense in scenario["expenses"]] == [
@@ -508,7 +533,11 @@ def test_dev_hud_seeds_custom_scenario(client: TestClient) -> None:
 
     status = client.get("/api/v1/dev-hud/status")
     assert status.status_code == 200, status.text
-    assert status.json()["scenario"]["store_code"] == "HUD-CUSTOM"
+    assert status.json()["scenario"]["store_code"] == "Tienda Custom 42"
+
+    reset = client.post("/api/v1/dev-hud/reset-demo")
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["deleted"]["reimbursement_requests"] == 1
 
 
 def test_dev_hud_can_target_multiple_scenarios_by_request_id(client: TestClient) -> None:

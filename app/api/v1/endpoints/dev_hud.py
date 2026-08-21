@@ -98,9 +98,9 @@ class HudStoreCreate(BaseModel):
     @field_validator("code")
     @classmethod
     def normalize_hud_code(cls, value: str) -> str:
-        code = value.strip().upper()
-        if not code.startswith("HUD-"):
-            raise ValueError("HUD store codes must start with HUD-")
+        code = value.strip()
+        if not code:
+            raise ValueError("HUD store code cannot be blank")
         return code
 
     @field_validator("contact_email")
@@ -108,14 +108,12 @@ class HudStoreCreate(BaseModel):
     def normalize_hud_contact_email(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        email = value.strip().lower()
-        if email and not email.endswith(f"@{HUD_EMAIL_DOMAIN}"):
-            raise ValueError(f"HUD store emails must end with @{HUD_EMAIL_DOMAIN}")
+        email = value.strip()
         return email or None
 
 
 class HudUserCreate(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
+    email: str = Field(min_length=1, max_length=255)
     full_name: str = Field(min_length=1, max_length=255)
     role: UserRole
 
@@ -123,8 +121,8 @@ class HudUserCreate(BaseModel):
     @classmethod
     def normalize_hud_email(cls, value: str) -> str:
         email = value.strip().lower()
-        if not email.endswith(f"@{HUD_EMAIL_DOMAIN}"):
-            raise ValueError(f"HUD user emails must end with @{HUD_EMAIL_DOMAIN}")
+        if not email:
+            raise ValueError("HUD user email cannot be blank")
         return email
 
 
@@ -189,9 +187,9 @@ class HudScenarioCreate(BaseModel):
     @field_validator("store_code")
     @classmethod
     def normalize_store_code(cls, value: str) -> str:
-        code = value.strip().upper()
-        if not code.startswith("HUD-") and not _is_frontend_demo_store_code(code):
-            raise ValueError("HUD scenario store codes must start with HUD- or match T###")
+        code = value.strip()
+        if not code:
+            raise ValueError("HUD scenario store code cannot be blank")
         return code
 
     @field_validator("contact_email")
@@ -199,17 +197,15 @@ class HudScenarioCreate(BaseModel):
     def normalize_contact_email(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        email = value.strip().lower()
-        if email and not email.endswith(f"@{HUD_EMAIL_DOMAIN}"):
-            raise ValueError(f"HUD scenario emails must end with @{HUD_EMAIL_DOMAIN}")
+        email = value.strip()
         return email or None
 
     @field_validator("period_name")
     @classmethod
     def validate_period_name(cls, value: str) -> str:
         name = value.strip()
-        if not name.startswith("HUD "):
-            raise ValueError("HUD scenario period names must start with HUD ")
+        if not name:
+            raise ValueError("HUD scenario period name cannot be blank")
         return name
 
     @model_validator(mode="after")
@@ -1550,10 +1546,17 @@ def _load_demo_request(db: Session, request_id: UUID | None = None) -> Reimburse
         )
         .order_by(ReimbursementRequest.created_at.desc())
     )
-    statement = statement.where(Period.name.like("HUD %"))
+    statement = statement.where(_dev_hud_request_filter())
     if request_id is not None:
         statement = statement.where(ReimbursementRequest.id == request_id)
     return db.scalars(statement).first()
+
+
+def _dev_hud_request_filter() -> Any:
+    return or_(
+        Period.name.like("HUD %"),
+        ReimbursementRequest.audit_events.any(AuditLog.action == "dev_hud_seeded"),
+    )
 
 
 def _scenario_payload(db: Session, request_id: UUID | None = None) -> dict[str, Any]:
@@ -1612,7 +1615,7 @@ def _scenario_list_payload(db: Session) -> list[dict[str, Any]]:
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
         )
-        .where(Period.name.like("HUD %"))
+        .where(_dev_hud_request_filter())
         .order_by(ReimbursementRequest.created_at.desc())
         .limit(100)
     )
@@ -1799,8 +1802,18 @@ def _delete_demo_dataset(db: Session, storage: StorageService) -> dict[str, int]
     )
     hud_store_ids = list(db.scalars(select(Store.id).where(Store.code.like("HUD-%"))))
     hud_period_ids = list(db.scalars(select(Period.id).where(Period.name.like("HUD %"))))
+    seeded_request_ids = list(
+        db.scalars(
+            select(AuditLog.reimbursement_request_id).where(
+                AuditLog.action == "dev_hud_seeded",
+                AuditLog.reimbursement_request_id.is_not(None),
+            )
+        )
+    )
 
     request_filters = []
+    if seeded_request_ids:
+        request_filters.append(ReimbursementRequest.id.in_(seeded_request_ids))
     if hud_store_ids:
         request_filters.append(ReimbursementRequest.store_id.in_(hud_store_ids))
     if hud_period_ids:
@@ -1812,6 +1825,15 @@ def _delete_demo_dataset(db: Session, storage: StorageService) -> dict[str, int]
             else select(ReimbursementRequest.id).where(False)
         )
     )
+    if request_ids:
+        request_store_ids = db.scalars(
+            select(ReimbursementRequest.store_id).where(ReimbursementRequest.id.in_(request_ids))
+        )
+        request_period_ids = db.scalars(
+            select(ReimbursementRequest.period_id).where(ReimbursementRequest.id.in_(request_ids))
+        )
+        hud_store_ids = list({*hud_store_ids, *request_store_ids})
+        hud_period_ids = list({*hud_period_ids, *request_period_ids})
 
     expense_filters = []
     if request_ids:
