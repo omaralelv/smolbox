@@ -28,6 +28,27 @@ def test_user_can_login_and_read_me(client: TestClient) -> None:
     assert me.json()["email"] == "login@example.com"
 
 
+def test_user_email_accepts_free_text_for_login(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/users/",
+        json={
+            "email": " Usuario Interno ",
+            "full_name": "Usuario Interno",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["email"] == "usuario interno"
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "usuario interno", "password": "secret-password"},
+    )
+    assert login.status_code == 200, login.text
+    assert login.json()["user"]["email"] == "usuario interno"
+
+
 def test_login_rejects_bad_password(client: TestClient) -> None:
     created = client.post(
         "/api/v1/users/",
