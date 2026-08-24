@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { apiErrorMessage, parseCfdi } from '../../lib/api';
 import { addDraftGasto } from '../../lib/draftSolicitud';
 
 function AnadirGasto() {
@@ -33,7 +34,7 @@ function AnadirGasto() {
         "Recolección de Basura", "Servicio de Agua", "Trámites", "Trasportación", "Vigilancia", "Otros"];
 
     // 2. LÓGICA DE SIMULACIÓN DE IA
-    const handleValidarGasto = () => {
+    const handleValidarGasto = async () => {
         const errorCfdi = validarCfdiXmlRequerido(facturaFile);
         if (errorCfdi) {
             alert(errorCfdi);
@@ -42,23 +43,32 @@ function AnadirGasto() {
 
         setCargandoValidacion(true);
 
-        // Simulamos un retraso de procesamiento inteligente
-        setTimeout(() => {
-        setCargandoValidacion(false);
-        // Simulación aleatoria para efectos de demostración de los tres estados del mockup
-        const estadosdePrueba = ['listo', 'error', 'legibilidad'];
-        const resultadoAleatorio = estadosdePrueba[Math.floor(Math.random() * estadosdePrueba.length)];
-        setEstadoValidacion(resultadoAleatorio);
-        }, 1200);
+        try {
+            await validarCfdiContraMonto(facturaFile, monto, `Gasto - ${categoria}`);
+            setEstadoValidacion('listo');
+        } catch (error) {
+            setEstadoValidacion('error');
+            alert(apiErrorMessage(error));
+        } finally {
+            setCargandoValidacion(false);
+        }
     };
 
 
-    const handleGuardarGasto = (e) => {
+    const handleGuardarGasto = async (e) => {
         e.preventDefault();
 
         const errorCfdi = validarCfdiXmlRequerido(facturaFile);
         if (errorCfdi) {
             alert(errorCfdi);
+            return;
+        }
+
+        try {
+            await validarCfdiContraMonto(facturaFile, monto, `Gasto - ${categoria}`);
+        } catch (error) {
+            setEstadoValidacion('error');
+            alert(apiErrorMessage(error));
             return;
         }
 
@@ -538,4 +548,32 @@ function esXml(file) {
     const nombre = file?.name?.toLowerCase() || '';
     const tipo = file?.type?.toLowerCase() || '';
     return nombre.endsWith('.xml') || tipo.includes('xml');
+}
+
+async function validarCfdiContraMonto(file, monto, nombreGasto) {
+    const parsed = await parseCfdi(file);
+    const errores = [];
+    const montoGasto = Number(monto);
+    const totalCfdi = parsed.total === null || parsed.total === undefined ? null : Number(parsed.total);
+
+    if (totalCfdi === null || Number.isNaN(totalCfdi)) {
+        errores.push('El XML no trae total fiscal.');
+    } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
+        errores.push(`El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+    }
+
+    if (errores.length) {
+        throw new Error([
+            `El CFDI XML del gasto "${nombreGasto}" no coincide con el gasto capturado:`,
+            ...errores,
+        ].join('\n'));
+    }
+}
+
+function redondearMonto(value) {
+    return Number(value || 0).toFixed(2);
+}
+
+function formatoMonto(value) {
+    return `$${redondearMonto(value)}`;
 }
