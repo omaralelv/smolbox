@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-import { apiErrorMessage, openProtectedFile } from '../lib/api';
+import { apiErrorMessage, openProtectedFile, removeExpense } from '../lib/api';
 
 import Drawer from '../components/shared/Drawer';
 
@@ -15,6 +15,9 @@ function Detalle({ currentRole }) {
     const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
     const [observacionesAbiertas, setObservacionesAbiertas] = useState(false);
     const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
+    const [eliminandoGastoId, setEliminandoGastoId] = useState(null);
+    const [gastoParaEliminar, setGastoParaEliminar] = useState(null);
+    const [motivoEliminacion, setMotivoEliminacion] = useState('');
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
@@ -35,9 +38,10 @@ function Detalle({ currentRole }) {
     const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
 
     // Mock por si ingresas directo sin state
-    const gastosDesglosados = location.state?.desglose?.length > 0
-        ? location.state.desglose
-        : [
+    const [gastosDesglosados, setGastosDesglosados] = useState(() => (
+        location.state?.desglose?.length > 0
+            ? filtrarGastosActivos(location.state.desglose)
+            : [
             { 
                 id: 1, 
                 nombre: 'Gasto 1', 
@@ -52,7 +56,8 @@ function Detalle({ currentRole }) {
                 folioFiscal: '467FE2EF-99E8-45CD-8E2F-F7C63D13847B', 
                 autorizacion: '' 
             }
-        ];
+        ]
+    ));
 
     // CÁLCULO DEL TOTAL DE LA CATEGORÍA
     const totalCategoria = gastosDesglosados
@@ -125,6 +130,60 @@ function Detalle({ currentRole }) {
         }
     };
 
+    const handleEliminarGasto = (gasto) => {
+        const expenseId = gasto.backendId || gasto.id;
+
+        if (!expenseId || typeof expenseId !== 'string') {
+            alert('Este gasto no tiene ID de backend para eliminarse.');
+            return;
+        }
+
+        setGastoParaEliminar(gasto);
+        setMotivoEliminacion('');
+    };
+
+    const cancelarEliminacion = () => {
+        setGastoParaEliminar(null);
+        setMotivoEliminacion('');
+    };
+
+    const confirmarEliminacion = async () => {
+        const expenseId = gastoParaEliminar?.backendId || gastoParaEliminar?.id;
+        const cleanReason = motivoEliminacion.trim();
+
+        if (!expenseId || typeof expenseId !== 'string') {
+            alert('Este gasto no tiene ID de backend para eliminarse.');
+            cancelarEliminacion();
+            return;
+        }
+
+        if (!cleanReason) {
+            alert('Necesitas escribir un motivo para eliminar el gasto.');
+            return;
+        }
+
+        try {
+            setEliminandoGastoId(expenseId);
+            await removeExpense(expenseId, cleanReason);
+            setGastosDesglosados((actuales) =>
+                actuales.filter((item) => (item.backendId || item.id) !== expenseId)
+            );
+
+            if ((gastoSeleccionado?.backendId || gastoSeleccionado?.id) === expenseId) {
+                setGastoSeleccionado(null);
+                setDocumentoActivo(null);
+                setObservacionesAbiertas(false);
+            }
+
+            alert('Gasto eliminado correctamente.');
+            cancelarEliminacion();
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setEliminandoGastoId(null);
+        }
+    };
+
     // 4. HELPER PARA MOSTRAR EL BADGE DE AUTORIZACIÓN
     const renderBadgeAutorizacion = (estatus) => {
         if (estatus === 'autorizado') {
@@ -177,11 +236,11 @@ function Detalle({ currentRole }) {
 
                 {/* FILAS DE GASTOS */}
                 {gastosDesglosados.map((gasto, index) => {
-                    console.log("Objeto gasto completo:", gasto);
+                    const gastoKey = gasto.backendId || gasto.id || index;
                 
                     return (
 
-                    <div key={gasto.id || index} style={styles.tableRow}>
+                    <div key={gastoKey} style={styles.tableRow}>
                         <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
                             {gasto.nombre || `Gasto ${index + 1}`}
                         </span>
@@ -228,7 +287,15 @@ function Detalle({ currentRole }) {
                                 </button>
                             )}
                             {puedeVer('eliminar') && (
-                                <button style={styles.iconBtn} title="Eliminar Gasto">
+                                <button
+                                    style={{
+                                        ...styles.iconBtn,
+                                        opacity: eliminandoGastoId === gastoKey ? 0.5 : 1,
+                                    }}
+                                    title="Eliminar Gasto"
+                                    onClick={() => handleEliminarGasto(gasto)}
+                                    disabled={eliminandoGastoId === gastoKey}
+                                >
                                     <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
                                 </button>
                             )}
@@ -261,6 +328,41 @@ function Detalle({ currentRole }) {
                 historial={historial}
                 onEnviarObservacion={handleEnviarObservacion}
             />
+            {gastoParaEliminar && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modal}>
+                        <h3 style={styles.modalTitle}>Eliminar gasto</h3>
+                        <p style={styles.modalText}>
+                            Escribe el motivo para eliminar {gastoParaEliminar.nombre || 'este gasto'}.
+                        </p>
+                        <textarea
+                            value={motivoEliminacion}
+                            onChange={(event) => setMotivoEliminacion(event.target.value)}
+                            style={styles.modalTextarea}
+                            placeholder="Motivo de eliminación"
+                            autoFocus
+                        />
+                        <div style={styles.modalActions}>
+                            <button
+                                type="button"
+                                style={styles.modalCancelBtn}
+                                onClick={cancelarEliminacion}
+                                disabled={Boolean(eliminandoGastoId)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                style={styles.modalDeleteBtn}
+                                onClick={confirmarEliminacion}
+                                disabled={Boolean(eliminandoGastoId)}
+                            >
+                                {eliminandoGastoId ? 'Eliminando...' : 'Eliminar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
         
     );
@@ -370,7 +472,76 @@ const styles = {
         paddingLeft: '25px',
         display: 'flex',
         alignItems: 'center'
+    },
+    modalOverlay: {
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+    },
+    modal: {
+        width: 'min(420px, calc(100vw - 40px))',
+        backgroundColor: '#fff',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '10px',
+        boxShadow: 'var(--shadow)',
+        padding: '22px',
+    },
+    modalTitle: {
+        margin: '0 0 8px',
+        fontSize: '18px',
+        color: 'var(--text-h)',
+    },
+    modalText: {
+        margin: '0 0 14px',
+        fontSize: '14px',
+        color: '#444',
+    },
+    modalTextarea: {
+        width: '100%',
+        minHeight: '90px',
+        border: '1px solid var(--border)',
+        borderRadius: '8px',
+        padding: '10px',
+        fontSize: '14px',
+        resize: 'vertical',
+        boxSizing: 'border-box',
+    },
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '16px',
+    },
+    modalCancelBtn: {
+        border: '1px solid var(--sb-btnBorder)',
+        backgroundColor: '#fff',
+        color: 'var(--text-WBtn)',
+        borderRadius: '20px',
+        padding: '7px 18px',
+        cursor: 'pointer',
+        fontWeight: 'bold',
+    },
+    modalDeleteBtn: {
+        border: '1px solid var(--sb-btnBorder)',
+        background: 'var(--gradient)',
+        color: 'var(--text-CBtn)',
+        borderRadius: '20px',
+        padding: '7px 18px',
+        cursor: 'pointer',
+        fontWeight: 'bold',
     }
 };
 
 export default Detalle;
+
+function filtrarGastosActivos(gastos) {
+    return gastos.filter((gasto) => {
+        const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();
+        const status = String(gasto.status || '').toLowerCase();
+        return backendStatus !== 'removed' && status !== 'eliminado';
+    });
+}
