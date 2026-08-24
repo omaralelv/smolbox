@@ -142,6 +142,16 @@ export async function validateExpenseCfdi(expenseId, file) {
     });
 }
 
+export async function removeExpense(expenseId, reason) {
+    return request(`/expenses/${expenseId}/remove/me`, {
+        method: 'POST',
+        body: {
+            reason,
+            adjust_reported_total: true,
+        },
+    });
+}
+
 export function apiErrorMessage(error) {
     if (!error) return 'No se pudo completar la operación.';
     return error.message || 'No se pudo completar la operación.';

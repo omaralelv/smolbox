@@ -138,7 +138,12 @@ def list_frontend_work_queue(
     statement = _request_detail_statement().order_by(ReimbursementRequest.created_at.desc())
     if current_user.role == UserRole.admin:
         statement = statement.where(
-            ReimbursementRequest.status != ReimbursementRequestStatus.draft
+            ReimbursementRequest.status.not_in(
+                {
+                    ReimbursementRequestStatus.draft,
+                    ReimbursementRequestStatus.rejected,
+                }
+            )
         )
         requests = list(db.scalars(statement.limit(200)))
         return [_request_payload(request, current_user) for request in requests]
@@ -355,7 +360,10 @@ def _request_payload(
         gerente=request.store.manager_name,
         cuenta_bancaria=request.store.bank_account,
         estado_region=request.store.state_region,
-        gastos=[_expense_payload(expense) for expense in sorted(request.expenses, key=_expense_sort_key)],
+        gastos=[
+            _expense_payload(expense)
+            for expense in sorted(_frontend_visible_expenses(request.expenses), key=_expense_sort_key)
+        ],
         monto_total=float(calculated_total),
         reported_total=float(reported_total) if reported_total is not None else None,
         calculated_total=float(calculated_total),
@@ -363,6 +371,14 @@ def _request_payload(
         available_actions=actions,
         action_labels={action: ACTION_LABELS.get(action, action) for action in actions},
     )
+
+
+def _frontend_visible_expenses(expenses: list[Expense]) -> list[Expense]:
+    return [
+        expense
+        for expense in expenses
+        if expense.status != ExpenseStatus.removed and expense.removed_at is None
+    ]
 
 
 def _expense_payload(expense: Expense) -> FrontendGastoRead:

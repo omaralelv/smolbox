@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import {
@@ -13,6 +13,7 @@ function Acumulado( {currentRole} ) {
 
     const navigate = useNavigate();
     const location = useLocation();
+    const autoTransitionRef = useRef(new Set());
 
 
     // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
@@ -33,10 +34,22 @@ function Acumulado( {currentRole} ) {
         if (!solicitudBackendId) return undefined;
 
         getFrontendSolicitud(solicitudBackendId)
-            .then((solicitud) => {
+            .then(async (solicitud) => {
+                const accionInicial = accionInicialPorRol(currentRole, solicitud);
+                const autoTransitionKey = `${solicitud.backendId}:${accionInicial || 'none'}`;
+
+                if (
+                    accionInicial
+                    && !autoTransitionRef.current.has(autoTransitionKey)
+                    && solicitud.availableActions?.includes(accionInicial)
+                ) {
+                    autoTransitionRef.current.add(autoTransitionKey);
+                    await executeRequestAction(solicitud.backendId, accionInicial);
+                    solicitud = await getFrontendSolicitud(solicitud.backendId);
+                }
+
                 if (activo) setSolicitudActual(solicitud);
-            }
-        )
+            })
             .catch(() => {});
 
         return () => {
@@ -56,12 +69,20 @@ function Acumulado( {currentRole} ) {
     // 2. RECUPERAR LOS GASTOS DE ESTA SOLICITUD
     // Si la solicitud trae gastos cargados los usa; si no, muestra el desglose por defecto
     const gastosBrutos = solicitudSeleccionada?.gastos?.length > 0 
-        ? solicitudSeleccionada.gastos.map((g, index) => ({
+        ? solicitudSeleccionada.gastos.filter(gastoActivo).map((g, index) => ({
             id: index + 1,
+            backendId: g.backendId || g.id,
+            nombre: g.nombre || `Gasto ${index + 1}`,
             tipo: g.tipo || g.type || 'Gasto General',
             facturas: g.facturas || 1,
             monto: parseFloat(g.monto) || 0,
-            folio: g.folio || 'N/A'
+            folio: g.folio || 'N/A',
+            folioFiscal: g.folioFiscal || g.folio_fiscal || g.folio || null,
+            autorizacion: g.autorizacion || '',
+            status: g.status || '',
+            backendStatus: g.backendStatus || g.backend_status || '',
+            requiresAuthorization: Boolean(g.requiresAuthorization || g.requires_authorization),
+            downloadUrl: g.downloadUrl || g.download_url || null,
             }))
         : [
             { id: 1, tipo: 'Servicio de Agua Municipio', facturas: 0, monto: 0.00 },
@@ -613,3 +634,36 @@ const styles = {
 };
 
 export default Acumulado;
+
+function gastoActivo(gasto) {
+    const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();
+    const status = String(gasto.status || '').toLowerCase();
+    return backendStatus !== 'removed' && status !== 'eliminado';
+}
+
+function accionInicialPorRol(currentRole, solicitud) {
+    const rol = String(currentRole || '').toLowerCase().trim();
+    const status = solicitud?.backendStatus || solicitud?.backend_status;
+
+    if (rol === 'admin') {
+        return [
+            'start_authorization_review',
+            'start_accounting_review',
+            'start_accounting_manager_review',
+            'start_treasury_review',
+        ].find((accion) => solicitud?.availableActions?.includes(accion)) || null;
+    }
+    if (rol === 'supervisor' && status === 'submitted') {
+        return 'start_authorization_review';
+    }
+    if (rol === 'contabilidad' && ['submitted', 'authorized'].includes(status)) {
+        return 'start_accounting_review';
+    }
+    if (rol === 'gerencia' && status === 'accounting_reviewed') {
+        return 'start_accounting_manager_review';
+    }
+    if (rol === 'tesoreria' && status === 'accounting_manager_approved') {
+        return 'start_treasury_review';
+    }
+    return null;
+}

@@ -31,7 +31,9 @@ from app.schemas.expense import (
     ExpenseUpdate,
 )
 from app.services.permissions import user_can_transition_store_request
+from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
+from app.services.workflow import transition_reimbursement_request
 
 router = APIRouter()
 
@@ -577,6 +579,7 @@ def _remove_expense_with_actor(
     original_merchant = expense.merchant
     original_category = expense.category
     original_status = expense.status
+    request_status_before_removal = reimbursement_request.status
     expense.status = ExpenseStatus.removed
     expense.removed_at = datetime.now(UTC)
     expense.removed_by_user_id = actor.id
@@ -594,7 +597,7 @@ def _remove_expense_with_actor(
             message=reason,
             event_payload={
                 "actor_role": actor.role.value,
-                "request_status": reimbursement_request.status.value,
+                "request_status": request_status_before_removal.value,
                 "original_amount": str(original_amount),
                 "original_currency": original_currency,
                 "original_merchant": original_merchant,
@@ -605,9 +608,53 @@ def _remove_expense_with_actor(
             },
         )
     )
+    _reject_request_if_no_payable_expenses(
+        reimbursement_request,
+        actor=actor,
+        authenticated=require_store_assignment,
+        db=db,
+    )
     db.commit()
     db.refresh(expense)
     return expense
+
+
+def _reject_request_if_no_payable_expenses(
+    reimbursement_request: ReimbursementRequest,
+    *,
+    actor: User,
+    authenticated: bool,
+    db: Session,
+) -> None:
+    summary = summarize_reimbursement_request(reimbursement_request)
+    if summary.expense_count > 0:
+        return
+
+    from_status, to_status = transition_reimbursement_request(
+        reimbursement_request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.rejected,
+        summary=summary,
+    )
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="request_status_changed",
+            from_status=from_status.value,
+            to_status=to_status.value,
+            message="Solicitud rechazada automáticamente: no quedan gastos activos.",
+            event_payload={
+                "ready_for_submission": summary.ready_for_submission,
+                "ready_for_authorization_approval": summary.ready_for_authorization_approval,
+                "ready_for_accounting_approval": summary.ready_for_accounting_approval,
+                "authenticated": authenticated,
+                "automatic": True,
+                "reason": "no_payable_expenses",
+            },
+        )
+    )
 
 
 def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Session) -> None:

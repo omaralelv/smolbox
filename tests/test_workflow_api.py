@@ -545,7 +545,7 @@ def test_accounting_can_remove_expense_with_reason(
     assert removal_event["event_payload"]["previous_expense_status"] == "approved"
 
 
-def test_authorizer_can_remove_required_expense_and_close_no_payable_request(
+def test_authorizer_removing_last_payable_expense_rejects_request(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
@@ -611,12 +611,7 @@ def test_authorizer_can_remove_required_expense_and_close_no_payable_request(
     assert expense.json()["id"] in summary.json()["removed_expense_ids"]
     assert "no_payable_expenses" in {issue["code"] for issue in summary.json()["issues"]}
 
-    rejected_request = _transition(
-        client,
-        base_records["request_id"],
-        target_status="rejected",
-        actor_user_id=authorizer_user_id,
-    )
+    rejected_request = client.get(f"/api/v1/reimbursement-requests/{base_records['request_id']}")
     assert rejected_request.status_code == 200, rejected_request.text
     assert rejected_request.json()["status"] == "rejected"
 
