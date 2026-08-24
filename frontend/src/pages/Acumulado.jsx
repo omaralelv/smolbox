@@ -159,7 +159,7 @@ function Acumulado( {currentRole} ) {
     }
 
     const url =
-    `http://localhost:8000/api/v1/macro/generar-polizas/` +
+    `/api/v1/macro/generar-polizas/` +
     encodeURIComponent(String(solicitudId).trim());
 
     console.log("URL solicitada:", url);
@@ -193,18 +193,34 @@ function Acumulado( {currentRole} ) {
                 "El backend respondió, pero el ZIP está vacío."
             );
         }
+        const contentDisposition = response.headers.get(
+        "content-disposition"
+        );
+
+        let nombreArchivo = "Polizas_Reembolso.zip";
+
+        if (contentDisposition) {
+        const coincidencia = contentDisposition.match(
+            /filename="?([^";]+)"?/i
+        );
+
+            if (coincidencia?.[1]) {
+                nombreArchivo = coincidencia[1];
+            }
+        }
 
         const urlDescarga = window.URL.createObjectURL(blob);
         const enlace = document.createElement("a");
 
         enlace.href = urlDescarga;
-        enlace.download = "Polizas_Reembolso.zip";
+        enlace.download = nombreArchivo;
 
         document.body.appendChild(enlace);
         enlace.click();
         enlace.remove();
 
         window.URL.revokeObjectURL(urlDescarga);
+
     } catch (error) {
         console.error("Error descargando pólizas:", error);
 

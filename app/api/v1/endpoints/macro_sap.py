@@ -2,6 +2,7 @@ import uuid
 import os
 import io
 import zipfile
+import re
 from datetime import date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,6 +29,11 @@ ruta_tiendas = os.path.join(ASSETS_DIR, "Copia de BASE DE TIENDAS.xlsx")
 ruta_gastos = os.path.join(ASSETS_DIR, "TiposGastos.xlsx")
 ruta_plantilla = os.path.join(ASSETS_DIR, "COPIA FORMATO REEMBOLSO.xlsx")
 ruta_logo = os.path.join(ASSETS_DIR, "logoV.png")
+
+
+
+def limpiar_nombre_archivo(valor: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", valor).strip()
 # =========================================================
 # 1. SOLICITUD DESDE LA BASE DE DATOS
 # =========================================================
@@ -520,9 +526,15 @@ def generar_polizas(
     # Reiniciamos el cursor del buffer de ZIP al inicio antes de enviarlo
     zip_buffer.seek(0)
 
-    # Devolvemos el archivo ZIP generado
+    folio = str(solicitud["folio"] or solicitud_id).strip()
+    folio_archivo = limpiar_nombre_archivo(folio)
+
+    nombre_zip = f"Poliza_{folio_archivo}.zip"
+
     return StreamingResponse(
-        zip_buffer, 
+        zip_buffer,
         media_type="application/x-zip-compressed",
-        headers={"Content-Disposition": f"attachment; filename=Polizas_{numero_tienda}{fecha_poliza_sap}.zip"}
+        headers={
+            "Content-Disposition": (f'attachment; filename="{nombre_zip}"')
+        },
     )
