@@ -142,8 +142,6 @@ function Acumulado( {currentRole} ) {
 
     // 2.5 Función para el frontend (la puede poner en su archivo de API o en el componente)
     const handleDescargarPoliza = async (solicitudId) => {
-    console.log("Click en Póliza y Reembolso");
-    console.log("UUID recibido por la función:", solicitudId);
 
     if (!solicitudId) {
         alert("No se encontró el UUID interno de la solicitud.");
@@ -161,8 +159,6 @@ function Acumulado( {currentRole} ) {
     const url =
     `/api/v1/macro/generar-polizas/` +
     encodeURIComponent(String(solicitudId).trim());
-
-    console.log("URL solicitada:", url);
 
     try {
         const response = await fetch(url, {
@@ -367,9 +363,6 @@ function Acumulado( {currentRole} ) {
 
 
     const botonesGuardados = renderBotonesPorRol();
-
-    console.log("PROP currentRole RECIBIDA EN ACUMULADO:", currentRole);
-    console.log("BOTONES GENERADOS:", renderBotonesPorRol());
 
 
 
