@@ -94,6 +94,7 @@ const styles = {
         borderLeft: '1px solid #fecdd3',
         backgroundColor: '#ffffff',
         height: '100%',
+        maxHeight: '100vh',
     },
     panelDocumento: {
         width: '450px',
@@ -105,17 +106,21 @@ const styles = {
     },
     panelObservaciones: {
         width: '320px',
+        height: '100%',
+        maxHeight: '100%',
         maxWidth: '35vw',
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: '#ffffff',
+        overflow: 'hidden',
     },
     header: {
-        padding: '14px 16px',
+        padding: '9px 15px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         borderBottom: '1px solid #fecdd3',
+        flexShrink: 0,
     },
     title: {
         margin: 0,
@@ -141,12 +146,12 @@ const styles = {
     },
     chatBody: {
         flex: 1,
-        padding: '16px',
-        overflowY: 'auto',
+        padding: '10px',
         display: 'flex',
         flexDirection: 'column',
         gap: '12px',
-        backgroundColor: '#ffffff',
+        backgroundColor: 'var(--sb-subhead)',
+        overflowY: 'auto',
     },
     mensajeWrapper: {
         display: 'flex',
@@ -174,14 +179,20 @@ const styles = {
         color: '#881337',
     },
     footer: {
-        padding: '12px',
+        padding: '10px',
+        background: '#ffffff',
         borderTop: '1px solid #fecdd3',
-        position: 'relative',
+        position: 'fixed',
+        bottom: 0,
+        right: 20,
         display: 'flex',
         alignItems: 'center',
+        width: '19.5vw',
+        flexShrink: 0,
     },
     textarea: {
         width: '100%',
+        background:'#ffffff',
         height: '70px',
         borderRadius: '8px',
         border: '1px solid #fecdd3',
@@ -190,6 +201,7 @@ const styles = {
         resize: 'none',
         outline: 'none',
         boxSizing: 'border-box',
+        color: 'var(--text)',
     },
     sendBtn: {
         position: 'absolute',
@@ -199,6 +211,6 @@ const styles = {
         border: 'none',
         fontSize: '14px',
         cursor: 'pointer',
-        color: '#e11d48',
+        color: 'var(--sb-sendBtnBg)',
     }
 };

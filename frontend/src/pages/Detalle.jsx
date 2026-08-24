@@ -167,7 +167,7 @@ function Detalle({ currentRole }) {
 
                     {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
                         {!ocultarFolio && (
-                            <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingLeft: '0px'}}>FOLIO FISCAL</span>
+                            <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingRight: '5px'}}>FOLIO FISCAL</span>
                         )}
 
                     <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px',  }}>AUTORIZACION</span>
@@ -193,16 +193,12 @@ function Detalle({ currentRole }) {
 
                         {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
                             {!ocultarFolio && (
-                                <span style={{ flex: 1.5, fontSize: '12px', wordBreak: 'break-all' }}>
+                                <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all', paddingLeft: 50 }}>
                                     {gasto.folioFiscal || gasto.folio || 'N/A'}
                                 </span>
                             )}
 
 
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0px', textAlign: 'center' , width: '400px', paddingLeft: '50px'}}>
-                            <span>{gasto.folio || 'N/A'}</span>
-                            {renderBadgeAutorizacion(gasto.autorizacion)}
-                        </div>
 
                         <span style={{ flex: 1, textAlign: 'right',  paddingLeft: '50px', width: '100px' }}>AUTORIZACION</span>
 
@@ -274,7 +270,7 @@ const styles = {
     mainLayout: {
         display: 'flex',
         width: '100%',
-        height: 'calc(100vh - 80px)', 
+        height: 'calc(100vh - 160px)', 
         overflow: 'hidden',
     },
 
