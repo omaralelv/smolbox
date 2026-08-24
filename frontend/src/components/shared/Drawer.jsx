@@ -1,0 +1,204 @@
+import React from 'react';
+
+export default function Drawer({ 
+    documentoActivo,      // 'factura' | 'vale' | null
+    observacionesAbiertas, // true | false
+    gasto,                // Objeto del gasto seleccionado
+    onCloseDocumento,     // Función para cerrar factura/vale
+    onCloseObservaciones, // Función para cerrar observaciones
+    comentario,           // Estado del texto escrito
+    setComentario,        // Setter del texto
+    historial,            // Array con el historial de comentarios
+    onEnviarObservacion   // Función al dar submit al comentario
+}) {
+    // Si no hay nada abierto, no renderizamos nada
+    if (!documentoActivo && !observacionesAbiertas) return null;
+
+    return (
+        <div style={styles.drawerWrapper}>
+            
+            {/* 1. SECCIÓN DE FACTURA / VALE */}
+            {documentoActivo && (
+                <div style={styles.panelDocumento}>
+                    <div style={styles.header}>
+                        <h3 style={styles.title}>
+                            {documentoActivo === 'factura' ? 'Factura' : 'Vale'} {gasto?.nombre || gasto?.id || ''}
+                        </h3>
+                        <button style={styles.closeBtn} onClick={onCloseDocumento}>✕</button>
+                    </div>
+
+                    <div style={styles.documentoBody}>
+                        <iframe 
+                            src={documentoActivo === 'factura' ? gasto?.urlFactura : gasto?.urlVale} 
+                            title="Comprobante"
+                            style={styles.iframe}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* 2. SECCIÓN DE OBSERVACIONES */}
+            {observacionesAbiertas && (
+                <div style={styles.panelObservaciones}>
+                    <div style={styles.header}>
+                        <h3 style={styles.title}>Observaciones {gasto?.nombre || gasto?.id || ''}</h3>
+                        <button style={styles.closeBtn} onClick={onCloseObservaciones}>✕</button>
+                    </div>
+
+                    {/* Historial de comentarios */}
+                    <div style={styles.chatBody}>
+                        {historial && historial.map((obs) => {
+                            const esMio = obs.rol === 'supervisor';
+                            return (
+                                <div 
+                                    key={obs.id} 
+                                    style={{
+                                        ...styles.mensajeWrapper,
+                                        alignItems: esMio ? 'flex-end' : 'flex-start'
+                                    }}
+                                >
+                                    <span style={styles.autorLabel}>{obs.autor} - {obs.fecha}</span>
+                                    <div style={{
+                                        ...styles.globo,
+                                        ...(esMio ? styles.globoMio : styles.globoOtro)
+                                    }}>
+                                        {obs.texto}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Input para agregar comentario */}
+                    <form style={styles.footer} onSubmit={onEnviarObservacion}>
+                        <textarea
+                            placeholder="Nueva observación..."
+                            value={comentario}
+                            onChange={(e) => setComentario(e.target.value)}
+                            style={styles.textarea}
+                        />
+                        <button type="submit" style={styles.sendBtn}>
+                            ➤
+                        </button>
+                    </form>
+                </div>
+            )}
+
+        </div>
+    );
+}
+
+const styles = {
+    drawerWrapper: {
+        display: 'flex',
+        borderLeft: '1px solid #fecdd3',
+        backgroundColor: '#ffffff',
+        height: '100%',
+    },
+    panelDocumento: {
+        width: '450px',
+        maxWidth: '45vw',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRight: '1px solid #fecdd3',
+        backgroundColor: '#ffffff',
+    },
+    panelObservaciones: {
+        width: '320px',
+        maxWidth: '35vw',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#ffffff',
+    },
+    header: {
+        padding: '14px 16px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: '1px solid #fecdd3',
+    },
+    title: {
+        margin: 0,
+        fontSize: '15px',
+        fontWeight: 'bold',
+        color: '#111827',
+    },
+    closeBtn: {
+        background: 'none',
+        border: 'none',
+        fontSize: '16px',
+        cursor: 'pointer',
+        color: '#6b7280',
+    },
+    documentoBody: {
+        flex: 1,
+        backgroundColor: '#f9fafb',
+    },
+    iframe: {
+        width: '100%',
+        height: '100%',
+        border: 'none',
+    },
+    chatBody: {
+        flex: 1,
+        padding: '16px',
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        backgroundColor: '#ffffff',
+    },
+    mensajeWrapper: {
+        display: 'flex',
+        flexDirection: 'column',
+        maxWidth: '90%',
+    },
+    autorLabel: {
+        fontSize: '10px',
+        color: '#6b7280',
+        marginBottom: '2px',
+    },
+    globo: {
+        padding: '10px 12px',
+        borderRadius: '10px',
+        fontSize: '12px',
+        lineHeight: '1.4',
+        border: '1px solid #fecdd3',
+    },
+    globoMio: {
+        backgroundColor: '#ffffff',
+        color: '#1f2937',
+    },
+    globoOtro: {
+        backgroundColor: '#fff1f2',
+        color: '#881337',
+    },
+    footer: {
+        padding: '12px',
+        borderTop: '1px solid #fecdd3',
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+    },
+    textarea: {
+        width: '100%',
+        height: '70px',
+        borderRadius: '8px',
+        border: '1px solid #fecdd3',
+        padding: '8px 30px 8px 8px',
+        fontSize: '12px',
+        resize: 'none',
+        outline: 'none',
+        boxSizing: 'border-box',
+    },
+    sendBtn: {
+        position: 'absolute',
+        right: '20px',
+        bottom: '20px',
+        background: 'none',
+        border: 'none',
+        fontSize: '14px',
+        cursor: 'pointer',
+        color: '#e11d48',
+    }
+};
