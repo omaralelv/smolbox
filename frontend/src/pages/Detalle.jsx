@@ -1,12 +1,36 @@
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import { apiErrorMessage, openProtectedFile } from '../lib/api';
+
+import Drawer from '../components/shared/Drawer';
+
 
 function Detalle({ currentRole }) {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // 1. RECUPERAR DATOS DE LA NAVEGACIÓN O USAR MOCK DE RESPALDO (Basado en tu imagen)
+
+    // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
+    const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
+    const [observacionesAbiertas, setObservacionesAbiertas] = useState(false);
+    const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
+
+    // Estado del chat de observaciones
+    const [comentario, setComentario] = useState('');
+    const [historial, setHistorial] = useState([
+        {
+            id: 1,
+            autor: 'Contabilidad',
+            rol: 'supervisor',
+            texto: 'Modificación de impuesto de 16% a 8%. Artículos de limpieza para evento.',
+            fecha: '10/08/2026 - 10:15 AM'
+        }
+    ]);
+
+    
+
+    // 1. RECUPERAR DATOS DE LA NAVEGACIÓN O USAR MOCK DE RESPALDO 
     const categoria = location.state?.categoria || 'Sistemas';
     const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
 
@@ -49,6 +73,45 @@ function Detalle({ currentRole }) {
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
 
+
+
+    // HANDLERS PARA ABRIR Y CERRAR PANELES
+    const handleVerVale = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setDocumentoActivo('vale'); // Si había factura, se cambia a vale automáticamente
+    };
+
+    const handleVerFactura = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
+    };
+
+    const handleToggleObservaciones = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setObservacionesAbiertas(!observacionesAbiertas);
+    };
+
+    const handleEnviarObservacion = (e) => {
+        e.preventDefault();
+        if (!comentario.trim()) return;
+
+        const nueva = {
+            id: Date.now(),
+            autor: 'Tú',
+            rol: 'supervisor',
+            texto: comentario,
+            fecha: new Date().toLocaleString()
+        };
+
+        setHistorial([...historial, nueva]);
+        setComentario('');
+    };
+
+
+
+
+
+
     const abrirArchivo = async (gasto) => {
         if (!gasto.downloadUrl) {
             alert('Este gasto no tiene archivo disponible para abrir.');
@@ -75,23 +138,38 @@ function Detalle({ currentRole }) {
 
 
 
+    // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
+    const ocultarFolio = documentoActivo && observacionesAbiertas;
+
+
+
+
     return (
-        <div style={styles.container}>
-            {/* ENCABEZADO */}
-            <div style={styles.headerRow}>
-                <h2 style={styles.title}>{solicitudFolio} / {categoria}</h2>
-                <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
-                    Regresar
-                </button>
-            </div>
+        <div style={styles.mainLayout}>
+            {/* VISTA PRINCIPAL (IZQUIERDA) */}
+            <div style={styles.container}>
+                {/* ENCABEZADO */}
+                <div style={styles.headerRow}>
+                    <h2 style={styles.title}>{solicitudFolio} / {categoria}</h2>
+                    <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
+                        Regresar
+                    </button>
+                </div>
+
 
             {/* TABLA DE DESGLOSE */}
             <div style={styles.tableContainer}>
+
                 {/* ENCABEZADO DE COLUMNAS */}
                 <div style={styles.tableHeader}>
                     <span style={{ flex: 1.25}}></span>
                     <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>MONTO</span>
-                    <span style={{ flex: 1, textAlign: 'left' , width: '20px', paddingLeft: '0px'}}>FOLIO FISCAL</span>
+
+                    {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
+                        {!ocultarFolio && (
+                            <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingLeft: '0px'}}>FOLIO FISCAL</span>
+                        )}
+
                     <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px',  }}>AUTORIZACION</span>
                     <span style={{ flex: 1, textAlign: 'right', paddingRight: '5px' }}>HERRAMIENTAS</span>
                 </div>
@@ -112,6 +190,15 @@ function Detalle({ currentRole }) {
                             {parseFloat(gasto.monto || 0).toFixed(2)}
                         </span>
 
+
+                        {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
+                            {!ocultarFolio && (
+                                <span style={{ flex: 1.5, fontSize: '12px', wordBreak: 'break-all' }}>
+                                    {gasto.folioFiscal || gasto.folio || 'N/A'}
+                                </span>
+                            )}
+
+
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0px', textAlign: 'center' , width: '400px', paddingLeft: '50px'}}>
                             <span>{gasto.folio || 'N/A'}</span>
                             {renderBadgeAutorizacion(gasto.autorizacion)}
@@ -119,20 +206,23 @@ function Detalle({ currentRole }) {
 
                         <span style={{ flex: 1, textAlign: 'right',  paddingLeft: '50px', width: '100px' }}>AUTORIZACION</span>
 
+
+
+
                         {/* BOTONES DE HERRAMIENTAS (ICONOS) */}
                         <div style={styles.herramientasContainer}>
                             {puedeVer('vale') && (
-                                <button style={styles.iconBtn} title="Ver Vale" onClick={() => abrirArchivo(gasto)}>
+                                <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
                                     <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                                 </button>
                             )}
                             {puedeVer('factura') && (
-                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => abrirArchivo(gasto)}>
+                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
                                     <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
                                 </button>
                             )}
                             {puedeVer('observaciones') && (
-                                <button style={styles.iconBtn} title="Observaciones">
+                                <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
                                     <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
                                 </button>
                             )}
@@ -161,16 +251,42 @@ function Detalle({ currentRole }) {
                 </span>
             </div>
         </div>
+
+
+        {/* PANEL DERECHO (DRAWER INTEGRADOR) */}
+            <Drawer 
+                documentoActivo={documentoActivo}
+                observacionesAbiertas={observacionesAbiertas}
+                gasto={gastoSeleccionado}
+                onCloseDocumento={() => setDocumentoActivo(null)}
+                onCloseObservaciones={() => setObservacionesAbiertas(false)}
+                comentario={comentario}
+                setComentario={setComentario}
+                historial={historial}
+                onEnviarObservacion={handleEnviarObservacion}
+            />
+        </div>
+        
     );
 }
 
 const styles = {
+    mainLayout: {
+        display: 'flex',
+        width: '100%',
+        height: 'calc(100vh - 80px)', 
+        overflow: 'hidden',
+    },
+
     container: {
+        flex: 1,
         maxWidth: '1130px',
         margin: '0 auto',
         padding: '20px',
-        fontFamily: 'sans-serif'
+        fontFamily: 'sans-serif',
+        overflowY: 'auto',
     },
+
     headerRow: {
         display: 'flex',
         justifyContent: 'space-between',
