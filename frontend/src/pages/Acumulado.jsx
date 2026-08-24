@@ -85,13 +85,6 @@ function Acumulado( {currentRole} ) {
             downloadUrl: g.downloadUrl || g.download_url || null,
             }))
         : [
-            { id: 1, tipo: 'Servicio de Agua Municipio', facturas: 0, monto: 0.00 },
-            { id: 2, tipo: 'Papelería', facturas: 1, monto: 56.00 },
-            { id: 3, tipo: 'Alimentos', facturas: 0, monto: 0.00 },
-            { id: 4, tipo: 'Bolsas', facturas: 0, monto: 0.00 },
-            { id: 5, tipo: 'Sistemas', facturas: 2, monto: 268.01 },
-            { id: 6, tipo: 'Equipo Menor', facturas: 0, monto: 0.00 },
-            { id: 7, tipo: 'Artículos de Limpieza', facturas: 0, monto: 0.00 },
         ];
 
 

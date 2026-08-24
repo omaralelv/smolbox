@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-05T10:30:00"
+  Moneda="MXN"
+  Total="830.25"
+  MetodoPago="PUE">
+  <cfdi:Emisor Rfc="PCA9601011A1" Nombre="PAPELERIA CENTRO SA"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="SMOLBOX DEMO"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="90EC7CFE-B90F-4759-8665-6D98D959F607"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>
