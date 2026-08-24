@@ -17,8 +17,8 @@ function Acumulado( {currentRole} ) {
 
     // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
     const [solicitudActual, setSolicitudActual] = useState(location.state?.solicitud || null);
-    const solicitudSeleccionada = solicitudActual || location.state?.solicitud;
-    const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.folio || solicitudSeleccionada?.id;
+    const solicitudSeleccionada = solicitudActual || location.state?.solicitud || null;
+    const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.reimbursementRequestId || solicitudSeleccionada?.id;
 
     useEffect(() => {
         let activo = true;
@@ -35,7 +35,8 @@ function Acumulado( {currentRole} ) {
         getFrontendSolicitud(solicitudBackendId)
             .then((solicitud) => {
                 if (activo) setSolicitudActual(solicitud);
-            })
+            }
+        )
             .catch(() => {});
 
         return () => {
@@ -137,6 +138,85 @@ function Acumulado( {currentRole} ) {
         }
     }
 
+
+
+    // 2.5 Función para el frontend (la puede poner en su archivo de API o en el componente)
+    const handleDescargarPoliza = async (solicitudId) => {
+    console.log("Click en Póliza y Reembolso");
+    console.log("UUID recibido por la función:", solicitudId);
+
+    if (!solicitudId) {
+        alert("No se encontró el UUID interno de la solicitud.");
+        return;
+    }
+
+    const token = currentToken();
+
+    if (!token) {
+        alert("Tu sesión expiró. Inicia sesión nuevamente.");
+        navigate("/login");
+        return;
+    }
+
+    const url =
+    `http://localhost:8000/api/v1/macro/generar-polizas/` +
+    encodeURIComponent(String(solicitudId).trim());
+
+    console.log("URL solicitada:", url);
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+
+        if (!response.ok) {
+            const contenidoError = await response.text();
+
+            console.error(
+                "Respuesta de macro:",
+                response.status,
+                contenidoError
+            );
+
+            throw new Error(
+                `Error ${response.status}: ${contenidoError}`
+            );
+        }
+
+        const blob = await response.blob();
+
+        if (blob.size === 0) {
+            throw new Error(
+                "El backend respondió, pero el ZIP está vacío."
+            );
+        }
+
+        const urlDescarga = window.URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+
+        enlace.href = urlDescarga;
+        enlace.download = "Polizas_Reembolso.zip";
+
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+
+        window.URL.revokeObjectURL(urlDescarga);
+    } catch (error) {
+        console.error("Error descargando pólizas:", error);
+
+        alert(
+            "Hubo un problema descargando las pólizas: "
+            + error.message
+        );
+    }
+};
+
+
+
     // 3. MATRIZ DE CONFIGURACIÓN DE BOTONES POR ROL
     const renderBotonesPorRol = () => {
 
@@ -153,8 +233,8 @@ function Acumulado( {currentRole} ) {
                     <>
                         <button
                             style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
-                        >Póliza y Reembolso</button>
+                            onClick={() => handleDescargarPoliza(solicitudBackendId)}>
+                        Póliza y Reembolso</button>
                         <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
@@ -212,10 +292,6 @@ function Acumulado( {currentRole} ) {
             case 'direccion':
                 return (
                     <>
-                        <button
-                            style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_treasury'], 'Solicitud regresada a tesorería.')}
-                        >Regresar Acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
                     </>
                 );
@@ -224,12 +300,17 @@ function Acumulado( {currentRole} ) {
             default:
                 // Muestra todos los botones de la suite
                 return (
-                    <>
+                        <>
                         <button
                             style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['mark_accounting_reviewed', 'prepare_sap_policy'], 'Póliza preparada.')}
-                        >Póliza y Reembolso</button>
+                            onClick={() => ejecutarAcciones(['return_to_manager'], 'Solicitud regresada a gerencia.')}
+                        >Regresar acumulado</button>
+                        <button
+                            style={styles.btnOutline}
+                            onClick={() => handleDescargarPoliza(solicitudBackendId)}>
+                        Póliza y Reembolso</button>
                         <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
+                        <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
                             onClick={() => ejecutarAcciones(
