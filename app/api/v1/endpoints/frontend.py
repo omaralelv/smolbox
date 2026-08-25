@@ -374,11 +374,7 @@ def _request_payload(
 
 
 def _frontend_visible_expenses(expenses: list[Expense]) -> list[Expense]:
-    return [
-        expense
-        for expense in expenses
-        if expense.status != ExpenseStatus.removed and expense.removed_at is None
-    ]
+    return list(expenses)
 
 
 def _expense_payload(expense: Expense) -> FrontendGastoRead:

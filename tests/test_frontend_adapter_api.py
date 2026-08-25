@@ -238,6 +238,76 @@ def test_frontend_accounting_actions_follow_sap_policy_order(
     ]
 
 
+def test_frontend_detail_keeps_removed_expenses_out_of_total(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    active_expense = create_expense(
+        client,
+        base_records,
+        amount="1000.00",
+        spent_on="2026-08-07",
+    )
+    removed_expense = create_expense(
+        client,
+        base_records,
+        amount="500.00",
+        spent_on="2026-08-08",
+    )
+    _attach_valid_cfdi(
+        client,
+        active_expense["id"],
+        "1000.00",
+        uuid="33333333-3333-4333-8333-333333333333",
+    )
+    _attach_valid_cfdi(
+        client,
+        removed_expense["id"],
+        "500.00",
+        uuid="44444444-4444-4444-8444-444444444444",
+    )
+
+    admin_user_id = _create_user(client, "admin", "frontend.removed.admin@example.com")
+    submitted = _transition(client, base_records["request_id"], "submitted", admin_user_id)
+    assert submitted.status_code == 200, submitted.text
+    review = _transition(
+        client,
+        base_records["request_id"],
+        "under_accounting_review",
+        admin_user_id,
+    )
+    assert review.status_code == 200, review.text
+
+    removal = client.post(
+        f"/api/v1/expenses/{removed_expense['id']}/remove",
+        json={
+            "actor_user_id": admin_user_id,
+            "reason": "No corresponde al reembolso",
+            "adjust_reported_total": True,
+        },
+    )
+    assert removal.status_code == 200, removal.text
+    assert removal.json()["status"] == "removed"
+
+    headers = _auth_headers(client, "frontend.removed.admin@example.com")
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["montoTotal"] == 1000.0
+    assert body["expenseCount"] == 1
+    assert len(body["gastos"]) == 2
+
+    removed_item = next(
+        gasto for gasto in body["gastos"] if gasto["backendId"] == removed_expense["id"]
+    )
+    assert removed_item["status"] == "Eliminado"
+    assert removed_item["backendStatus"] == "removed"
+    assert removed_item["monto"] == 500.0
+
+
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
     login = client.post(
         "/api/v1/auth/login",
@@ -285,13 +355,19 @@ def _transition(
     )
 
 
-def _attach_valid_cfdi(client: TestClient, expense_id: str, amount: str) -> None:
+def _attach_valid_cfdi(
+    client: TestClient,
+    expense_id: str,
+    amount: str,
+    *,
+    uuid: str = "22222222-2222-4222-8222-222222222222",
+) -> None:
     cfdi = client.post(
         f"/api/v1/expenses/{expense_id}/cfdi/validate",
         files={
             "file": (
                 "invoice.xml",
-                _cfdi_xml(amount),
+                _cfdi_xml(amount, uuid=uuid),
                 "application/xml",
             )
         },
@@ -300,7 +376,7 @@ def _attach_valid_cfdi(client: TestClient, expense_id: str, amount: str) -> None
     assert cfdi.json()["is_valid"] is True
 
 
-def _cfdi_xml(amount: str) -> bytes:
+def _cfdi_xml(amount: str, *, uuid: str = "22222222-2222-4222-8222-222222222222") -> bytes:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante
     xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
@@ -312,7 +388,7 @@ def _cfdi_xml(amount: str) -> bytes:
   <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Proveedor Demo"/>
   <cfdi:Receptor Rfc="BBB010101BBB" Nombre="Smolbox Demo"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital UUID="22222222-2222-4222-8222-222222222222"/>
+    <tfd:TimbreFiscalDigital UUID="{uuid}"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>
 """.encode()

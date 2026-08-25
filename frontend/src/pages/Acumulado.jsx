@@ -69,7 +69,7 @@ function Acumulado( {currentRole} ) {
     // 2. RECUPERAR LOS GASTOS DE ESTA SOLICITUD
     // Si la solicitud trae gastos cargados los usa; si no, muestra el desglose por defecto
     const gastosBrutos = solicitudSeleccionada?.gastos?.length > 0 
-        ? solicitudSeleccionada.gastos.filter(gastoActivo).map((g, index) => ({
+        ? solicitudSeleccionada.gastos.map((g, index) => ({
             id: index + 1,
             backendId: g.backendId || g.id,
             nombre: g.nombre || `Gasto ${index + 1}`,
@@ -99,6 +99,7 @@ function Acumulado( {currentRole} ) {
             const categoria = gastoActual.tipo || gastoActual.type || 'Gasto General';
             const numFacturas = parseInt(gastoActual.facturas || 1, 10);
             const montoGasto = parseFloat(gastoActual.monto || 0);
+            const activo = gastoActivo(gastoActual);
 
             if (!acc[categoria]) {
                 acc[categoria] = {
@@ -110,8 +111,10 @@ function Acumulado( {currentRole} ) {
                 };
             }
 
-            acc[categoria].facturas += numFacturas;
-            acc[categoria].monto += montoGasto;
+            if (activo) {
+                acc[categoria].facturas += numFacturas;
+                acc[categoria].monto += montoGasto;
+            }
             acc[categoria].elementosOriginales.push(gastoActual);
 
             return acc;

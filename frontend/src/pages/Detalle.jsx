@@ -58,7 +58,7 @@ function Detalle({ currentRole }) {
     // Mock por si ingresas directo sin state
     const [gastosDesglosados, setGastosDesglosados] = useState(() => (
         location.state?.desglose?.length > 0
-            ? filtrarGastosActivos(location.state.desglose)
+            ? location.state.desglose
             : [
             { 
                 id: 1, 
@@ -79,6 +79,7 @@ function Detalle({ currentRole }) {
 
     // CÁLCULO DEL TOTAL DE LA CATEGORÍA
     const totalCategoria = gastosDesglosados
+        .filter(gastoActivo)
         .reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
         .toFixed(2);
 
@@ -151,6 +152,11 @@ function Detalle({ currentRole }) {
     const handleEliminarGasto = (gasto) => {
         const expenseId = gasto.backendId || gasto.id;
 
+        if (!gastoActivo(gasto)) {
+            alert('Este gasto ya está eliminado.');
+            return;
+        }
+
         if (!expenseId || typeof expenseId !== 'string') {
             alert('Este gasto no tiene ID de backend para eliminarse.');
             return;
@@ -162,6 +168,11 @@ function Detalle({ currentRole }) {
 
     const handleEditarGasto = (gasto) => {
         const expenseId = gasto.backendId || gasto.id;
+
+        if (!gastoActivo(gasto)) {
+            alert('Los gastos eliminados no se pueden editar.');
+            return;
+        }
 
         if (!expenseId || typeof expenseId !== 'string') {
             alert('Este gasto no tiene ID de backend para editarse.');
@@ -248,15 +259,14 @@ function Detalle({ currentRole }) {
 
         try {
             setEliminandoGastoId(expenseId);
-            await removeExpense(expenseId, cleanReason);
+            const gastoActualizado = await removeExpense(expenseId, cleanReason);
+            const gastoEliminado = normalizarGastoEliminado(gastoParaEliminar, gastoActualizado, cleanReason);
             setGastosDesglosados((actuales) =>
-                actuales.filter((item) => (item.backendId || item.id) !== expenseId)
+                actuales.map((item) => ((item.backendId || item.id) === expenseId ? gastoEliminado : item))
             );
 
             if ((gastoSeleccionado?.backendId || gastoSeleccionado?.id) === expenseId) {
-                setGastoSeleccionado(null);
-                setDocumentoActivo(null);
-                setObservacionesAbiertas(false);
+                setGastoSeleccionado(gastoEliminado);
             }
 
             alert('Gasto eliminado correctamente.');
@@ -321,12 +331,14 @@ function Detalle({ currentRole }) {
                 {/* FILAS DE GASTOS */}
                 {gastosDesglosados.map((gasto, index) => {
                     const gastoKey = gasto.backendId || gasto.id || index;
+                    const eliminado = !gastoActivo(gasto);
                 
                     return (
 
                     <div key={gastoKey} style={styles.tableRow}>
                         <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
                             {gasto.nombre || `Gasto ${index + 1}`}
+                            {eliminado ? ' (Eliminado)' : ''}
                         </span>
 
                         <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px'}}>
@@ -366,7 +378,12 @@ function Detalle({ currentRole }) {
                                 </button>
                             )}
                             {puedeVer('editar') && (
-                                <button style={styles.iconBtn} title="Editar Gasto" onClick={() => handleEditarGasto(gasto)}>
+                                <button
+                                    style={styles.iconBtn}
+                                    title="Editar Gasto"
+                                    onClick={() => handleEditarGasto(gasto)}
+                                    disabled={eliminado}
+                                >
                                     <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
                                 </button>
                             )}
@@ -378,7 +395,7 @@ function Detalle({ currentRole }) {
                                     }}
                                     title="Eliminar Gasto"
                                     onClick={() => handleEliminarGasto(gasto)}
-                                    disabled={eliminandoGastoId === gastoKey}
+                                    disabled={eliminado || eliminandoGastoId === gastoKey}
                                 >
                                     <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
                                 </button>
@@ -724,12 +741,19 @@ const styles = {
 
 export default Detalle;
 
-function filtrarGastosActivos(gastos) {
-    return gastos.filter((gasto) => {
-        const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();
-        const status = String(gasto.status || '').toLowerCase();
-        return backendStatus !== 'removed' && status !== 'eliminado';
-    });
+function gastoActivo(gasto) {
+    const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();
+    const status = String(gasto.status || '').toLowerCase();
+    return backendStatus !== 'removed' && status !== 'removed' && status !== 'eliminado';
+}
+
+function normalizarGastoEliminado(gastoOriginal, gastoActualizado, motivo) {
+    return {
+        ...gastoOriginal,
+        status: 'Eliminado',
+        backendStatus: gastoActualizado.backend_status || gastoActualizado.status || 'removed',
+        removalReason: gastoActualizado.removal_reason || motivo,
+    };
 }
 
 function normalizarGastoActualizado(gastoOriginal, gastoActualizado) {
