@@ -58,6 +58,10 @@ export async function getFrontendSolicitud(requestIdOrFolio) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
 }
 
+export async function getRequestAuditEvents(requestId) {
+    return request(`/reimbursement-requests/${requestId}/audit-events`);
+}
+
 export async function createFrontendSolicitud(payload) {
     return request('/frontend/solicitudes/me', {
         method: 'POST',
@@ -160,6 +164,13 @@ export async function updateExpenseForReview(expenseId, payload) {
     return request(`/expenses/${expenseId}/review/me`, {
         method: 'PATCH',
         body: payload,
+    });
+}
+
+export async function addExpenseObservation(expenseId, note) {
+    return request(`/expenses/${expenseId}/observation/me`, {
+        method: 'POST',
+        body: { note },
     });
 }
 

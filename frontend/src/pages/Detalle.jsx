@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import {
+    addExpenseObservation,
     apiErrorMessage,
+    getRequestAuditEvents,
     openProtectedFile,
     removeExpense,
     updateExpenseForReview,
@@ -22,10 +24,34 @@ const CATEGORIAS_GASTO = [
     "Trasportación", "Vigilancia", "Otros",
 ];
 
+const HISTORIAL_MOCK = [
+    {
+        id: 1,
+        gastoId: 1,
+        autor: 'Tienda Toluca',
+        rol: 'tienda',
+        texto: 'Compra de insumos de papelería urgentes.',
+        fecha: '10/08/2026 - 09:00 AM',
+        visibilidad: VISIBILIDAD.PUBLIC
+    },
+    {
+        id: 2,
+        gastoId: 2,
+        autor: 'Contabilidad',
+        rol: 'contabilidad',
+        texto: 'Nota interna: Se detectó duplicidad de folio fiscal, procedemos a descartar.',
+        fecha: '11/08/2026 - 10:15 AM',
+        visibilidad: VISIBILIDAD.INTERNO
+    }
+];
+
 
 function Detalle({ currentRole }) {
     const navigate = useNavigate();
     const location = useLocation();
+    const categoria = location.state?.categoria || 'Sistemas';
+    const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
+    const solicitudBackendId = location.state?.solicitudBackendId || null;
 
 
     // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
@@ -42,32 +68,9 @@ function Detalle({ currentRole }) {
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
-    const [historial, setHistorial] = useState([
-        {
-            id: 1,
-            gastoId: 1,
-            autor: 'Tienda Toluca',
-            rol: 'tienda',
-            texto: 'Compra de insumos de papelería urgentes.',
-            fecha: '10/08/2026 - 09:00 AM',
-            visibilidad: VISIBILIDAD.PUBLIC
-        },
-        {
-            id: 2,
-            gastoId: 2,
-            autor: 'Contabilidad',
-            rol: 'contabilidad',
-            texto: 'Nota interna: Se detectó duplicidad de folio fiscal, procedemos a descartar.',
-            fecha: '11/08/2026 - 10:15 AM',
-            visibilidad: VISIBILIDAD.INTERNO // 👈 No visible para Tienda ni Supervisor
-        }
-    ]);
+    const [historial, setHistorial] = useState(() => (solicitudBackendId ? [] : HISTORIAL_MOCK));
 
     
-
-    // 1. RECUPERAR DATOS DE LA NAVEGACIÓN O USAR MOCK DE RESPALDO 
-    const categoria = location.state?.categoria || 'Sistemas';
-    const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
 
     // Mock por si ingresas directo sin state
     const [gastosDesglosados, setGastosDesglosados] = useState(() => (
@@ -115,6 +118,31 @@ function Detalle({ currentRole }) {
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
 
+    useEffect(() => {
+        let activo = true;
+        if (!solicitudBackendId) return undefined;
+
+        getRequestAuditEvents(solicitudBackendId)
+            .then((eventos) => {
+                if (activo) {
+                    setHistorial(historialDesdeEventos(eventos));
+                }
+            })
+            .catch((error) => {
+                console.error('No se pudieron cargar las observaciones', error);
+            });
+
+        return () => {
+            activo = false;
+        };
+    }, [solicitudBackendId]);
+
+    const refrescarHistorialBackend = async () => {
+        if (!solicitudBackendId) return;
+        const eventos = await getRequestAuditEvents(solicitudBackendId);
+        setHistorial(historialDesdeEventos(eventos));
+    };
+
 
     // HANDLERS PARA ABRIR Y CERRAR PANELES
     const handleVerVale = (gasto) => {
@@ -132,9 +160,10 @@ function Detalle({ currentRole }) {
         setObservacionesAbiertas(!observacionesAbiertas);
     };
 
-    const handleEnviarObservacion = (e) => {
+    const handleEnviarObservacion = async (e) => {
         e.preventDefault();
-        if (!comentario.trim() || !gastoSeleccionado) return;
+        const textoObservacion = comentario.trim();
+        if (!textoObservacion || !gastoSeleccionado) return;
 
         // REGLA 2: Asignación automática de visibilidad según el rol
         let visibilidadAsignada = VISIBILIDAD.INTERNO;
@@ -142,18 +171,33 @@ function Detalle({ currentRole }) {
             visibilidadAsignada = VISIBILIDAD.PUBLIC;
         }
 
+        const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
+        if (solicitudBackendId && (!expenseId || typeof expenseId !== 'string')) {
+            alert('Este gasto no tiene ID de backend para guardar la observación.');
+            return;
+        }
+
         const nueva = {
             id: Date.now(),
-            gastoId: gastoSeleccionado.id,
+            gastoId: gastoHistorialId(gastoSeleccionado),
             autor: rol.toUpperCase(),
             rol,
-                texto: comentario,
+            texto: textoObservacion,
             fecha: new Date().toLocaleString(),
             visibilidad: visibilidadAsignada
         };
 
-        setHistorial([...historial, nueva]);
-        setComentario('');
+        try {
+            if (solicitudBackendId) {
+                await addExpenseObservation(expenseId, textoObservacion);
+                await refrescarHistorialBackend();
+            } else {
+                setHistorial([...historial, nueva]);
+            }
+            setComentario('');
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
     };
 
 
@@ -161,6 +205,7 @@ function Detalle({ currentRole }) {
 
     // 3. CÁLCULO DEL TOTAL (REGLA 1: Solo suma gastos ACTIVOS)
     const totalCategoria = gastosDesglosados
+        .filter(gastoActivo)
         .reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
         .toFixed(2);
 
@@ -176,19 +221,19 @@ function Detalle({ currentRole }) {
             fecha: new Date().toLocaleString(),
             visibilidad
         };
-        setHistorialObservaciones(prev => [...prev, nuevaObs]);
+        setHistorial(prev => [...prev, nuevaObs]);
     };
 
     // ACCIONES DE DESACTIVACIÓN Y ACCIÓN PÚBLICA DE OBSERVACIÓN
     const handleNoAutorizar = (gastoId) => {
-        setGastos(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'no_autorizado', autorizacion: 'no_autorizado' } : g));
+        setGastosDesglosados(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'no_autorizado', autorizacion: 'no_autorizado' } : g));
         
         // Registrar observación automática pública
         agregarObservacionesSistema(gastoId, 'El supervisor no autorizó este gasto.', VISIBILIDAD.PUBLIC);
     };
 
     const handleObsGastoEliminado = (gastoId) => {
-        setGastos(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'eliminado' } : g));
+        setGastosDesglosados(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'eliminado' } : g));
         
         // Registrar observación pública obligatoria de auditoría
         agregarObservacionesSistema(gastoId, `Gasto eliminado por ${rol.toUpperCase()}.`, VISIBILIDAD.PUBLIC);
@@ -331,6 +376,15 @@ function Detalle({ currentRole }) {
             if ((gastoSeleccionado?.backendId || gastoSeleccionado?.id) === expenseId) {
                 setGastoSeleccionado(gastoEliminado);
             }
+            if (solicitudBackendId) {
+                await refrescarHistorialBackend();
+            } else {
+                agregarObservacionesSistema(
+                    gastoHistorialId(gastoParaEliminar),
+                    `Gasto eliminado por ${rol.toUpperCase()}. Motivo: ${cleanReason}`,
+                    VISIBILIDAD.PUBLIC
+                );
+            }
 
             alert('Gasto eliminado correctamente.');
             cancelarEliminacion();
@@ -397,8 +451,8 @@ function Detalle({ currentRole }) {
                 {/* FILAS DE GASTOS */}
                 {gastosDesglosados.map((gasto, index) => {
                     const gastoKey = gasto.backendId || gasto.id || index;
-                    const estaDesactivado = gasto.estatus === 'no_autorizado' || gasto.estatus === 'eliminado';
                     const eliminado = !gastoActivo(gasto);
+                    const estaDesactivado = eliminado || gasto.estatus === 'no_autorizado';
                 
                     return (
 
@@ -506,10 +560,11 @@ function Detalle({ currentRole }) {
 
                 // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
                 historial={historial.filter(obs => 
-                    obs.gastoId === gastoSeleccionado?.id && 
+                    idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
                     PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
                 )}
                 onEnviarObservacion={handleEnviarObservacion}
+                currentRole={rol}
             />
             {gastoParaEliminar && (
                 <div style={styles.modalOverlay}>
@@ -843,9 +898,114 @@ function normalizarGastoEliminado(gastoOriginal, gastoActualizado, motivo) {
     return {
         ...gastoOriginal,
         status: 'Eliminado',
+        estatus: 'eliminado',
         backendStatus: gastoActualizado.backend_status || gastoActualizado.status || 'removed',
         removalReason: gastoActualizado.removal_reason || motivo,
     };
+}
+
+function gastoHistorialId(gasto) {
+    return gasto?.backendId ?? gasto?.backend_id ?? gasto?.id ?? null;
+}
+
+function idsIguales(uno, dos) {
+    if (uno === null || uno === undefined || dos === null || dos === undefined) return false;
+    return String(uno) === String(dos);
+}
+
+function historialDesdeEventos(eventos = []) {
+    return eventos
+        .map(observacionDesdeEvento)
+        .filter(Boolean)
+        .sort((a, b) => a.fechaTimestamp - b.fechaTimestamp);
+}
+
+function observacionDesdeEvento(evento) {
+    const action = evento.action;
+    const expenseId = evento.expense_id || evento.expenseId;
+    const textoBase = evento.message || '';
+
+    if (!expenseId || !textoBase) return null;
+    if (![
+        'expense_observation_added',
+        'expense_removed_from_request',
+        'expense_review_updated',
+        'expense_authorization_rejected',
+    ].includes(action)) {
+        return null;
+    }
+
+    const rol = rolDesdeEvento(evento);
+    const autor = autorDesdeRol(rol);
+    const texto = textoDesdeEvento(action, textoBase, autor);
+    const fechaTimestamp = Date.parse(evento.created_at || evento.createdAt || '');
+
+    return {
+        id: evento.id,
+        gastoId: expenseId,
+        autor,
+        rol,
+        texto,
+        fecha: fechaLegible(evento.created_at || evento.createdAt),
+        fechaTimestamp: Number.isNaN(fechaTimestamp) ? 0 : fechaTimestamp,
+        visibilidad: visibilidadDesdeEvento(action, rol),
+    };
+}
+
+function rolDesdeEvento(evento) {
+    const payload = evento.event_payload || evento.payload || {};
+    const rolBackend = String(payload.actor_role || '').toLowerCase().trim();
+    const roles = {
+        store: 'tienda',
+        authorizer: 'supervisor',
+        accountant: 'contabilidad',
+        accounting_manager: 'gerencia',
+        treasury: 'tesoreria',
+        director: 'direccion',
+        admin: 'admin',
+    };
+    return roles[rolBackend] || rolBackend || 'sistema';
+}
+
+function autorDesdeRol(rol) {
+    const autores = {
+        tienda: 'TIENDA',
+        supervisor: 'SUPERVISOR',
+        contabilidad: 'CONTABILIDAD',
+        gerencia: 'GERENCIA',
+        tesoreria: 'TESORERIA',
+        direccion: 'DIRECCION',
+        admin: 'ADMIN',
+        sistema: 'SISTEMA',
+    };
+    return autores[rol] || String(rol || 'sistema').toUpperCase();
+}
+
+function textoDesdeEvento(action, textoBase, autor) {
+    if (action === 'expense_removed_from_request') {
+        return `Gasto eliminado por ${autor}. Motivo: ${textoBase}`;
+    }
+    if (action === 'expense_authorization_rejected') {
+        return `Gasto no autorizado. Motivo: ${textoBase}`;
+    }
+    return textoBase;
+}
+
+function visibilidadDesdeEvento(action, rol) {
+    if (['expense_removed_from_request', 'expense_authorization_rejected'].includes(action)) {
+        return VISIBILIDAD.PUBLIC;
+    }
+    if (['tienda', 'supervisor'].includes(rol)) {
+        return VISIBILIDAD.PUBLIC;
+    }
+    return VISIBILIDAD.INTERNO;
+}
+
+function fechaLegible(fecha) {
+    if (!fecha) return new Date().toLocaleString();
+    const parsed = new Date(fecha);
+    if (Number.isNaN(parsed.getTime())) return String(fecha);
+    return parsed.toLocaleString();
 }
 
 function normalizarGastoActualizado(gastoOriginal, gastoActualizado) {
