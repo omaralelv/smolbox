@@ -640,12 +640,12 @@ const styles = {
         padding: '22px',
     },
     modalTitle: {
-        margin: '0 0 8px',
-        fontSize: '18px',
+        margin: '0 0 20px',
+        fontSize: '20px',
         color: 'var(--text-h)',
     },
     modalText: {
-        margin: '0 0 14px',
+        margin: '0 0 13px',
         fontSize: '14px',
         color: '#444',
     },
@@ -655,9 +655,11 @@ const styles = {
         border: '1px solid var(--border)',
         borderRadius: '8px',
         padding: '10px',
-        fontSize: '14px',
+        fontSize: '13px',
         resize: 'vertical',
         boxSizing: 'border-box',
+        background: '#ffffff',
+        color: 'var(--text)',
     },
     modalField: {
         display: 'flex',
