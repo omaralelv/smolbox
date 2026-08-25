@@ -9,10 +9,13 @@ export default function Drawer({
     comentario,           // Estado del texto escrito
     setComentario,        // Setter del texto
     historial,            // Array con el historial de comentarios
-    onEnviarObservacion   // Función al dar submit al comentario
+    onEnviarObservacion,   // Función al dar submit al comentario
+    currentRole,
 }) {
     // Si no hay nada abierto, no renderizamos nada
     if (!documentoActivo && !observacionesAbiertas) return null;
+
+    const rolNormalizado = String(currentRole).toLowerCase().trim();
 
     return (
         <div style={styles.drawerWrapper}>
@@ -37,6 +40,7 @@ export default function Drawer({
                 </div>
             )}
 
+
             {/* 2. SECCIÓN DE OBSERVACIONES */}
             {observacionesAbiertas && (
                 <div style={styles.panelObservaciones}>
@@ -48,7 +52,7 @@ export default function Drawer({
                     {/* Historial de comentarios */}
                     <div style={styles.chatBody}>
                         {historial && historial.map((obs) => {
-                            const esMio = obs.rol === 'supervisor';
+                            const esMio = String(obs.rol || '').toLowerCase().trim() === rolNormalizado;
                             return (
                                 <div 
                                     key={obs.id} 
@@ -58,6 +62,18 @@ export default function Drawer({
                                     }}
                                 >
                                     <span style={styles.autorLabel}>{obs.autor} - {obs.fecha}</span>
+
+                                    {obs.visibilidad && (
+                                            <span style={{
+                                                ...styles.badgeVisibilidad,
+                                                backgroundColor: obs.visibilidad === 'PUBLIC' ? '#e0f2fe' : '#fef3c7',
+                                                color: obs.visibilidad === 'PUBLIC' ? '#0369a1' : '#b45309'
+                                            }}>
+                                                {obs.visibilidad}
+                                            </span>
+                                    )}
+
+
                                     <div style={{
                                         ...styles.globo,
                                         ...(esMio ? styles.globoMio : styles.globoOtro)
@@ -163,6 +179,16 @@ const styles = {
         color: '#6b7280',
         marginBottom: '2px',
     },
+
+    
+    badgeVisibilidad: {
+        fontSize: '9px',
+        padding: '1px 4px',
+        borderRadius: '3px',
+        fontWeight: 'bold',
+    },
+
+
     globo: {
         padding: '10px 12px',
         borderRadius: '10px',

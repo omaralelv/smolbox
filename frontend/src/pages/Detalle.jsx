@@ -9,6 +9,9 @@ import {
 } from '../lib/api';
 
 import Drawer from '../components/shared/Drawer';
+import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../components/shared/roles';
+
+
 
 const CATEGORIAS_GASTO = [
     "Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica",
@@ -42,10 +45,21 @@ function Detalle({ currentRole }) {
     const [historial, setHistorial] = useState([
         {
             id: 1,
+            gastoId: 1,
+            autor: 'Tienda Toluca',
+            rol: 'tienda',
+            texto: 'Compra de insumos de papelería urgentes.',
+            fecha: '10/08/2026 - 09:00 AM',
+            visibilidad: VISIBILIDAD.PUBLIC
+        },
+        {
+            id: 2,
+            gastoId: 2,
             autor: 'Contabilidad',
-            rol: 'supervisor',
-            texto: 'Modificación de impuesto de 16% a 8%. Artículos de limpieza para evento.',
-            fecha: '10/08/2026 - 10:15 AM'
+            rol: 'contabilidad',
+            texto: 'Nota interna: Se detectó duplicidad de folio fiscal, procedemos a descartar.',
+            fecha: '11/08/2026 - 10:15 AM',
+            visibilidad: VISIBILIDAD.INTERNO // 👈 No visible para Tienda ni Supervisor
         }
     ]);
 
@@ -73,18 +87,22 @@ function Detalle({ currentRole }) {
                 monto: 118.01, 
                 folioFiscal: '467FE2EF-99E8-45CD-8E2F-F7C63D13847B', 
                 autorizacion: '' 
+            },
+            { 
+                id: 3, 
+                nombre: 'Gasto 3', 
+                monto: 118.01, 
+                folioFiscal: 'EF953B9E-8835-2EE7-L8R7-C94OQ8358JKI', 
+                estatus: 'no_autorizado', // 👈 Gasto deshabilitado de prueba
+                autorizacion: 'no_autorizado'
             }
         ]
     ));
 
-    // CÁLCULO DEL TOTAL DE LA CATEGORÍA
-    const totalCategoria = gastosDesglosados
-        .filter(gastoActivo)
-        .reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
-        .toFixed(2);
 
     // 2. NORMALIZAR EL ROL
     const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
+
 
     // 3. MATRIZ DE VISIBILIDAD DE ICONOS/HERRAMIENTAS SEGÚN EL ROL
     const visibilidadIconos = {
@@ -96,7 +114,6 @@ function Detalle({ currentRole }) {
     };
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
-
 
 
     // HANDLERS PARA ABRIR Y CERRAR PANELES
@@ -117,18 +134,65 @@ function Detalle({ currentRole }) {
 
     const handleEnviarObservacion = (e) => {
         e.preventDefault();
-        if (!comentario.trim()) return;
+        if (!comentario.trim() || !gastoSeleccionado) return;
+
+        // REGLA 2: Asignación automática de visibilidad según el rol
+        let visibilidadAsignada = VISIBILIDAD.INTERNO;
+        if (['tienda', 'supervisor'].includes(rol)) {
+            visibilidadAsignada = VISIBILIDAD.PUBLIC;
+        }
 
         const nueva = {
             id: Date.now(),
-            autor: 'Tú',
-            rol: 'supervisor',
+            gastoId: gastoSeleccionado.id,
+            autor: rol.toUpperCase(),
+            rol,
             texto: comentario,
-            fecha: new Date().toLocaleString()
+            fecha: new Date().toLocaleString(),
+            visibilidad: visibilidadAsignada
         };
 
         setHistorial([...historial, nueva]);
         setComentario('');
+    };
+
+
+
+
+    // 3. CÁLCULO DEL TOTAL (REGLA 1: Solo suma gastos ACTIVOS)
+    const totalCategoria = gastosDesglosados
+        .filter(g => g.estatus === 'activo' && g.autorizacion !== 'no_autorizado')
+        .reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
+        .toFixed(2);
+
+    
+
+    const agregarObservacionesSistema = (gastoId, texto, visibilidad) => {
+        const nuevaObs = {
+            id: Date.now(),
+            gastoId,
+            autor: rol.toUpperCase(),
+            rol,
+            texto,
+            fecha: new Date().toLocaleString(),
+            visibilidad
+        };
+        setHistorialObservaciones(prev => [...prev, nuevaObs]);
+    };
+
+    // ACCIONES DE DESACTIVACIÓN Y ACCIÓN PÚBLICA DE OBSERVACIÓN
+    const handleNoAutorizar = (gastoId) => {
+        setGastos(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'no_autorizado', autorizacion: 'no_autorizado' } : g));
+        
+        // Registrar observación automática pública
+        agregarObservacionesSistema(gastoId, 'El supervisor no autorizó este gasto.', VISIBILIDAD.PUBLIC);
+    };
+
+    const handleObsGastoEliminado = (gastoId) => {
+        setGastos(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'eliminado' } : g));
+        
+        // Registrar observación pública obligatoria de auditoría
+        agregarObservacionesSistema(gastoId, `Gasto eliminado por ${rol.toUpperCase()}.`, VISIBILIDAD.PUBLIC);
     };
 
 
@@ -291,9 +355,12 @@ function Detalle({ currentRole }) {
 
 
 
+
+
     // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
     const ocultarFolio = documentoActivo && observacionesAbiertas;
 
+    
 
 
 
@@ -331,19 +398,29 @@ function Detalle({ currentRole }) {
                 {/* FILAS DE GASTOS */}
                 {gastosDesglosados.map((gasto, index) => {
                     const gastoKey = gasto.backendId || gasto.id || index;
+                    const estaDesactivado = gasto.estatus === 'no_autorizado' || gasto.estatus === 'eliminado';
                     const eliminado = !gastoActivo(gasto);
                 
                     return (
 
-                    <div key={gastoKey} style={styles.tableRow}>
+                    <div 
+                        key={gastoKey} 
+                        style={{...styles.tableRow, ...(estaDesactivado ? styles.rowGris : {})}}
+                    >
+
                         <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
                             {gasto.nombre || `Gasto ${index + 1}`}
                             {eliminado ? ' (Eliminado)' : ''}
                         </span>
 
-                        <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px'}}>
+
+
+
+                        <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
                             {parseFloat(gasto.monto || 0).toFixed(2)}
                         </span>
+
+
 
 
                         {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
@@ -354,9 +431,10 @@ function Detalle({ currentRole }) {
                             )}
 
 
-
-                        <span style={{ flex: 1, textAlign: 'right',  paddingLeft: '50px', width: '100px' }}>AUTORIZACION</span>
-
+                        <span style={{ flex: 1 }}>
+                            {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
+                            {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
+                        </span>
 
 
 
@@ -426,7 +504,12 @@ function Detalle({ currentRole }) {
                 onCloseObservaciones={() => setObservacionesAbiertas(false)}
                 comentario={comentario}
                 setComentario={setComentario}
-                historial={historial}
+
+                // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
+                historial={historial.filter(obs => 
+                    obs.gastoId === gastoSeleccionado?.id && 
+                    PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
+                )}
                 onEnviarObservacion={handleEnviarObservacion}
             />
             {gastoParaEliminar && (
@@ -596,6 +679,17 @@ const styles = {
         fontSize: '13px',
         color: '#333'
     },
+
+
+    // REGLA 1: Estilo opacado / grisáceo para renglones rechazados/eliminados
+    rowGris: {
+        backgroundColor: '#f3f4f6',
+        color: '#dccecf',
+        opacity: 0.65,
+    },
+    
+
+
     badgeAutorizado: {
         backgroundColor: 'var(--sb-pagadaBg)',
         color: 'var(--text-pagada)',
@@ -664,7 +758,7 @@ const styles = {
     modalText: {
         margin: '0 0 13px',
         fontSize: '14px',
-        color: '#444',
+        color: 'var(--text)',
     },
     modalTextarea: {
         width: '100%',
