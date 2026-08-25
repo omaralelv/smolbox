@@ -147,7 +147,7 @@ function Detalle({ currentRole }) {
             gastoId: gastoSeleccionado.id,
             autor: rol.toUpperCase(),
             rol,
-            texto: comentario,
+                texto: comentario,
             fecha: new Date().toLocaleString(),
             visibilidad: visibilidadAsignada
         };
@@ -161,7 +161,6 @@ function Detalle({ currentRole }) {
 
     // 3. CÁLCULO DEL TOTAL (REGLA 1: Solo suma gastos ACTIVOS)
     const totalCategoria = gastosDesglosados
-        .filter(g => g.estatus === 'activo' && g.autorizacion !== 'no_autorizado')
         .reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
         .toFixed(2);
 
@@ -524,7 +523,6 @@ function Detalle({ currentRole }) {
                             onChange={(event) => setMotivoEliminacion(event.target.value)}
                             style={styles.modalTextarea}
                             placeholder="Motivo de eliminación"
-                            autoFocus
                         />
                         <div style={styles.modalActions}>
                             <button
