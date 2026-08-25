@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { apiErrorMessage, parseCfdi } from '../../lib/api';
-import { addDraftGasto } from '../../lib/draftSolicitud';
+import { apiErrorMessage, checkCfdiUuidAvailability, parseCfdi } from '../../lib/api';
+import { addDraftGasto, loadDraftGastos } from '../../lib/draftSolicitud';
 
 function AnadirGasto() {
     const navigate = useNavigate();
@@ -44,7 +44,7 @@ function AnadirGasto() {
         setCargandoValidacion(true);
 
         try {
-            await validarCfdiContraMonto(facturaFile, monto, `Gasto - ${categoria}`);
+            await validarCfdiAntesDeAnadir(facturaFile, monto, `Gasto - ${categoria}`);
             setEstadoValidacion('listo');
         } catch (error) {
             setEstadoValidacion('error');
@@ -64,8 +64,9 @@ function AnadirGasto() {
             return;
         }
 
+        let cfdiParsed;
         try {
-            await validarCfdiContraMonto(facturaFile, monto, `Gasto - ${categoria}`);
+            cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, `Gasto - ${categoria}`);
         } catch (error) {
             setEstadoValidacion('error');
             alert(apiErrorMessage(error));
@@ -81,6 +82,9 @@ function AnadirGasto() {
             folio: folio,
             fecha: fecha,
             observaciones: observaciones,
+            cfdiUuid: normalizarUuidLocal(cfdiParsed.uuid),
+            cfdiTotal: cfdiParsed.total,
+            cfdiCurrency: cfdiParsed.currency,
             facturaFile: facturaFile,
             valeFile: valeFile,
         };
@@ -550,16 +554,36 @@ function esXml(file) {
     return nombre.endsWith('.xml') || tipo.includes('xml');
 }
 
-async function validarCfdiContraMonto(file, monto, nombreGasto) {
+async function validarCfdiAntesDeAnadir(file, monto, nombreGasto) {
     const parsed = await parseCfdi(file);
     const errores = [];
     const montoGasto = Number(monto);
     const totalCfdi = parsed.total === null || parsed.total === undefined ? null : Number(parsed.total);
 
+    if (!parsed.uuid) {
+        errores.push('El XML no trae UUID fiscal.');
+    }
+
     if (totalCfdi === null || Number.isNaN(totalCfdi)) {
         errores.push('El XML no trae total fiscal.');
     } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
         errores.push(`El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+    }
+
+    if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
+        errores.push(`La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
+    }
+
+    if (parsed.uuid) {
+        const uuidNormalizado = normalizarUuidLocal(parsed.uuid);
+        if (uuidYaExisteEnSolicitud(uuidNormalizado)) {
+            errores.push('El UUID fiscal del XML ya está agregado en otro gasto de esta solicitud.');
+        } else {
+            const disponibilidad = await checkCfdiUuidAvailability(parsed.uuid);
+            if (!disponibilidad.is_available) {
+                errores.push('El UUID fiscal del XML ya está registrado en otro gasto.');
+            }
+        }
     }
 
     if (errores.length) {
@@ -568,6 +592,22 @@ async function validarCfdiContraMonto(file, monto, nombreGasto) {
             ...errores,
         ].join('\n'));
     }
+
+    return parsed;
+}
+
+function uuidYaExisteEnSolicitud(uuid) {
+    if (!uuid) return false;
+    return loadDraftGastos().some((gasto) => {
+        const uuidExistente = normalizarUuidLocal(
+            gasto.cfdiUuid || gasto.cfdi_uuid || gasto.folioFiscal || gasto.folio_fiscal
+        );
+        return uuidExistente === uuid;
+    });
+}
+
+function normalizarUuidLocal(value) {
+    return value ? String(value).trim().toUpperCase() : null;
 }
 
 function redondearMonto(value) {

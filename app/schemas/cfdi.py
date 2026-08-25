@@ -32,6 +32,13 @@ class CfdiValidationResult(BaseModel):
     issues: list[CfdiValidationIssue] = Field(default_factory=list)
 
 
+class CfdiUuidAvailability(BaseModel):
+    uuid: str
+    is_available: bool
+    existing_expense_id: UUID | None = None
+    existing_validation_expense_id: UUID | None = None
+
+
 class CfdiValidationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

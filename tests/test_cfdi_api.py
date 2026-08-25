@@ -67,6 +67,33 @@ def test_persists_cfdi_validation_and_rejects_duplicate_uuid(
     assert duplicate.json()["detail"]["code"] == "DUPLICATE_CFDI_UUID"
 
 
+def test_cfdi_uuid_availability_reports_existing_uuid(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records)
+    uuid = "11111111-2222-3333-4444-555555555555"
+
+    available = client.get(f"/api/v1/cfdi/uuid/{uuid.lower()}/availability")
+    assert available.status_code == 200, available.text
+    assert available.json()["uuid"] == uuid.upper()
+    assert available.json()["is_available"] is True
+
+    validation = _validate(client, str(expense["id"]), _cfdi_xml(uuid))
+    assert validation.status_code == 200, validation.text
+
+    duplicated = client.get(f"/api/v1/cfdi/uuid/{uuid.lower()}/availability")
+    assert duplicated.status_code == 200, duplicated.text
+    assert duplicated.json()["uuid"] == uuid.upper()
+    assert duplicated.json()["is_available"] is False
+    assert duplicated.json()["existing_expense_id"] == expense["id"]
+    assert duplicated.json()["existing_validation_expense_id"] == expense["id"]
+
+    invalid = client.get("/api/v1/cfdi/uuid/not-a-uuid/availability")
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "INVALID_CFDI_UUID"
+
+
 def test_missing_cfdi_fields_are_invalid_and_size_limit_is_enforced(
     client: TestClient,
     base_records: dict[str, str],

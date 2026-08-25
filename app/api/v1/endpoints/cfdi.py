@@ -14,7 +14,7 @@ from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense
 from app.models.reimbursement_request import ReimbursementRequest
-from app.schemas.cfdi import CfdiParseResult, CfdiValidationResult
+from app.schemas.cfdi import CfdiParseResult, CfdiUuidAvailability, CfdiValidationResult
 from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_expense
 from app.services.request_editability import is_request_editable
@@ -66,6 +66,34 @@ async def parse_cfdi(
     return parsed
 
 
+@router.get("/cfdi/uuid/{uuid}/availability", response_model=CfdiUuidAvailability)
+def check_cfdi_uuid_availability(
+    uuid: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> CfdiUuidAvailability:
+    normalized_uuid = normalize_cfdi_uuid(uuid)
+    if normalized_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INVALID_CFDI_UUID",
+                "message": "The fiscal UUID is not valid",
+                "uuid": uuid,
+            },
+        )
+
+    duplicate_expense_id, duplicate_validation_expense_id = _find_duplicate_cfdi_uuid(
+        db,
+        normalized_uuid,
+    )
+    return CfdiUuidAvailability(
+        uuid=normalized_uuid,
+        is_available=duplicate_expense_id is None and duplicate_validation_expense_id is None,
+        existing_expense_id=duplicate_expense_id,
+        existing_validation_expense_id=duplicate_validation_expense_id,
+    )
+
+
 @router.post("/expenses/{expense_id}/cfdi/validate", response_model=CfdiValidationResult)
 async def validate_expense_cfdi(
     expense_id: UUID,
@@ -91,17 +119,10 @@ async def validate_expense_cfdi(
 
     normalized_uuid = normalize_cfdi_uuid(parsed.uuid)
     if normalized_uuid is not None:
-        duplicate_expense_id = db.scalar(
-            select(Expense.id).where(
-                Expense.cfdi_uuid == normalized_uuid,
-                Expense.id != expense.id,
-            )
-        )
-        duplicate_validation_expense_id = db.scalar(
-            select(CfdiValidation.expense_id).where(
-                CfdiValidation.uuid == normalized_uuid,
-                CfdiValidation.expense_id != expense.id,
-            )
+        duplicate_expense_id, duplicate_validation_expense_id = _find_duplicate_cfdi_uuid(
+            db,
+            normalized_uuid,
+            exclude_expense_id=expense.id,
         )
         if duplicate_expense_id is not None or duplicate_validation_expense_id is not None:
             raise HTTPException(
@@ -192,6 +213,25 @@ async def validate_expense_cfdi(
         raise
 
     return result
+
+
+def _find_duplicate_cfdi_uuid(
+    db: Session,
+    normalized_uuid: str,
+    *,
+    exclude_expense_id: UUID | None = None,
+) -> tuple[UUID | None, UUID | None]:
+    expense_filters = [Expense.cfdi_uuid == normalized_uuid]
+    validation_filters = [CfdiValidation.uuid == normalized_uuid]
+    if exclude_expense_id is not None:
+        expense_filters.append(Expense.id != exclude_expense_id)
+        validation_filters.append(CfdiValidation.expense_id != exclude_expense_id)
+
+    duplicate_expense_id = db.scalar(select(Expense.id).where(*expense_filters))
+    duplicate_validation_expense_id = db.scalar(
+        select(CfdiValidation.expense_id).where(*validation_filters)
+    )
+    return duplicate_expense_id, duplicate_validation_expense_id
 
 
 def _ensure_request_editable(reimbursement_request: ReimbursementRequest, *, message: str) -> None:

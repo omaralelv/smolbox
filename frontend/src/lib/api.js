@@ -133,6 +133,10 @@ export async function parseCfdi(file) {
     });
 }
 
+export async function checkCfdiUuidAvailability(uuid) {
+    return request(`/cfdi/uuid/${encodeURIComponent(uuid)}/availability`);
+}
+
 export async function validateExpenseCfdi(expenseId, file) {
     const formData = new FormData();
     formData.append('file', file);
