@@ -736,9 +736,9 @@ const styles = {
 
     // REGLA 1: Estilo opacado / grisáceo para renglones rechazados/eliminados
     rowGris: {
-        backgroundColor: '#f3f4f6',
-        color: '#dccecf',
-        opacity: 0.65,
+        backgroundColor: '#fcf3f3',
+        color: '#a77e7e',
+        opacity: 0.7,
     },
     
 

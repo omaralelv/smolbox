@@ -295,6 +295,13 @@ function Acumulado( {currentRole} ) {
                                 'Solicitud enviada a tesorería.'
                             )}
                         >Enviar a Tesorería</button>
+
+                        <button 
+                            style={styles.btnGreen}
+                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
+                        >
+                            Confirmar pago
+                        </button>
                     </>
                 );
 
@@ -311,13 +318,6 @@ function Acumulado( {currentRole} ) {
                             onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
                         >
                             Aprobar pago
-                        </button>
-
-                        <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
-                        >
-                            Confirmar pago
                         </button>
 
                     </>
