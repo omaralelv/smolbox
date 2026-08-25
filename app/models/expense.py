@@ -71,8 +71,11 @@ class Expense(Base):
     cfdi_uuid: Mapped[str | None] = mapped_column(String(36), unique=True)
     cfdi_issuer_rfc: Mapped[str | None] = mapped_column(String(20))
     cfdi_receiver_rfc: Mapped[str | None] = mapped_column(String(20))
+    cfdi_subtotal: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     cfdi_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     cfdi_currency: Mapped[str | None] = mapped_column(String(3))
+    cfdi_tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    cfdi_tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     status: Mapped[ExpenseStatus] = mapped_column(
         Enum(ExpenseStatus, name="expense_status"),
         default=ExpenseStatus.draft,

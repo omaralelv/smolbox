@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from conftest import create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -19,10 +21,16 @@ def _cfdi_xml(
     xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
     Version="4.0"
     Fecha="2026-08-07T12:10:00"
+    SubTotal="106.42"
     Total="123.45"
     {currency_attribute}>
   <cfdi:Emisor Rfc="AAA010101AAA" Nombre="Proveedor Demo"/>
   <cfdi:Receptor {receiver_attribute} Nombre="Smolbox Demo"/>
+  <cfdi:Impuestos TotalImpuestosTrasladados="17.03">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="106.42" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="17.03"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
   <cfdi:Complemento>
     <tfd:TimbreFiscalDigital UUID="{uuid}"/>
   </cfdi:Complemento>
@@ -51,12 +59,18 @@ def test_persists_cfdi_validation_and_rejects_duplicate_uuid(
     persisted_expense = client.get(f"/api/v1/expenses/{first_expense['id']}")
     assert persisted_expense.status_code == 200
     assert persisted_expense.json()["cfdi_uuid"] == uuid.upper()
+    assert persisted_expense.json()["cfdi_subtotal"] == "106.42"
+    assert persisted_expense.json()["cfdi_tax_amount"] == "17.03"
+    assert persisted_expense.json()["cfdi_tax_rate"] == "16.00"
 
     with session_factory() as session:
         persisted_validation = session.scalar(select(CfdiValidation))
         assert persisted_validation is not None
         assert persisted_validation.is_valid is True
         assert persisted_validation.is_current is True
+        assert persisted_validation.subtotal == Decimal("106.42")
+        assert persisted_validation.tax_amount == Decimal("17.03")
+        assert persisted_validation.tax_rate == Decimal("16.00")
         attachment = session.get(Attachment, persisted_validation.attachment_id)
         assert attachment is not None
         assert attachment.attachment_type == AttachmentType.cfdi_xml

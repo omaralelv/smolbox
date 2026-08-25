@@ -83,8 +83,11 @@ function AnadirGasto() {
             fecha: fecha,
             observaciones: observaciones,
             cfdiUuid: normalizarUuidLocal(cfdiParsed.uuid),
+            cfdiSubtotal: numeroOculto(cfdiParsed.subtotal),
             cfdiTotal: cfdiParsed.total,
             cfdiCurrency: cfdiParsed.currency,
+            cfdiTaxAmount: numeroOculto(cfdiParsed.tax_amount),
+            cfdiTaxRate: numeroOculto(cfdiParsed.tax_rate),
             facturaFile: facturaFile,
             valeFile: valeFile,
         };
@@ -608,6 +611,12 @@ function uuidYaExisteEnSolicitud(uuid) {
 
 function normalizarUuidLocal(value) {
     return value ? String(value).trim().toUpperCase() : null;
+}
+
+function numeroOculto(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const numero = Number(value);
+    return Number.isNaN(numero) ? null : numero;
 }
 
 function redondearMonto(value) {

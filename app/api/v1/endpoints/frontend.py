@@ -393,6 +393,11 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         type=category,
         folio=folio,
         folio_fiscal=expense.cfdi_uuid,
+        cfdi_subtotal=_float_or_none(expense.cfdi_subtotal),
+        cfdi_total=_float_or_none(expense.cfdi_total),
+        cfdi_tax_amount=_float_or_none(expense.cfdi_tax_amount),
+        cfdi_tax_rate=_float_or_none(expense.cfdi_tax_rate),
+        cfdi_currency=expense.cfdi_currency,
         facturas=_invoice_count(expense),
         autorizacion=_frontend_authorization_status(expense),
         status=_frontend_expense_status(expense.status),
@@ -485,7 +490,12 @@ def _expense_from_frontend(
         spent_on=spent_on,
         category=category,
         description=expense_in.observaciones,
-        cfdi_uuid=expense_in.folio,
+        cfdi_uuid=expense_in.cfdi_uuid or expense_in.folio,
+        cfdi_subtotal=_money_or_none(expense_in.cfdi_subtotal),
+        cfdi_total=_money_or_none(expense_in.cfdi_total),
+        cfdi_currency=(expense_in.cfdi_currency or expense_in.moneda).upper(),
+        cfdi_tax_amount=_money_or_none(expense_in.cfdi_tax_amount),
+        cfdi_tax_rate=_rate_or_none(expense_in.cfdi_tax_rate),
         requires_authorization=expense_in.requiere_autorizacion,
     )
 
@@ -702,3 +712,15 @@ def _first_receipt_download_url(expense: Expense) -> str | None:
 
 def _money(value: Decimal) -> Decimal:
     return Decimal(value).quantize(Decimal("0.01"))
+
+
+def _money_or_none(value: Decimal | None) -> Decimal | None:
+    return _money(value) if value is not None else None
+
+
+def _rate_or_none(value: Decimal | None) -> Decimal | None:
+    return Decimal(value).quantize(Decimal("0.01")) if value is not None else None
+
+
+def _float_or_none(value: Decimal | None) -> float | None:
+    return float(value) if value is not None else None

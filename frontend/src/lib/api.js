@@ -156,6 +156,13 @@ export async function removeExpense(expenseId, reason) {
     });
 }
 
+export async function updateExpenseForReview(expenseId, payload) {
+    return request(`/expenses/${expenseId}/review/me`, {
+        method: 'PATCH',
+        body: payload,
+    });
+}
+
 export function apiErrorMessage(error) {
     if (!error) return 'No se pudo completar la operación.';
     return error.message || 'No se pudo completar la operación.';

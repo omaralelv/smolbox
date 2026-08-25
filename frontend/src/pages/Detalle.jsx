@@ -1,9 +1,23 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-import { apiErrorMessage, openProtectedFile, removeExpense } from '../lib/api';
+import {
+    apiErrorMessage,
+    openProtectedFile,
+    removeExpense,
+    updateExpenseForReview,
+} from '../lib/api';
 
 import Drawer from '../components/shared/Drawer';
+
+const CATEGORIAS_GASTO = [
+    "Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica",
+    "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil",
+    "Hospedaje", "Impuesto Hospedaje", "Licencias y Permisos", "Medicamentos",
+    "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y taxis",
+    "Publicidad", "Recolección de Basura", "Servicio de Agua", "Trámites",
+    "Trasportación", "Vigilancia", "Otros",
+];
 
 
 function Detalle({ currentRole }) {
@@ -18,6 +32,10 @@ function Detalle({ currentRole }) {
     const [eliminandoGastoId, setEliminandoGastoId] = useState(null);
     const [gastoParaEliminar, setGastoParaEliminar] = useState(null);
     const [motivoEliminacion, setMotivoEliminacion] = useState('');
+    const [gastoParaEditar, setGastoParaEditar] = useState(null);
+    const [categoriaEditada, setCategoriaEditada] = useState('');
+    const [impuestoEditado, setImpuestoEditado] = useState('16');
+    const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
@@ -140,6 +158,72 @@ function Detalle({ currentRole }) {
 
         setGastoParaEliminar(gasto);
         setMotivoEliminacion('');
+    };
+
+    const handleEditarGasto = (gasto) => {
+        const expenseId = gasto.backendId || gasto.id;
+
+        if (!expenseId || typeof expenseId !== 'string') {
+            alert('Este gasto no tiene ID de backend para editarse.');
+            return;
+        }
+
+        setGastoParaEditar(gasto);
+        setCategoriaEditada(gasto.tipo || gasto.type || categoria || 'Gasto General');
+        setImpuestoEditado(String(gasto.cfdiTaxRate ?? gasto.cfdi_tax_rate ?? 16));
+    };
+
+    const cancelarEdicion = () => {
+        setGastoParaEditar(null);
+        setCategoriaEditada('');
+        setImpuestoEditado('16');
+    };
+
+    const confirmarEdicion = async () => {
+        const expenseId = gastoParaEditar?.backendId || gastoParaEditar?.id;
+        const cleanCategoria = categoriaEditada.trim();
+        const taxRate = Number(impuestoEditado);
+
+        if (!expenseId || typeof expenseId !== 'string') {
+            alert('Este gasto no tiene ID de backend para editarse.');
+            cancelarEdicion();
+            return;
+        }
+
+        if (!cleanCategoria) {
+            alert('Selecciona una categoría.');
+            return;
+        }
+
+        if (Number.isNaN(taxRate)) {
+            alert('Selecciona un impuesto válido.');
+            return;
+        }
+
+        try {
+            setGuardandoEdicion(true);
+            const gastoActualizado = await updateExpenseForReview(expenseId, {
+                category: cleanCategoria,
+                cfdi_tax_rate: taxRate.toFixed(2),
+                note: `Cambio de categoría a ${cleanCategoria} e impuesto a ${taxRate.toFixed(2)}%.`,
+            });
+
+            const gastoVista = normalizarGastoActualizado(gastoParaEditar, gastoActualizado);
+            setGastosDesglosados((actuales) =>
+                actuales.map((item) => ((item.backendId || item.id) === expenseId ? gastoVista : item))
+            );
+
+            if ((gastoSeleccionado?.backendId || gastoSeleccionado?.id) === expenseId) {
+                setGastoSeleccionado(gastoVista);
+            }
+
+            alert('Gasto actualizado correctamente.');
+            cancelarEdicion();
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setGuardandoEdicion(false);
+        }
     };
 
     const cancelarEliminacion = () => {
@@ -282,7 +366,7 @@ function Detalle({ currentRole }) {
                                 </button>
                             )}
                             {puedeVer('editar') && (
-                                <button style={styles.iconBtn} title="Editar Gasto">
+                                <button style={styles.iconBtn} title="Editar Gasto" onClick={() => handleEditarGasto(gasto)}>
                                     <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
                                 </button>
                             )}
@@ -358,6 +442,71 @@ function Detalle({ currentRole }) {
                                 disabled={Boolean(eliminandoGastoId)}
                             >
                                 {eliminandoGastoId ? 'Eliminando...' : 'Eliminar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {gastoParaEditar && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modal}>
+                        <h3 style={styles.modalTitle}>Editar gasto</h3>
+                        <div style={styles.modalField}>
+                            <label style={styles.modalLabel}>Categoría</label>
+                            <select
+                                value={categoriaEditada}
+                                onChange={(event) => setCategoriaEditada(event.target.value)}
+                                style={styles.modalInput}
+                                disabled={guardandoEdicion}
+                            >
+                                {CATEGORIAS_GASTO.map((cat) => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div style={styles.modalField}>
+                            <label style={styles.modalLabel}>Impuesto</label>
+                            <select
+                                value={impuestoEditado}
+                                onChange={(event) => setImpuestoEditado(event.target.value)}
+                                style={styles.modalInput}
+                                disabled={guardandoEdicion}
+                            >
+                                <option value="0">0%</option>
+                                <option value="8">8%</option>
+                                <option value="16">16%</option>
+                            </select>
+                        </div>
+                        <div style={styles.taxSummary}>
+                            <div style={styles.taxRow}>
+                                <span>Monto</span>
+                                <strong>{formatoMonto(gastoParaEditar.monto)}</strong>
+                            </div>
+                            <div style={styles.taxRow}>
+                                <span>IVA</span>
+                                <strong>{formatoMonto(calcularImpuesto(gastoParaEditar.monto, impuestoEditado).iva)}</strong>
+                            </div>
+                            <div style={styles.taxRow}>
+                                <span>Subtotal</span>
+                                <strong>{formatoMonto(calcularImpuesto(gastoParaEditar.monto, impuestoEditado).subtotal)}</strong>
+                            </div>
+                        </div>
+                        <div style={styles.modalActions}>
+                            <button
+                                type="button"
+                                style={styles.modalCancelBtn}
+                                onClick={cancelarEdicion}
+                                disabled={guardandoEdicion}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                style={styles.modalDeleteBtn}
+                                onClick={confirmarEdicion}
+                                disabled={guardandoEdicion}
+                            >
+                                {guardandoEdicion ? 'Guardando...' : 'Guardar'}
                             </button>
                         </div>
                     </div>
@@ -510,6 +659,41 @@ const styles = {
         resize: 'vertical',
         boxSizing: 'border-box',
     },
+    modalField: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        marginTop: '12px',
+    },
+    modalLabel: {
+        fontSize: '13px',
+        fontWeight: 'bold',
+        color: 'var(--text-h)',
+    },
+    modalInput: {
+        width: '100%',
+        border: '1px solid var(--border)',
+        borderRadius: '8px',
+        padding: '9px 10px',
+        fontSize: '14px',
+        boxSizing: 'border-box',
+        backgroundColor: '#fff',
+        color: 'var(--text)'
+    },
+    taxSummary: {
+        marginTop: '14px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        padding: '10px',
+        backgroundColor: '#fafafa',
+    },
+    taxRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontSize: '13px',
+        padding: '4px 0',
+    },
     modalActions: {
         display: 'flex',
         justifyContent: 'flex-end',
@@ -544,4 +728,44 @@ function filtrarGastosActivos(gastos) {
         const status = String(gasto.status || '').toLowerCase();
         return backendStatus !== 'removed' && status !== 'eliminado';
     });
+}
+
+function normalizarGastoActualizado(gastoOriginal, gastoActualizado) {
+    const categoria = gastoActualizado.category || gastoOriginal.tipo || gastoOriginal.type || 'Gasto General';
+    return {
+        ...gastoOriginal,
+        nombre: `Gasto - ${categoria}`,
+        tipo: categoria,
+        type: categoria,
+        monto: Number(gastoActualizado.amount ?? gastoOriginal.monto ?? 0),
+        cfdiSubtotal: numeroOculto(gastoActualizado.cfdi_subtotal),
+        cfdiTotal: numeroOculto(gastoActualizado.cfdi_total),
+        cfdiTaxAmount: numeroOculto(gastoActualizado.cfdi_tax_amount),
+        cfdiTaxRate: numeroOculto(gastoActualizado.cfdi_tax_rate),
+        cfdiCurrency: gastoActualizado.cfdi_currency || gastoOriginal.cfdiCurrency || null,
+    };
+}
+
+function calcularImpuesto(monto, impuesto) {
+    const total = Number(monto || 0);
+    const tasa = Number(impuesto || 0);
+    if (!total || Number.isNaN(tasa)) {
+        return { iva: 0, subtotal: total };
+    }
+
+    const iva = total / (1 + tasa / 100) * (tasa / 100);
+    return {
+        iva,
+        subtotal: total - iva,
+    };
+}
+
+function formatoMonto(value) {
+    return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function numeroOculto(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const numero = Number(value);
+    return Number.isNaN(numero) ? null : numero;
 }

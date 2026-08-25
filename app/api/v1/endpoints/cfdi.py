@@ -165,8 +165,11 @@ async def validate_expense_cfdi(
                 uuid=normalized_uuid,
                 issuer_rfc=parsed.issuer_rfc,
                 receiver_rfc=parsed.receiver_rfc,
+                subtotal=parsed.subtotal,
                 total=parsed.total,
                 currency=parsed.currency,
+                tax_amount=parsed.tax_amount,
+                tax_rate=parsed.tax_rate,
                 issued_at=parsed.issued_at,
                 is_valid=result.is_valid,
                 issues=[issue.model_dump(mode="json") for issue in result.issues],
@@ -178,8 +181,11 @@ async def validate_expense_cfdi(
         expense.cfdi_uuid = normalized_uuid
         expense.cfdi_issuer_rfc = parsed.issuer_rfc
         expense.cfdi_receiver_rfc = parsed.receiver_rfc
+        expense.cfdi_subtotal = parsed.subtotal
         expense.cfdi_total = parsed.total
         expense.cfdi_currency = parsed.currency
+        expense.cfdi_tax_amount = parsed.tax_amount
+        expense.cfdi_tax_rate = parsed.tax_rate
         if expense.reimbursement_request_id is not None:
             db.add(
                 AuditLog(

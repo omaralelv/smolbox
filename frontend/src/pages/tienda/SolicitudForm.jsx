@@ -91,6 +91,12 @@ function SolicitudForm({ currentRole }) {
                     categoria: gasto.tipo || gasto.type,
                     monto: String(gasto.monto),
                     folio: folioManual(gasto.folio),
+                    cfdiUuid: gasto.cfdiUuid || null,
+                    cfdiSubtotal: valorFiscalOculto(gasto.cfdiSubtotal),
+                    cfdiTotal: valorFiscalOculto(gasto.cfdiTotal),
+                    cfdiTaxAmount: valorFiscalOculto(gasto.cfdiTaxAmount),
+                    cfdiTaxRate: valorFiscalOculto(gasto.cfdiTaxRate),
+                    cfdiCurrency: gasto.cfdiCurrency || null,
                     observaciones: gasto.observaciones || null,
                     requiresAuthorization: Boolean(gasto.requiresAuthorization),
                 })),
@@ -303,6 +309,12 @@ function redondearMonto(value) {
 
 function formatoMonto(value) {
     return `$${redondearMonto(value)}`;
+}
+
+function valorFiscalOculto(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const numero = Number(value);
+    return Number.isNaN(numero) ? null : numero;
 }
 
 function folioManual(folio) {

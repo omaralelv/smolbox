@@ -52,6 +52,11 @@ class FrontendGastoRead(BaseModel):
     type: str
     folio: str
     folio_fiscal: str | None = Field(default=None, alias="folioFiscal")
+    cfdi_subtotal: float | None = Field(default=None, alias="cfdiSubtotal")
+    cfdi_total: float | None = Field(default=None, alias="cfdiTotal")
+    cfdi_tax_amount: float | None = Field(default=None, alias="cfdiTaxAmount")
+    cfdi_tax_rate: float | None = Field(default=None, alias="cfdiTaxRate")
+    cfdi_currency: str | None = Field(default=None, alias="cfdiCurrency")
     facturas: int
     autorizacion: str
     status: str
@@ -90,6 +95,42 @@ class FrontendGastoCreate(BaseModel):
     categoria: str | None = None
     monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     folio: str | None = None
+    cfdi_uuid: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("cfdi_uuid", "cfdiUuid"),
+    )
+    cfdi_subtotal: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=2,
+        validation_alias=AliasChoices("cfdi_subtotal", "cfdiSubtotal"),
+    )
+    cfdi_total: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=2,
+        validation_alias=AliasChoices("cfdi_total", "cfdiTotal"),
+    )
+    cfdi_tax_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=12,
+        decimal_places=2,
+        validation_alias=AliasChoices("cfdi_tax_amount", "cfdiTaxAmount"),
+    )
+    cfdi_tax_rate: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=5,
+        decimal_places=2,
+        validation_alias=AliasChoices("cfdi_tax_rate", "cfdiTaxRate"),
+    )
+    cfdi_currency: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("cfdi_currency", "cfdiCurrency"),
+    )
     observaciones: str | None = None
     proveedor: str | None = None
     merchant: str | None = None

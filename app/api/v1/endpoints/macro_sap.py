@@ -330,8 +330,7 @@ def generar_polizas(
         Decimal("16"): "W1",
     }
 
-    # La BD actual no contiene porcentaje_iva.
-    # Es una regla provisional que debes confirmar con contabilidad.
+    # Fallback para gastos antiguos que todavía no tienen IVA leído del CFDI.
     porcentaje_iva_default = Decimal("16")
 
     for gasto in gastos_db:
@@ -360,15 +359,22 @@ def generar_polizas(
         )
 
         monto_base = Decimal(str(gasto["amount"]))
-        porcentaje_iva = porcentaje_iva_default
-
-        iva_calculado = (
-            monto_base
-            / (Decimal("1") + porcentaje_iva / Decimal("100"))
-            * (porcentaje_iva / Decimal("100"))
+        porcentaje_iva = (
+            Decimal(str(gasto["cfdi_tax_rate"]))
+            if gasto["cfdi_tax_rate"] is not None
+            else porcentaje_iva_default
         )
 
-        subtotal_factura = monto_base - iva_calculado
+        if gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None:
+            iva_calculado = Decimal(str(gasto["cfdi_tax_amount"]))
+            subtotal_factura = Decimal(str(gasto["cfdi_subtotal"]))
+        else:
+            iva_calculado = (
+                monto_base
+                / (Decimal("1") + porcentaje_iva / Decimal("100"))
+                * (porcentaje_iva / Decimal("100"))
+            )
+            subtotal_factura = monto_base - iva_calculado
 
         if porcentaje_iva == Decimal("0") and cuenta_gasto == "601158":
             indice_iva = "W2"

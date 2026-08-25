@@ -47,6 +47,7 @@ class ExpenseUpdate(BaseModel):
     description: str | None = None
     supplier_tax_id: str | None = Field(default=None, max_length=20)
     requires_authorization: bool | None = None
+    cfdi_tax_rate: Decimal | None = Field(default=None, ge=0, max_digits=5, decimal_places=2)
 
     @field_validator("currency")
     @classmethod
@@ -67,8 +68,11 @@ class ExpenseRead(ExpenseBase):
     cfdi_uuid: str | None = None
     cfdi_issuer_rfc: str | None = None
     cfdi_receiver_rfc: str | None = None
+    cfdi_subtotal: Decimal | None = None
     cfdi_total: Decimal | None = None
     cfdi_currency: str | None = None
+    cfdi_tax_amount: Decimal | None = None
+    cfdi_tax_rate: Decimal | None = None
     authorized_at: datetime | None = None
     authorized_by_user_id: UUID | None = None
     authorization_note: str | None = None

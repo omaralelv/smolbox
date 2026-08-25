@@ -214,3 +214,77 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
     )
     assert corrected_expense.status_code == 409
     assert corrected_expense.json()["detail"]["code"] == "REQUEST_NOT_EDITABLE"
+
+
+def test_accounting_review_can_edit_category_and_tax_rate(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense['id']}/cfdi/validate",
+        files={"file": ("invoice.xml", _cfdi_xml("1500.00"), "application/xml")},
+    )
+    assert cfdi.status_code == 200, cfdi.text
+    assert cfdi.json()["is_valid"] is True
+
+    store_user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "tienda.edita.iva@example.com",
+            "full_name": "Tienda Edita IVA",
+            "role": "store",
+        },
+    )
+    assert store_user.status_code == 201, store_user.text
+    accountant = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "contador.edita.iva@example.com",
+            "full_name": "Contador Edita IVA",
+            "role": "accountant",
+        },
+    )
+    assert accountant.status_code == 201, accountant.text
+    for user, role in [(store_user, "store"), (accountant, "accountant")]:
+        assignment = client.post(
+            f"/api/v1/stores/{base_records['store_id']}/users",
+            json={"user_id": user.json()["id"], "role": role},
+        )
+        assert assignment.status_code == 201, assignment.text
+
+    submitted = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
+        json={
+            "target_status": "submitted",
+            "actor_user_id": store_user.json()["id"],
+            "note": "Enviar a contabilidad",
+        },
+    )
+    assert submitted.status_code == 200, submitted.text
+    accounting_review = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
+        json={
+            "target_status": "under_accounting_review",
+            "actor_user_id": accountant.json()["id"],
+            "note": "Iniciar revisión contable",
+        },
+    )
+    assert accounting_review.status_code == 200, accounting_review.text
+
+    updated = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "category": "Agua",
+            "cfdi_tax_rate": "8.00",
+            "note": "Ajuste contable de categoria e IVA.",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["category"] == "Agua"
+    assert body["cfdi_tax_rate"] == "8.00"
+    assert body["cfdi_tax_amount"] == "111.11"
+    assert body["cfdi_subtotal"] == "1388.89"
+    assert body["cfdi_total"] == "1500.00"

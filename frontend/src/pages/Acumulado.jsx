@@ -78,6 +78,11 @@ function Acumulado( {currentRole} ) {
             monto: parseFloat(g.monto) || 0,
             folio: g.folio || 'N/A',
             folioFiscal: g.folioFiscal || g.folio_fiscal || g.folio || null,
+            cfdiSubtotal: valorFiscalOculto(g.cfdiSubtotal ?? g.cfdi_subtotal),
+            cfdiTotal: valorFiscalOculto(g.cfdiTotal ?? g.cfdi_total),
+            cfdiTaxAmount: valorFiscalOculto(g.cfdiTaxAmount ?? g.cfdi_tax_amount),
+            cfdiTaxRate: valorFiscalOculto(g.cfdiTaxRate ?? g.cfdi_tax_rate),
+            cfdiCurrency: g.cfdiCurrency ?? g.cfdi_currency ?? null,
             autorizacion: g.autorizacion || '',
             status: g.status || '',
             backendStatus: g.backendStatus || g.backend_status || '',
@@ -632,6 +637,12 @@ function gastoActivo(gasto) {
     const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();
     const status = String(gasto.status || '').toLowerCase();
     return backendStatus !== 'removed' && status !== 'eliminado';
+}
+
+function valorFiscalOculto(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const numero = Number(value);
+    return Number.isNaN(numero) ? null : numero;
 }
 
 function accionInicialPorRol(currentRole, solicitud) {

@@ -679,11 +679,38 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
             },
         )
 
+    _apply_tax_rate_update(expense, updates)
+
     for field, value in updates.items():
         setattr(expense, field, value)
 
     if {"amount", "currency", "supplier_tax_id"} & set(updates):
         _clear_current_cfdi_validation(db, expense)
+
+
+def _apply_tax_rate_update(expense: Expense, updates: dict[str, object]) -> None:
+    if "cfdi_tax_rate" not in updates:
+        return
+
+    tax_rate = updates["cfdi_tax_rate"]
+    if tax_rate is None:
+        updates["cfdi_tax_amount"] = None
+        updates["cfdi_subtotal"] = None
+        return
+
+    amount = Decimal(updates.get("amount", expense.amount)).quantize(Decimal("0.01"))
+    rate = Decimal(tax_rate).quantize(Decimal("0.01"))
+    tax_amount = (
+        amount
+        / (Decimal("1") + rate / Decimal("100"))
+        * (rate / Decimal("100"))
+    ).quantize(Decimal("0.01"))
+
+    updates["cfdi_tax_rate"] = rate
+    updates["cfdi_tax_amount"] = tax_amount
+    updates["cfdi_subtotal"] = (amount - tax_amount).quantize(Decimal("0.01"))
+    updates["cfdi_total"] = amount
+    updates["cfdi_currency"] = str(updates.get("currency", expense.currency)).upper()
 
 
 def _clear_current_cfdi_validation(db: Session, expense: Expense) -> None:
@@ -695,8 +722,11 @@ def _clear_current_cfdi_validation(db: Session, expense: Expense) -> None:
     expense.cfdi_uuid = None
     expense.cfdi_issuer_rfc = None
     expense.cfdi_receiver_rfc = None
+    expense.cfdi_subtotal = None
     expense.cfdi_total = None
     expense.cfdi_currency = None
+    expense.cfdi_tax_amount = None
+    expense.cfdi_tax_rate = None
 
 
 def _get_expense_or_404(expense_id: UUID, db: Session) -> Expense:

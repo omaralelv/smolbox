@@ -13,8 +13,11 @@ class CfdiParseResult(BaseModel):
     issuer_name: str | None = None
     receiver_rfc: str | None = None
     receiver_name: str | None = None
+    subtotal: Decimal | None = None
     total: Decimal | None = None
     currency: str | None = None
+    tax_amount: Decimal | None = None
+    tax_rate: Decimal | None = None
     issued_at: datetime | None = None
     payment_method: str | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -48,8 +51,11 @@ class CfdiValidationRead(BaseModel):
     uuid: str | None = None
     issuer_rfc: str | None = None
     receiver_rfc: str | None = None
+    subtotal: Decimal | None = None
     total: Decimal | None = None
     currency: str | None = None
+    tax_amount: Decimal | None = None
+    tax_rate: Decimal | None = None
     issued_at: datetime | None = None
     is_valid: bool
     issues: list[dict[str, Any]] = Field(default_factory=list)
