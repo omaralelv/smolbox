@@ -197,12 +197,16 @@ const styles = {
         border: '1px solid #fecdd3',
     },
     globoMio: {
-        backgroundColor: '#ffffff',
-        color: '#1f2937',
+        backgroundColor: 'var(--sb-header)',
+        color: '#ffffff',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow)',
+        border: '1px solid #ffffff',
     },
     globoOtro: {
-        backgroundColor: '#fff1f2',
-        color: '#881337',
+        backgroundColor: '#ffffff',
+        color: 'var(--text)',
+        boxShadow: 'var(--shadow)'
     },
     footer: {
         padding: '10px',
