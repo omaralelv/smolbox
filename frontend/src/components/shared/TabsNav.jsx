@@ -11,7 +11,7 @@ function TabsNav({ currentRole }) {
                 return [
                     { label: 'Solicitud', path: '/solicitud/nueva' },
                     { label: 'Monitoreo', path: '/bandeja' },
-                    { label: 'Dashboard', path: '/dashboard' }
+                    { label: 'Historico', path: '/historico' }
                 ];
             case 'supervisor':
                 return [
@@ -23,7 +23,8 @@ function TabsNav({ currentRole }) {
             case 'direccion':
                 return [
                     { label: 'Bandeja', path: '/bandeja' },
-                    { label: 'Dashboard', path: '/dashboard' } // Próximamente
+                    { label: 'Dashboard', path: '/dashboard' }, // Próximamente
+                    { label: 'Historico', path: '/historico' }
                 ];
             case 'admin':
                 // El administrador tiene visibilidad de las secciones del sistema
@@ -33,6 +34,7 @@ function TabsNav({ currentRole }) {
                     { label: 'Autorizacion', path: '/autorizacion' },
                     { label: 'Bandeja', path: '/bandeja' },
                     { label: 'Dashboard', path: '/dashboard' },
+                    { label: 'Historico', path: '/historico' }
                 ];
             default:
                 return [];

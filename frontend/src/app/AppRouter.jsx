@@ -7,6 +7,7 @@ import Acumulado from '../pages/Acumulado';
 import Detalle from '../pages/Detalle';
 import Dashboard from '../pages/Dashboard';
 import Login from '../pages/Login';
+import Historico from '../pages/Historico';
 import AutorizacionBandeja from '../pages/autorizacion/AutorizacionBandeja';
 
 /*<Routes>
@@ -34,6 +35,7 @@ function AppRouter({ currentRole }) {
         <Route path="/acumulado" element={<Acumulado currentRole={currentRole} />}/>
         <Route path="/detalle" element={<Detalle currentRole={currentRole} />}/>
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/historico" element={<Historico />}/>
         
         </Routes>
     );
