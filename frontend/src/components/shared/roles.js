@@ -1,7 +1,6 @@
 // Niveles de visibilidad de los comentarios
 export const VISIBILIDAD = {
     PUBLIC: 'PUBLIC',             // Tienda, Supervisor y Administradores/Dirección
-    SUPERVISION: 'SUPERVISION',   // Exclusivo entre Tienda y Supervisor
     INTERNO: 'INTERNO'            // Solo Contabilidad, Gerencia, Tesorería y Dirección
 };
 
@@ -11,11 +10,6 @@ export const PUEDE_LEER_OBSERVACION = (rolUsuario, visibilidadComentario) => {
 
     if (visibilidadComentario === VISIBILIDAD.PUBLIC) {
         return true; // Lo ven TODOS los roles
-    }
-
-    if (visibilidadComentario === VISIBILIDAD.SUPERVISION) {
-        // Solo Tienda y Supervisor (y roles auditores superiores)
-        return ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'].includes(rol);
     }
 
     if (visibilidadComentario === VISIBILIDAD.INTERNO) {

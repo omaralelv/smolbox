@@ -111,7 +111,7 @@ function Detalle({ currentRole }) {
     const visibilidadIconos = {
         vale: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         factura: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
-        observaciones: ['tienda', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
+        observaciones: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         editar: ['contabilidad', 'gerencia', 'admin'],
         eliminar: ['contabilidad', 'gerencia', 'admin']
     };
