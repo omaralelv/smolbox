@@ -3,7 +3,7 @@ import os
 import io
 import zipfile
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,7 +14,6 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.drawing.image import Image 
 from app.db.session import get_db
-from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 # 1. Definir el Router en lugar de la App
@@ -29,14 +28,13 @@ ruta_tiendas = os.path.join(ASSETS_DIR, "Copia de BASE DE TIENDAS.xlsx")
 ruta_gastos = os.path.join(ASSETS_DIR, "TiposGastos.xlsx")
 ruta_plantilla = os.path.join(ASSETS_DIR, "COPIA FORMATO REEMBOLSO.xlsx")
 ruta_logo = os.path.join(ASSETS_DIR, "logoV.png")
-
+ruta_W6 = os.path.join(ASSETS_DIR, "TDAS IVA W6.xlsx")
 
 
 def limpiar_nombre_archivo(valor: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", valor).strip()
-# =========================================================
-# 1. SOLICITUD DESDE LA BASE DE DATOS
-# =========================================================
+
+
 def cargar_base_tiendas(ruta_archivo):
     try:
         df = pd.read_excel(ruta_archivo, dtype=str).fillna("")
@@ -48,6 +46,7 @@ def cargar_base_tiendas(ruta_archivo):
     except Exception as e:
         print(f"❌ Error tiendas: {e}")
         return {}
+
 
 def cargar_tipo_gastos(ruta_archivo):
     try:
@@ -70,6 +69,7 @@ def cargar_tipo_gastos(ruta_archivo):
     except Exception as e:
         print(f"❌ Error gastos: {e}")
         return {}
+
 
 def normalizar_texto(valor):
     return " ".join(str(valor or "").strip().casefold().split())
@@ -114,10 +114,57 @@ def crear_indice_categorias(diccionario_gastos):
 
     return indice
 
+
+## Para cargar tiendas del 8% de IVA
+def cargar_tiendas_iva_w6(ruta_archivo):
+    try:
+        df = pd.read_excel(
+            ruta_archivo,
+            dtype=str,
+            usecols=["TIENDA"],
+        ).fillna("")
+
+        df["TIENDA"] = df["TIENDA"].str.strip()
+
+        return {
+            normalizar_texto(tienda)
+            for tienda in df["TIENDA"]
+            if tienda
+        }
+
+    except Exception as e:
+        print(f"❌ Error al cargar tiendas con IVA W6: {e}")
+        return set()
+
+def determinar_iva_e_indice(
+    descripcion: str,
+    numero_tienda: str,
+    tasa_iva_bd=None,
+):
+    descripcion_normalizada = normalizar_texto(descripcion)
+    tienda_normalizada = normalizar_texto(numero_tienda)
+
+    # Regla 1: Pasajes y taxis
+    if descripcion_normalizada == normalizar_texto("Pasajes y taxis"):
+        return Decimal("0"), "W2"
+
+    # Regla 2: No Deducible
+    if descripcion_normalizada == normalizar_texto("No Deducible"):
+        return Decimal("0"), "W0"
+
+    # Regla 3: tiendas especiales
+    if tienda_normalizada in tiendas_iva_w6:
+        return Decimal("8"), "W6"
+
+    # Regla 4: cualquier otro gasto
+    return Decimal("16"), "W1"
+
 # Cargamos en memoria RAM del servidor al iniciar
 diccionario_tiendas = cargar_base_tiendas(ruta_tiendas)
 diccionario_gastos = cargar_tipo_gastos(ruta_gastos)
 indice_categorias = crear_indice_categorias(diccionario_gastos)
+
+tiendas_iva_w6 = cargar_tiendas_iva_w6(ruta_W6)
 
 # =========================================================
 # 3. INICIO DE LA API
@@ -318,14 +365,14 @@ def generar_polizas(
         )
 
     # ========================================================
-    # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA (TU MACRO)
+    # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA
     # ========================================================
     poliza_detallada = []
     diccionario_agrupador = {}
     total_gran_factura = Decimal("0")
 
     mapa_indices_iva = {
-        Decimal("0"): "W0",
+        Decimal("0"): "W0", #################################################
         Decimal("8"): "W6",
         Decimal("16"): "W1",
     }
@@ -358,31 +405,34 @@ def generar_polizas(
             else "Sin Folio"
         )
 
-        monto_base = Decimal(str(gasto["amount"]))
-        porcentaje_iva = (
-            Decimal(str(gasto["cfdi_tax_rate"]))
-            if gasto["cfdi_tax_rate"] is not None
-            else porcentaje_iva_default
+        monto_total = Decimal(str(gasto["amount"]))
+
+        porcentaje_iva, indice_iva = determinar_iva_e_indice(
+            descripcion=gasto_descripcion,
+            numero_tienda=numero_tienda,
+            tasa_iva_bd=gasto["cfdi_tax_rate"],
         )
 
-        if gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None:
-            iva_calculado = Decimal(str(gasto["cfdi_tax_amount"]))
-            subtotal_factura = Decimal(str(gasto["cfdi_subtotal"]))
-        else:
-            iva_calculado = (
-                monto_base
-                / (Decimal("1") + porcentaje_iva / Decimal("100"))
-                * (porcentaje_iva / Decimal("100"))
+        if (gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None and porcentaje_iva not in {Decimal("0"),}):
+            iva_calculado = Decimal(
+                str(gasto["cfdi_tax_amount"])
             )
-            subtotal_factura = monto_base - iva_calculado
+            subtotal_factura = Decimal(
+                str(gasto["cfdi_subtotal"])
+            )
+        elif porcentaje_iva == Decimal("0"):
+            subtotal_factura = monto_total
+            iva_calculado = Decimal("0")
+        else:
+            subtotal_factura = (
+                monto_total
+                / (
+                    Decimal("1")
+                    + porcentaje_iva / Decimal("100")
+                )
+            )
+            iva_calculado = monto_total - subtotal_factura
 
-        if porcentaje_iva == Decimal("0") and cuenta_gasto == "601158":
-            indice_iva = "W2"
-        else:
-            indice_iva = mapa_indices_iva.get(
-                porcentaje_iva,
-                "W_ND",
-            )
 
         registro = {
             "UIDD": uidd_factura,
@@ -393,18 +443,18 @@ def generar_polizas(
             "Indice_IVA": indice_iva,
             "IVA": iva_calculado,
             "Subtotal": subtotal_factura,
-            "Total": monto_base,
+            "Total": monto_total,
             "Tienda": numero_tienda,
             "Expense_ID": str(gasto["id"]),
         }
 
         poliza_detallada.append(registro)
-        total_gran_factura += monto_base
+        total_gran_factura += monto_total
 
         if cuenta_gasto in diccionario_agrupador:
             agrupado = diccionario_agrupador[cuenta_gasto]
 
-            agrupado["Total"] += monto_base
+            agrupado["Total"] += monto_total
             agrupado["Subtotal"] += subtotal_factura
             agrupado["IVA"] += iva_calculado
             agrupado["Cantidad_facturas"] += 1
