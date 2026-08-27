@@ -651,7 +651,9 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
     assert {"accounting_reviewed", "accounting_manager_review"}.issubset(
         role_queue_statuses("accounting.manager")
     )
-    assert {"direction_review"}.issubset(role_queue_statuses("director"))
+    assert {"direction_review", "direction_approved"}.issubset(
+        role_queue_statuses("director")
+    )
     assert {
         "accounting_manager_approved",
         "treasury_review",
