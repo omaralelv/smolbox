@@ -136,27 +136,31 @@ def cargar_tiendas_iva_w6(ruta_archivo):
         print(f"❌ Error al cargar tiendas con IVA W6: {e}")
         return set()
 
-def determinar_iva_e_indice(
-    descripcion: str,
-    numero_tienda: str,
-    tasa_iva_bd=None,
+def determinar_iva_e_indice(descripcion: str, numero_tienda: str, porcentaje_iva: Decimal,
 ):
     descripcion_normalizada = normalizar_texto(descripcion)
     tienda_normalizada = normalizar_texto(numero_tienda)
 
-    # Regla 1: Pasajes y taxis
+    # Tiendas incluidas en el archivo W6
+    #if tienda_normalizada in tiendas_iva_w6:
+    #    return Decimal("8"), "W6"
+    
+    # Pasajes y taxis siempre usa 0% y W2
     if descripcion_normalizada == normalizar_texto("Pasajes y taxis"):
         return Decimal("0"), "W2"
 
-    # Regla 2: No Deducible
-    if descripcion_normalizada == normalizar_texto("No Deducible"):
+    # Forzar No Deducibles a 0%: W0
+    if descripcion_normalizada == normalizar_texto("No Deducibles"):
         return Decimal("0"), "W0"
 
-    # Regla 3: tiendas especiales
-    if tienda_normalizada in tiendas_iva_w6:
-        return Decimal("8"), "W6"
+    # Cualquier gasto que tenga 0% usa W0
+    if porcentaje_iva == Decimal("0") and not normalizar_texto("Pasajes y taxis"):
+        return "W0"
 
-    # Regla 4: cualquier otro gasto
+    if porcentaje_iva == Decimal("16") and not normalizar_texto("No Deducibles") and not normalizar_texto("Pasajes y taxis"):
+        return "W1"
+
+    # Regla 4: Regla general
     return Decimal("16"), "W1"
 
 # Cargamos en memoria RAM del servidor al iniciar
@@ -371,12 +375,6 @@ def generar_polizas(
     diccionario_agrupador = {}
     total_gran_factura = Decimal("0")
 
-    mapa_indices_iva = {
-        Decimal("0"): "W0", #################################################
-        Decimal("8"): "W6",
-        Decimal("16"): "W1",
-    }
-
     # Fallback para gastos antiguos que todavía no tienen IVA leído del CFDI.
     porcentaje_iva_default = Decimal("16")
 
@@ -407,10 +405,16 @@ def generar_polizas(
 
         monto_total = Decimal(str(gasto["amount"]))
 
+        tasa_iva_bd = (
+            Decimal(str(gasto["cfdi_tax_rate"]))
+            if gasto["cfdi_tax_rate"] is not None
+            else Decimal("16")
+        )
+
         porcentaje_iva, indice_iva = determinar_iva_e_indice(
             descripcion=gasto_descripcion,
             numero_tienda=numero_tienda,
-            tasa_iva_bd=gasto["cfdi_tax_rate"],
+            porcentaje_iva=tasa_iva_bd,
         )
 
         if (gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None and porcentaje_iva not in {Decimal("0"),}):
