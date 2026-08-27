@@ -35,7 +35,7 @@ function AppRouter({ currentRole }) {
         <Route path="/acumulado" element={<Acumulado currentRole={currentRole} />}/>
         <Route path="/detalle" element={<Detalle currentRole={currentRole} />}/>
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/historico" element={<Historico />}/>
+        <Route path="/historico" element={<Historico currentRole={currentRole} />}/>
         
         </Routes>
     );

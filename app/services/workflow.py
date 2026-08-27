@@ -93,12 +93,15 @@ ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
         allowed_roles={UserRole.treasury, UserRole.admin},
     ),
     ReimbursementRequestStatus.direction_approved: TransitionRule(
-        allowed_from={ReimbursementRequestStatus.direction_review},
-        allowed_roles={UserRole.director, UserRole.admin},
+        allowed_from={
+            ReimbursementRequestStatus.treasury_review,
+            ReimbursementRequestStatus.direction_review,
+        },
+        allowed_roles={UserRole.treasury, UserRole.director, UserRole.admin},
     ),
     ReimbursementRequestStatus.approved_for_payment: TransitionRule(
         allowed_from={ReimbursementRequestStatus.direction_approved},
-        allowed_roles={UserRole.treasury, UserRole.admin},
+        allowed_roles={UserRole.accounting_manager, UserRole.treasury, UserRole.admin},
     ),
     ReimbursementRequestStatus.closed: TransitionRule(
         allowed_from={ReimbursementRequestStatus.paid},
@@ -139,7 +142,7 @@ def transition_reimbursement_request(
         raise WorkflowTransitionError("Request is already in the target status")
 
     if target_status == ReimbursementRequestStatus.paid:
-        raise WorkflowTransitionError("Requests can only be marked paid by recording a treasury payment")
+        raise WorkflowTransitionError("Requests can only be marked paid by recording a payment")
 
     rule = ALLOWED_TRANSITIONS.get(target_status)
     if rule is None:

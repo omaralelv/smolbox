@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { currentToken, getFrontendBandeja } from '../lib/api';
+import { currentToken, getFrontendHistorico } from '../lib/api';
 
 const SOLICITUDES_BASE = [
     { id: 'Solicitud 3', tienda: 'T-001', fecha: '12/08/2026', status: 'Pagada' },
@@ -28,10 +28,10 @@ function Historico({currentRole}) {
             };
         }
 
-        getFrontendBandeja()
+        getFrontendHistorico()
             .then((datos) => {
                 if (!activo) return;
-                const soloPagadas = Arrau.isArray(datos)
+                const soloPagadas = Array.isArray(datos)
                 ? datos.filter((s) => String(s.status || s.estatus).toLowerCase() === 'pagada') : []
 
                 setSolicitudes(soloPagadas);
@@ -52,7 +52,7 @@ function Historico({currentRole}) {
 
 
   // Función para asignar colores exactos a cada Badge
-    const getBadgeStyle = (status) => {
+    const getBadgeStyle = () => {
             return {
                 backgroundColor: 'var(--sb-pagadaBg, #e6ffe6)',
                 color: 'var(--text-pagada, #52c41a)'
@@ -109,7 +109,7 @@ function Historico({currentRole}) {
 
                         {/* 4. Pill / Badge de Estatus */}
                         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-                            <span style={{ ...styles.statusBadge, ...getBadgeStyle(sol.status) }}>
+                            <span style={{ ...styles.statusBadge, ...getBadgeStyle() }}>
                                 {sol.status}
                             </span>
                         </div>

@@ -1036,6 +1036,123 @@ def test_later_review_returns_correction_to_accounting(
     assert [item["id"] for item in accountant_queue.json()] == [base_records["request_id"]]
 
 
+def test_frontend_payment_flow_returns_to_manager_for_confirmation(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    store_user_id = _create_user(client, "store")
+    accountant_user_id = _create_user(client, "accountant")
+    manager_user_id = _create_user(client, "accounting_manager")
+    treasury_user_id = _create_user(client, "treasury")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        manager_user_id,
+        "accounting_manager",
+    )
+    _assign_user_to_store(client, base_records["store_id"], treasury_user_id, "treasury")
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="under_accounting_review",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_reviewed",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare",
+        json={
+            "actor_user_id": accountant_user_id,
+            "reference": "SAP-FRONTEND-PAYMENT-FLOW",
+            "note": "Preparado antes de gerencia.",
+        },
+    )
+    assert sap_policy.status_code == 200, sap_policy.text
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_review",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_approved",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="treasury_review",
+        actor_user_id=treasury_user_id,
+    ).status_code == 200
+
+    treasury_approved = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=_auth_headers(client, "treasury@example.com"),
+        json={
+            "target_status": "direction_approved",
+            "note": "Tesoreria aprueba pago para gerencia.",
+        },
+    )
+    assert treasury_approved.status_code == 200, treasury_approved.text
+    assert treasury_approved.json()["status"] == "direction_approved"
+
+    manager_headers = _auth_headers(client, "accounting_manager@example.com")
+    manager_queue = client.get("/api/v1/frontend/bandeja/me", headers=manager_headers)
+    assert manager_queue.status_code == 200, manager_queue.text
+    assert [item["backendId"] for item in manager_queue.json()] == [base_records["request_id"]]
+    assert manager_queue.json()[0]["availableActions"] == ["mark_approved_for_payment"]
+
+    approved_for_payment = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=manager_headers,
+        json={
+            "target_status": "approved_for_payment",
+            "note": "Gerencia habilita confirmacion de pago.",
+        },
+    )
+    assert approved_for_payment.status_code == 200, approved_for_payment.text
+    assert approved_for_payment.json()["status"] == "approved_for_payment"
+
+    manager_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=manager_headers,
+    )
+    assert manager_detail.status_code == 200, manager_detail.text
+    assert manager_detail.json()["availableActions"] == ["record_payment"]
+
+    payment = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/payments/me",
+        headers=manager_headers,
+        json={"reference": "PAGO-GERENCIA-001", "note": "Pago confirmado por gerencia."},
+    )
+    assert payment.status_code == 201, payment.text
+    assert payment.json()["amount"] == "1500.00"
+
+    paid_request = client.get(f"/api/v1/reimbursement-requests/{base_records['request_id']}")
+    assert paid_request.status_code == 200, paid_request.text
+    assert paid_request.json()["status"] == "paid"
+
+
 def test_later_reviews_return_to_previous_step(
     client: TestClient,
     base_records: dict[str, str],

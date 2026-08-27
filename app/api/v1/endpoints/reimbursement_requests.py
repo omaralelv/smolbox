@@ -428,7 +428,11 @@ def record_reimbursement_request_payment_as_current_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Reimbursement request not found",
         )
-    if current_user.role not in {UserRole.treasury, UserRole.admin}:
+    if current_user.role not in {
+        UserRole.accounting_manager,
+        UserRole.treasury,
+        UserRole.admin,
+    }:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -458,7 +462,7 @@ def record_reimbursement_request_payment_as_current_user(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "PAYMENT_ALREADY_RECORDED",
-                "message": "This request already has a recorded treasury payment",
+                "message": "This request already has a recorded payment",
                 "suggestion": "Open the payment history instead of recording a second payment.",
             },
         )
@@ -527,7 +531,7 @@ def record_reimbursement_request_payment_as_current_user(
             action="payment_recorded",
             from_status=ReimbursementRequestStatus.approved_for_payment.value,
             to_status=ReimbursementRequestStatus.paid.value,
-            message=payment_in.note or "Payment recorded by treasury.",
+            message=payment_in.note or "Payment recorded.",
             event_payload={
                 "amount": str(payment_amount),
                 "currency": payment_currency,

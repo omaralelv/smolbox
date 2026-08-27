@@ -54,6 +54,10 @@ export async function getFrontendBandeja() {
     return request('/frontend/bandeja/me');
 }
 
+export async function getFrontendHistorico() {
+    return request('/frontend/historico/me');
+}
+
 export async function getFrontendSolicitud(requestIdOrFolio) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
 }

@@ -238,6 +238,69 @@ def test_frontend_accounting_actions_follow_sap_policy_order(
     ]
 
 
+def test_frontend_historico_lists_paid_requests(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    admin_user_id = _create_user(client, "admin", "frontend.historico.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "accounting_reviewed",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare",
+        json={
+            "actor_user_id": admin_user_id,
+            "reference": "SAP-HISTORICO-001",
+            "note": "Preparado para historico.",
+        },
+    )
+    assert sap_policy.status_code == 200, sap_policy.text
+
+    for target_status in [
+        "accounting_manager_review",
+        "accounting_manager_approved",
+        "treasury_review",
+        "direction_approved",
+        "approved_for_payment",
+    ]:
+        response = _transition(client, base_records["request_id"], target_status, admin_user_id)
+        assert response.status_code == 200, response.text
+
+    headers = _auth_headers(client, "frontend.historico.admin@example.com")
+    payment = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/payments/me",
+        headers=headers,
+        json={"reference": "PAGO-HISTORICO-001", "note": "Pago para historico."},
+    )
+    assert payment.status_code == 201, payment.text
+
+    historico = client.get("/api/v1/frontend/historico/me", headers=headers)
+    assert historico.status_code == 200, historico.text
+    assert [item["backendId"] for item in historico.json()] == [base_records["request_id"]]
+    assert historico.json()[0]["status"] == "Pagada"
+    assert historico.json()[0]["backendStatus"] == "paid"
+
+
 def test_frontend_detail_keeps_removed_expenses_out_of_total(
     client: TestClient,
     base_records: dict[str, str],

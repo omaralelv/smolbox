@@ -324,6 +324,50 @@ def test_treasury_returns_request_to_accounting_manager_for_rework() -> None:
     assert request.status == ReimbursementRequestStatus.accounting_manager_review
 
 
+def test_treasury_can_approve_payment_from_treasury_review() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.treasury_review)
+    actor = User(
+        email="tesoreria.aprueba@example.com",
+        full_name="Tesoreria Aprueba",
+        role=UserRole.treasury,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.direction_approved,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.treasury_review
+    assert to_status == ReimbursementRequestStatus.direction_approved
+    assert request.status == ReimbursementRequestStatus.direction_approved
+    assert request.direction_approved_at is not None
+
+
+def test_accounting_manager_can_prepare_request_for_payment_confirmation() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.direction_approved)
+    actor = User(
+        email="gerencia.confirma@example.com",
+        full_name="Gerencia Confirma",
+        role=UserRole.accounting_manager,
+        is_active=True,
+    )
+
+    from_status, to_status = transition_reimbursement_request(
+        request,
+        actor=actor,
+        target_status=ReimbursementRequestStatus.approved_for_payment,
+        summary=_summary(),
+    )
+
+    assert from_status == ReimbursementRequestStatus.direction_approved
+    assert to_status == ReimbursementRequestStatus.approved_for_payment
+    assert request.status == ReimbursementRequestStatus.approved_for_payment
+    assert request.approved_for_payment_at is not None
+
+
 def test_director_returns_request_to_treasury_for_rework() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.direction_review)
     actor = User(

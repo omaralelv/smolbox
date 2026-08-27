@@ -60,6 +60,8 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
     UserRole.accounting_manager: {
         ReimbursementRequestStatus.accounting_reviewed,
         ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
     },
     UserRole.treasury: {
         ReimbursementRequestStatus.accounting_manager_approved,
@@ -69,6 +71,11 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
         ReimbursementRequestStatus.paid,
     },
     UserRole.director: {ReimbursementRequestStatus.direction_review},
+}
+
+HISTORICAL_STATUSES = {
+    ReimbursementRequestStatus.paid,
+    ReimbursementRequestStatus.closed,
 }
 
 ACTION_LABELS = {
@@ -169,6 +176,31 @@ def list_frontend_work_queue(
         for request in db.scalars(statement.limit(200))
         if _request_is_visible_for_role(request, current_user.role)
     ]
+    return [_request_payload(request, current_user) for request in requests]
+
+
+@router.get("/historico/me", response_model=list[FrontendSolicitudRead])
+def list_frontend_historical_requests(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[FrontendSolicitudRead]:
+    statement = (
+        _request_detail_statement()
+        .where(ReimbursementRequest.status.in_(HISTORICAL_STATUSES))
+        .order_by(ReimbursementRequest.created_at.desc())
+    )
+    if current_user.role not in {UserRole.treasury, UserRole.director, UserRole.admin}:
+        statement = statement.where(
+            ReimbursementRequest.store_id.in_(
+                select(StoreUserAssignment.store_id).where(
+                    StoreUserAssignment.user_id == current_user.id,
+                    StoreUserAssignment.role == current_user.role,
+                    StoreUserAssignment.is_active.is_(True),
+                )
+            )
+        )
+
+    requests = list(db.scalars(statement.limit(200)))
     return [_request_payload(request, current_user) for request in requests]
 
 

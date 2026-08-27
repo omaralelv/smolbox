@@ -104,7 +104,9 @@ def available_actions_for_request(
         UserRole.treasury,
         UserRole.admin,
     }:
-        actions.extend(["send_to_direction", "return_to_manager", "reject_request"])
+        actions.extend(
+            ["approve_direction", "send_to_direction", "return_to_manager", "reject_request"]
+        )
 
     if status == ReimbursementRequestStatus.direction_review and role in {
         UserRole.director,
@@ -113,12 +115,14 @@ def available_actions_for_request(
         actions.extend(["approve_direction", "return_to_treasury", "reject_request"])
 
     if status == ReimbursementRequestStatus.direction_approved and role in {
+        UserRole.accounting_manager,
         UserRole.treasury,
         UserRole.admin,
     }:
         actions.append("mark_approved_for_payment")
 
     if status == ReimbursementRequestStatus.approved_for_payment and role in {
+        UserRole.accounting_manager,
         UserRole.treasury,
         UserRole.admin,
     }:
