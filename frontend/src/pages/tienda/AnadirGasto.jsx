@@ -30,7 +30,7 @@ function AnadirGasto() {
 
     // Menú desplegable unificado para no perder coherencia
     const categoriasGasto = ["Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil", 
-        "Hospedaje", "Impuesto Hospedaje", "Licencias y Permisos", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y taxis", "Publicidad", 
+        "Hospedaje", "Impuesto Hospedaje", "Licencias y Permisos", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad", 
         "Recolección de Basura", "Servicio de Agua", "Trámites", "Trasportación", "Vigilancia", "Otros"];
 
     // 2. LÓGICA DE SIMULACIÓN DE IA

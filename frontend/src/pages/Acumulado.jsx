@@ -21,6 +21,36 @@ function Acumulado( {currentRole} ) {
     const solicitudSeleccionada = solicitudActual || location.state?.solicitud || null;
     const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.reimbursementRequestId || solicitudSeleccionada?.id;
 
+
+    // ESTADOS PARA EL MODAL DE DEVOLUCIÓN Y BANNER AMARILLO
+    const [showReturnModal, setShowReturnModal] = useState(false);
+    const [returnReason, setReturnReason] = useState('');
+    const [accionPendiente, setAccionPendiente] = useState(null);
+    const [motivoDevolucion, setMotivoDevolucion] = useState(() => {
+        // Recuperar motivo guardado previamente en localStorage si existe para esta solicitud
+        if (!solicitudBackendId) return solicitudSeleccionada?.motivoDevolucion || '';
+        return localStorage.getItem(`motivo_dev_${solicitudBackendId}`) || solicitudSeleccionada?.motivoDevolucion || '';
+    });
+
+
+    // Guardamos un objeto/mapa de motivos: { tesoreria: "motivo de tesorería", gerencia: "motivo de gerencia" }
+    const [motivosPorRol, setMotivosPorRol] = useState(() => {
+        if (!solicitudBackendId) return {};
+        const guardado = localStorage.getItem(`motivos_map_${solicitudBackendId}`);
+        return guardado ? JSON.parse(guardado) : {};
+    });
+
+    const [devueltoPor, setDevueltoPor] = useState(() => {
+        if (!solicitudBackendId) return solicitudSeleccionada?.devueltoPor || '';
+        return localStorage.getItem(`devuelto_por_${solicitudBackendId}`) || solicitudSeleccionada?.devueltoPor || '';
+    });
+
+    const [devueltoPorOriginal, setDevueltoPorOriginal] = useState(() => {
+        if (!solicitudBackendId) return solicitudSeleccionada?.devueltoPorOriginal || '';
+        return localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || solicitudSeleccionada?.devueltoPor || '';
+    });
+
+
     useEffect(() => {
         let activo = true;
 
@@ -129,7 +159,7 @@ function Acumulado( {currentRole} ) {
 
 
 
-    async function ejecutarAcciones(acciones, mensajeExito) {
+    async function ejecutarAcciones(acciones, mensajeExito, motivo=null) {
         if (!solicitudBackendId) return;
 
         try {
@@ -140,6 +170,34 @@ function Acumulado( {currentRole} ) {
                 await executeRequestAction(solicitud.backendId, accion);
                 solicitud = await getFrontendSolicitud(solicitud.backendId);
             }
+
+
+
+            // Si se envió un motivo de devolución, lo asociamos a la solicitud
+            if (motivo) {
+                solicitud.motivoDevolucion = motivo;
+                localStorage.setItem(`motivo_dev_${solicitudBackendId}`, motivo);
+            }
+
+            // Si avanza a aprobación final / pago, limpiamos el banner para siempre
+            //const statusActual = solicitud?.backendStatus || solicitud?.status;
+            //if (['approved_for_payment', 'paid', 'closed'].includes(statusActual)) {
+              //  localStorage.removeItem(`motivo_dev_${solicitudBackendId}`);
+               // localStorage.removeItem(`devuelto_por_${solicitudBackendId}`);
+            //}
+
+            if (['approve_direction', 'mark_approved_for_payment', 'record_payment'].some(a => acciones.includes(a))) {
+            setMotivosPorRol({});
+            setDevueltoPor('');
+            setDevueltoPorOriginal('');
+            if (solicitudBackendId) {
+                localStorage.removeItem(`motivos_map_${solicitudBackendId}`);
+                localStorage.removeItem(`devuelto_por_${solicitudBackendId}`);
+                localStorage.removeItem(`devuelto_por_orig_${solicitudBackendId}`);
+            }
+        }
+
+
             setSolicitudActual(solicitud);
             localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitud]));
             alert(mensajeExito);
@@ -148,6 +206,62 @@ function Acumulado( {currentRole} ) {
             alert(apiErrorMessage(error));
         }
     }
+
+
+
+
+    // MANEJADORES DE DEVOLUCIÓN (MODAL)
+    const abrirModalDevolucion = (accionDevolucion) => {
+        setAccionPendiente(accionDevolucion);
+        setReturnReason('');
+        setShowReturnModal(true);
+    };
+
+    const confirmarDevolucion = async () => {
+        const cleanReason = returnReason.trim();
+        if (!cleanReason) {
+            alert("Por favor ingresa un motivo para regresar el acumulado.");
+            return;
+        }
+
+        const accion = accionPendiente || 'return_to_accounting';
+        const msg = accion === 'return_to_accounting' 
+            ? 'Solicitud regresada a contabilidad.' 
+            : 'Solicitud regresada a gerencia.';
+
+
+        // Preservamos si Tesorería fue el origen inicial de la cadena
+        //const nuevoDevueltoPor = currentRole; // Quién devuelve ahorita
+        const origenInicial = devueltoPor === 'tesoreria' ? 'tesoreria' : currentRole;
+
+        // Actualizamos el mapa de motivos sumando el motivo del rol actual
+        const nuevosMotivos = {
+            ...motivosPorRol,
+            [currentRole]: cleanReason
+        };
+
+        // Guardamos el motivo y quién lo devolvió
+        //setMotivoDevolucion(cleanReason);
+        setMotivosPorRol(nuevosMotivos);
+        setDevueltoPor(currentRole); // 'gerencia' o 'tesoreria'
+        setDevueltoPorOriginal(origenInicial); 
+
+
+        if (solicitudBackendId) {
+            localStorage.setItem(`motivo_dev_${solicitudBackendId}`, cleanReason);
+            localStorage.setItem(`motivos_map_${solicitudBackendId}`, JSON.stringify(nuevosMotivos));
+            localStorage.setItem(`devuelto_por_${solicitudBackendId}`, currentRole);
+            localStorage.setItem(`devuelto_por_orig_${solicitudBackendId}`, origenInicial);
+        }
+
+        
+
+        setShowReturnModal(false);
+        await ejecutarAcciones([accion], msg, cleanReason);
+    };
+
+
+
 
     async function ejecutarRevisionAutomatica() {
         if (!solicitudSeleccionada?.backendId) return;
@@ -285,8 +399,9 @@ function Acumulado( {currentRole} ) {
                     <>
                         <button
                             style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_accounting'], 'Solicitud regresada a contabilidad.')}
+                            onClick={() => abrirModalDevolucion('return_to_accounting')}
                         >Regresar Acumulado</button>
+
                         <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
@@ -310,7 +425,7 @@ function Acumulado( {currentRole} ) {
                     <>
                         <button
                             style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_manager'], 'Solicitud regresada a gerencia.')}
+                            onClick={() => abrirModalDevolucion('return_to_manager')}
                         >Regresar acumulado</button>
                         <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
@@ -337,7 +452,7 @@ function Acumulado( {currentRole} ) {
                         <>
                         <button
                             style={styles.btnOutline}
-                            onClick={() => ejecutarAcciones(['return_to_manager'], 'Solicitud regresada a gerencia.')}
+                            onClick={() => abrirModalDevolucion('return_to_manager')}
                         >Regresar acumulado</button>
                         <button
                             style={styles.btnOutline}
@@ -387,6 +502,60 @@ function Acumulado( {currentRole} ) {
     const botonesGuardados = renderBotonesPorRol();
 
 
+    // EVALUACIÓN DEL BANNER
+    const currentBackendStatus = solicitudActual?.backendStatus || solicitudSeleccionada?.backendStatus || '';
+
+    // Recuperamos también el origen inicial
+    //const devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || devueltoPor;
+
+
+    // 1. ¿Está devuelto / en corrección? -> AMARILLO
+    const esDevuelto = Boolean(motivoDevolucion && 
+        // Caso 1: Gerencia se lo regresó a Contabilidad (o venía desde Tesorería en cadena) y Contabilidad lo ve
+        (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
+        
+        // Caso 2: Tesorería se lo regresó a Gerencia y Gerencia lo está viendo
+        (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+    );
+
+    // 2. ¿Ya fue re-enviado al siguiente rol? -> VERDE
+    //const esResuelto = Boolean(motivoDevolucion) && (
+    const esResuelto = Boolean(Object.keys(motivosPorRol).length) && (
+        // Caso 1: Fue devuelto por Gerencia, pero Contabilidad ya lo corrigió y reenvió a Gerencia
+        (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
+        
+        // Caso 2: Fue devuelto por Tesorería, pero Gerencia ya lo corrigió y reenvió a Tesorería
+        (devueltoPorOriginal === 'tesoreria' && currentRole === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+    );
+
+
+
+
+    // 3. Selección dinámica del motivo según la perspectiva del usuario
+    let motivoAMostrar = '';
+
+    if (currentRole === 'tesoreria') {
+        // Tesorería siempre ve su propio motivo original con el que regresó el acumulado
+        motivoAMostrar = motivosPorRol['tesoreria'] || motivosPorRol['gerencia'] || '';
+    } else if (currentRole === 'contabilidad') {
+        // Contabilidad ve el motivo que le puso Gerencia (o el de Tesorería si aplica)
+        motivoAMostrar = motivosPorRol['gerencia'] || motivosPorRol['tesoreria'] || '';
+    } else if (currentRole === 'gerencia') {
+        // Gerencia ve el motivo de Tesorería si viene devuelta de Tesorería, o el que él puso si lo tiene en verde
+        motivoAMostrar = devueltoPor === 'tesoreria' ? motivosPorRol['tesoreria'] : (motivosPorRol['gerencia'] || motivosPorRol['tesoreria']);
+    }
+
+
+
+    // 3. Ocultar si ya avanzó de Tesorería a Pago/Dirección o Aprobado
+    const ocultarBanner = ['direction_review', 'direction_approved' ,'approved_for_payment', 'paid', 'closed', 'rejected'].includes(currentBackendStatus);
+    const mostrarBanner = motivoDevolucion && !ocultarBanner && (esDevuelto || esResuelto);
+
+
+
+
+
+
 
     return (
         <div style={styles.container}>
@@ -397,6 +566,31 @@ function Acumulado( {currentRole} ) {
                     Regresar
                 </button>
             </div>
+
+
+
+            {/* BANNER AMARILLO DE MOTIVO DE DEVOLUCIÓN */}
+            {mostrarBanner && (
+                <div style={esResuelto ? styles.bannerResuelto : styles.bannerDevolucion}>
+                    <div style={styles.bannerHeader}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '8px' }}>
+                            {esResuelto ? (
+                                /* Icono de Check Verde */
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                            ) : (
+                                /* Icono de Alerta Amarillo */
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                            )}
+                        </svg>
+                        <strong>{esResuelto ? 'Solicitud Resuelta' : 'Solicitud Regresada'}</strong>
+                    </div>
+                    <p style={styles.bannerText}>
+                        <strong>Motivo de devolución: </strong> {motivoAMostrar}
+                    </p>
+                </div>
+            )}
+
+
 
             {/* CAMPOS SUPERIORES DE DATOS */}
             <div style={styles.gridAuto}>
@@ -465,6 +659,46 @@ function Acumulado( {currentRole} ) {
                     </div>
                 </div>
             )}
+
+
+
+            {/* MODAL EMERGENTE PARA MOTIVO DE DEVOLUCIÓN */}
+            {showReturnModal && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modalContent}>
+                        <h3 style={styles.modalTitle}>Motivo de Devolución</h3>
+                        <p style={styles.modalSubtitle}>
+                            Por favor ingresa el motivo por el cual regresas este acumulado:
+                        </p>
+
+                        <textarea
+                            style={styles.modalTextarea}
+                            rows="5"
+                            placeholder="Escribe aquí el motivo..."
+                            value={returnReason}
+                            onChange={(e) => setReturnReason(e.target.value)}
+                        />
+
+                        <div style={styles.modalActions}>
+                            <button
+                                style={styles.modalCancelBtn}
+                                onClick={() => setShowReturnModal(false)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                style={styles.modalConfirmBtn}
+                                onClick={confirmarDevolucion}
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
+
         </div>
     );
 }
@@ -500,6 +734,47 @@ const styles = {
         boxShadow: 'var(--shadow)',
         cursor: 'pointer',
     },
+
+
+
+
+    /* BANNER VERDE (RESUELTO) */
+    bannerResuelto: {
+        backgroundColor: '#f6ffed',
+        border: '1px solid #b7eb8f',
+        borderRadius: '8px',
+        padding: '12px 16px',
+        marginBottom: '20px',
+        color: '#389e0d',
+        boxShadow: '0 2px 6px rgba(82, 196, 26, 0.15)',
+    },
+
+    /* BANNER AMARILLO */
+    bannerDevolucion: {
+        backgroundColor: '#fffbe6',
+        border: '1px solid #ffe58f',
+        borderRadius: '8px',
+        padding: '12px 16px',
+        marginBottom: '20px',
+        color: '#d48806',
+        boxShadow: '0 2px 6px rgba(250, 173, 20, 0.15)',
+    },
+    bannerHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        fontSize: '15px',
+        marginBottom: '4px',
+    },
+    bannerText: {
+        margin: 0,
+        fontSize: '13px',
+        color: '#595959',
+        paddingLeft: '26px',
+    },
+
+    
+
+
     gridAuto: {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -631,6 +906,77 @@ const styles = {
         fontWeight: 'bold',
         boxShadow: 'var(--shadow-green)',
         cursor: 'pointer',
+    },
+
+
+    /* MODAL STYLES */
+    modalOverlay: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 2000,
+    },
+    modalContent: {
+        backgroundColor: '#ffffff',
+        borderRadius: '12px',
+        padding: '24px',
+        width: '90%',
+        maxWidth: '480px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+    },
+    modalTitle: {
+        margin: '0 0 10px 0',
+        fontSize: '18px',
+        color: '#333',
+    },
+    modalSubtitle: {
+        margin: '0 0 16px 0',
+        fontSize: '13px',
+        color: '#666',
+    },
+    modalTextarea: {
+        width: '100%',
+        boxSizing: 'border-box',
+        borderRadius: '8px',
+        border: '1px solid var(--border)',
+        padding: '10px',
+        fontSize: '14px',
+        fontFamily: 'inherit',
+        marginBottom: '20px',
+        resize: 'vertical',
+        background: '#ffffff',
+        color: 'var(--text)',
+    },
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '12px',
+    },
+    modalCancelBtn: {
+        backgroundColor: 'transparent',
+        border: '1px solid #ccc',
+        color: '#555',
+        borderRadius: '8px',
+        padding: '8px 16px',
+        fontSize: '13px',
+        fontWeight: '600',
+        cursor: 'pointer',
+    },
+    modalConfirmBtn: {
+        border: '1px solid var(--sb-btnBorder)',
+        background: 'var(--gradient)',
+        color: 'var(--text-CBtn)',
+        borderRadius: '20px',
+        padding: '7px 18px',
+        cursor: 'pointer',
+        fontWeight: 'bold',
+        fontSize: '13px',
     }
 };
 
