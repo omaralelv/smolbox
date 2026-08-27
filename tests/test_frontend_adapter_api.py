@@ -21,8 +21,9 @@ def test_frontend_context_and_bandeja_use_ui_shape(
         json={"user_id": user.json()["id"], "role": "store"},
     )
     assert assignment.status_code == 201, assignment.text
-    expense = create_expense(client, base_records, amount="56.00", spent_on="2026-08-07")
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
     assert expense["id"]
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
 
     headers = _auth_headers(client, "frontend.store@example.com")
 
@@ -35,24 +36,31 @@ def test_frontend_context_and_bandeja_use_ui_shape(
 
     bandeja = client.get("/api/v1/frontend/bandeja/me", headers=headers)
     assert bandeja.status_code == 200, bandeja.text
-    items = bandeja.json()
+    assert bandeja.json() == []
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        user.json()["id"],
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    bandeja_enviada = client.get("/api/v1/frontend/bandeja/me", headers=headers)
+    assert bandeja_enviada.status_code == 200, bandeja_enviada.text
+    items = bandeja_enviada.json()
     assert len(items) == 1
     item = items[0]
     assert item["id"] == item["folio"]
     assert item["backendId"] == base_records["request_id"]
     assert item["tienda"] == "T001"
-    assert item["status"] == "En captura"
-    assert item["montoTotal"] == 56.0
-    assert item["gastos"][0]["monto"] == 56.0
+    assert item["status"] == "En revisión"
+    assert item["montoTotal"] == 1500.0
+    assert item["gastos"][0]["monto"] == 1500.0
     assert item["gastos"][0]["tipo"]
     assert "backendId" in item["gastos"][0]
-    assert item["availableActions"] == [
-        "edit_request",
-        "add_expense",
-        "upload_request_attachment",
-        "submit_request",
-    ]
-    assert item["actionLabels"]["add_expense"] == "Añadir gasto"
+    assert item["availableActions"] == []
+    assert item["actionLabels"] == {}
 
 
 def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> None:
@@ -173,6 +181,14 @@ def test_frontend_accounting_actions_follow_sap_policy_order(
         store_user_id,
     )
     assert submitted.status_code == 200, submitted.text
+
+    store_headers = _auth_headers(client, "frontend.sap.store@example.com")
+    store_bandeja = client.get("/api/v1/frontend/bandeja/me", headers=store_headers)
+    assert store_bandeja.status_code == 200, store_bandeja.text
+    assert any(
+        item["backendId"] == base_records["request_id"] and item["status"] == "En revisión"
+        for item in store_bandeja.json()
+    )
 
     accountant_headers = _auth_headers(client, "frontend.sap.accountant@example.com")
     submitted_detail = client.get(

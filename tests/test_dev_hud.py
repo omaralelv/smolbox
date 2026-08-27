@@ -673,7 +673,7 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
     frontend_item = frontend_queue.json()[0]
     assert frontend_item["tienda"].startswith("T")
     assert frontend_item["id"].startswith(f"{frontend_item['tienda']}-")
-    assert frontend_item["status"] in {"En captura", "En revision", "En revisión", "Aprobada", "Pagada"}
+    assert frontend_item["status"] in {"En revisión", "Aprobada", "Rechazada", "Pagada"}
     assert frontend_item["gerente"] == "Karen Ponce Hernandez"
     assert frontend_item["cuentaBancaria"] == "101328508"
     assert {expense["tipo"] for expense in frontend_item["gastos"]}.issubset(
