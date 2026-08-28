@@ -44,7 +44,6 @@ ROLE_TO_FRONTEND = {
 
 ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
     UserRole.store: {
-        ReimbursementRequestStatus.draft,
         ReimbursementRequestStatus.correction_required,
     },
     UserRole.authorizer: {
@@ -70,7 +69,28 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
         ReimbursementRequestStatus.approved_for_payment,
         ReimbursementRequestStatus.paid,
     },
-    UserRole.director: {ReimbursementRequestStatus.direction_review},
+    UserRole.director: {
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+    },
+}
+
+STORE_MONITORING_STATUSES = {
+    ReimbursementRequestStatus.submitted,
+    ReimbursementRequestStatus.authorization_review,
+    ReimbursementRequestStatus.authorized,
+    ReimbursementRequestStatus.under_accounting_review,
+    ReimbursementRequestStatus.correction_required,
+    ReimbursementRequestStatus.accounting_reviewed,
+    ReimbursementRequestStatus.accounting_approved,
+    ReimbursementRequestStatus.accounting_manager_review,
+    ReimbursementRequestStatus.accounting_manager_approved,
+    ReimbursementRequestStatus.treasury_review,
+    ReimbursementRequestStatus.direction_review,
+    ReimbursementRequestStatus.direction_approved,
+    ReimbursementRequestStatus.approved_for_payment,
+    ReimbursementRequestStatus.paid,
+    ReimbursementRequestStatus.rejected,
 }
 
 HISTORICAL_STATUSES = {
@@ -143,6 +163,20 @@ def list_frontend_work_queue(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[FrontendSolicitudRead]:
     statement = _request_detail_statement().order_by(ReimbursementRequest.created_at.desc())
+    if current_user.role == UserRole.store:
+        statement = statement.where(ReimbursementRequest.status.in_(STORE_MONITORING_STATUSES))
+        statement = statement.where(
+            ReimbursementRequest.store_id.in_(
+                select(StoreUserAssignment.store_id).where(
+                    StoreUserAssignment.user_id == current_user.id,
+                    StoreUserAssignment.role == UserRole.store,
+                    StoreUserAssignment.is_active.is_(True),
+                )
+            )
+        )
+        requests = list(db.scalars(statement.limit(200)))
+        return [_request_payload(request, current_user) for request in requests]
+
     if current_user.role == UserRole.admin:
         statement = statement.where(
             ReimbursementRequest.status.not_in(
@@ -648,15 +682,13 @@ def _frontend_role(role: UserRole) -> str:
 def _frontend_request_status(status_value: ReimbursementRequestStatus) -> str:
     if status_value in {ReimbursementRequestStatus.paid, ReimbursementRequestStatus.closed}:
         return "Pagada"
+    if status_value == ReimbursementRequestStatus.rejected:
+        return "Rechazada"
     if status_value in {
         ReimbursementRequestStatus.direction_approved,
         ReimbursementRequestStatus.approved_for_payment,
     }:
         return "Aprobada"
-    if status_value == ReimbursementRequestStatus.rejected:
-        return "Rechazada"
-    if status_value == ReimbursementRequestStatus.draft:
-        return "En captura"
     return "En revisión"
 
 

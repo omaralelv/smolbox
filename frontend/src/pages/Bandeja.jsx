@@ -11,6 +11,7 @@ const SOLICITUDES_BASE = [
 
 function Bandeja({currentRole}) {
     const navigate = useNavigate();
+    const [filtroTienda, setFiltroTienda] = useState('todas');
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem('bandejaSolicitudes');
         return guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
@@ -45,6 +46,14 @@ function Bandeja({currentRole}) {
     }, [currentRole, navigate]);
 
 
+    const obtenerTienda = (solicitud) => solicitud.tienda || 'T-001';
+    const tiendasDisponibles = Array.from(
+        new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
+    ).sort();
+    const solicitudesFiltradas = filtroTienda === 'todas'
+        ? solicitudes
+        : solicitudes.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
+
 
   // Función para asignar colores exactos a cada Badge
     const getBadgeStyle = (status) => {
@@ -75,6 +84,23 @@ function Bandeja({currentRole}) {
 
     return (
     <div style={styles.container}>
+            <div style={styles.filtersRow}>
+                <label style={styles.filterLabel}>
+                    Tienda
+                    <select
+                        value={filtroTienda}
+                        onChange={(event) => setFiltroTienda(event.target.value)}
+                        style={styles.filterSelect}
+                    >
+                        <option value="todas">Todas</option>
+                        {tiendasDisponibles.map((tienda) => (
+                            <option key={tienda} value={tienda}>
+                                {tienda}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </div>
 
         {/* ENCABEZADOS DE LA TABLA */}
             <div style={styles.tableHeader}>
@@ -93,7 +119,11 @@ function Bandeja({currentRole}) {
 
         {/* LISTA DE FILAS DE SOLICITUDES */}
             <div style={styles.listContainer}>
-                {solicitudes.map((sol) => (
+                {solicitudesFiltradas.length === 0 ? (
+                    <div style={styles.emptyState}>
+                        No hay solicitudes para la tienda seleccionada.
+                    </div>
+                ) : (solicitudesFiltradas.map((sol) => (
                     <div key={sol.id} style={styles.row}>
                         {/* 1. Nombre / ID Solicitud */}
                         <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
@@ -102,7 +132,7 @@ function Bandeja({currentRole}) {
 
                         {/* 2. Tienda */}
                         <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
-                            {sol.tienda || 'T-001'}
+                            {obtenerTienda(sol)}
                         </span>
 
                         {/* 3. Fecha de Envío */}
@@ -127,7 +157,7 @@ function Bandeja({currentRole}) {
                             </button>
                         </div>
                     </div>
-                ))}
+                )))}
             </div>
 
         </div>
@@ -141,6 +171,29 @@ const styles = {
         margin: '0 auto',
         padding: '30px 20px',
         textAlign: 'left',
+    },
+    filtersRow: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        marginBottom: '16px',
+    },
+    filterLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '13px',
+        fontWeight: '700',
+        color: '#333',
+    },
+    filterSelect: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        backgroundColor: '#ffffff',
+        color: '#333',
+        fontSize: '13px',
+        padding: '7px 10px',
+        minWidth: '120px',
     },
     tableHeader: {
         display: 'flex',
@@ -182,6 +235,12 @@ const styles = {
         fontWeight: 'bold',
         fontSize: '13px',
         cursor: 'pointer',
+    },
+    emptyState: {
+        textAlign: 'center',
+        padding: '20px',
+        color: '#666',
+        fontSize: '13px',
     }
 };
 

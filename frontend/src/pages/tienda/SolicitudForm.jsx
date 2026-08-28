@@ -20,7 +20,7 @@ const DATOS_INICIALES = {
         month: '2-digit',
         year: 'numeric'
     }),
-    tienda: 'T001',
+    tienda: 'V001',
     gerente: 'Karen Ponce Hernández',
     cuentaBancaria: '101328508',
     estadoRegion: 'CDMX'

@@ -8,10 +8,10 @@ function AnadirGasto() {
     const navigate = useNavigate();
 
     // 1. ESTADOS DEL FORMULARIO
-    const [fecha, setFecha] = useState(() => fechaHoyFormulario());
+    const [fecha, setFecha] = useState(null);
     const [categoria, setCategoria] = useState('Papelería');
-    const [monto, setMonto] = useState('56.00');
-    const [folio, setFolio] = useState('5FB2822E-396D-4725-8521-CDC4BDD20CCF');
+    const [monto, setMonto] = useState(null);
+    const [folio, setFolio] = useState(null);
     const [facturaFile, setFacturaFile] = useState(null);
     const [valeFile, setValeFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
@@ -120,18 +120,22 @@ function AnadirGasto() {
             
             <div style={styles.formGrid}>
                 <div style={styles.inputGroup}>
-                <label style={styles.label}>Fecha de la Factura *</label>
-                <input type="text" value={fecha} onChange={(e) => setFecha(e.target.value)} style={styles.input} />
+                    <label style={styles.label}>Fecha de la Factura *</label>
+                    <input type="text" value={fecha} onChange={(e) => setFecha(e.target.value)} 
+                        placeholder="DD/MM/AAAA"
+                        style={styles.input} />
                 </div>
                 <div style={styles.inputGroup}>
-                <label style={styles.label}>Categoría *</label>
-                <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={styles.select}>
-                    {categoriasGasto.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                </select>
+                    <label style={styles.label}>Categoría *</label>
+                    <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={styles.select}>
+                        {categoriasGasto.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
                 </div>
                 <div style={styles.inputGroup}>
-                <label style={styles.label}>Monto *</label>
-                <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} style={styles.input} />
+                    <label style={styles.label}>Monto *</label>
+                    <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} 
+                    placeholder="Ej. 150.35"
+                    style={styles.input} />
                 </div>
 
 

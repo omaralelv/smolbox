@@ -3,13 +3,13 @@
   xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
   Version="4.0"
-  Fecha="2026-08-10T09:00:00"
+  Fecha="2026-08-30T18:30:00"
   Moneda="MXN"
-  Total="1250.00"
+  Total="680.00"
   MetodoPago="PUE">
-  <cfdi:Emisor Rfc="ABC010101XYZ" Nombre="COMERCIALIZADORA DEL NORTE SA DE CV"/>
-  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="SMOLBOX DEMO"/>
+  <cfdi:Emisor Rfc="UVW060606BBB" Nombre="NEXO EMPRESARIAL SA DE CV"/>
+  <cfdi:Receptor Rfc="GGG060606GGG" Nombre="OPERADORA LOGISTICA NACIONAL"/>
   <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital UUID="617C2A55-FB14-49C2-9B70-EB1025020E4A"/>
+    <tfd:TimbreFiscalDigital UUID="B6CCD97F-50AC-469D-847F-08674149E648"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>

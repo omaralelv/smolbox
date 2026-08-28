@@ -1047,6 +1047,7 @@ def test_frontend_payment_flow_returns_to_manager_for_confirmation(
     accountant_user_id = _create_user(client, "accountant")
     manager_user_id = _create_user(client, "accounting_manager")
     treasury_user_id = _create_user(client, "treasury")
+    director_user_id = _create_user(client, "director")
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
     _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
     _assign_user_to_store(
@@ -1056,6 +1057,7 @@ def test_frontend_payment_flow_returns_to_manager_for_confirmation(
         "accounting_manager",
     )
     _assign_user_to_store(client, base_records["store_id"], treasury_user_id, "treasury")
+    _assign_user_to_store(client, base_records["store_id"], director_user_id, "director")
 
     assert _transition(
         client,
@@ -1115,6 +1117,12 @@ def test_frontend_payment_flow_returns_to_manager_for_confirmation(
     )
     assert treasury_approved.status_code == 200, treasury_approved.text
     assert treasury_approved.json()["status"] == "direction_approved"
+
+    director_headers = _auth_headers(client, "director@example.com")
+    director_queue = client.get("/api/v1/frontend/bandeja/me", headers=director_headers)
+    assert director_queue.status_code == 200, director_queue.text
+    assert [item["backendId"] for item in director_queue.json()] == [base_records["request_id"]]
+    assert director_queue.json()[0]["backendStatus"] == "direction_approved"
 
     manager_headers = _auth_headers(client, "accounting_manager@example.com")
     manager_queue = client.get("/api/v1/frontend/bandeja/me", headers=manager_headers)
