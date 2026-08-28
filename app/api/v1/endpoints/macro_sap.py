@@ -550,7 +550,7 @@ def generar_polizas(
     ws_solicitud['I29'] = str_fin_caja
     ws_solicitud['F31'] = str_inicio_ant
     ws_solicitud['I31'] = str_fin_ant
-    ws_solicitud['H34'] = responsable
+    # ws_solicitud['H34'] = responsable # Removemos al responsable de momento, falta ver cómo lo solucionaremos
     ws_solicitud['K34'] = supervisor
     ws_solicitud['L29'] = f"{diff_caja} días"
     ws_solicitud['L31'] = f"{diff_ant} días"
