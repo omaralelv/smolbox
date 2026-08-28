@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 
 class Store(Base):
     __tablename__ = "stores"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_stores_code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
