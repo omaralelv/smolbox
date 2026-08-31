@@ -57,7 +57,6 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
         ReimbursementRequestStatus.accounting_reviewed,
     },
     UserRole.accounting_manager: {
-        ReimbursementRequestStatus.accounting_reviewed,
         ReimbursementRequestStatus.accounting_manager_review,
         ReimbursementRequestStatus.direction_approved,
         ReimbursementRequestStatus.approved_for_payment,
@@ -96,6 +95,7 @@ STORE_MONITORING_STATUSES = {
 HISTORICAL_STATUSES = {
     ReimbursementRequestStatus.paid,
     ReimbursementRequestStatus.closed,
+    ReimbursementRequestStatus.rejected,
 }
 
 ACTION_LABELS = {
@@ -455,7 +455,7 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         type=category,
         folio=folio,
         folio_fiscal=expense.cfdi_uuid,
-        observaciones=expense.observaciones or "",
+        observaciones=expense.description or "",
         cfdi_subtotal=_float_or_none(expense.cfdi_subtotal),
         cfdi_total=_float_or_none(expense.cfdi_total),
         cfdi_tax_amount=_float_or_none(expense.cfdi_tax_amount),
@@ -660,11 +660,6 @@ def _frontend_store_code(store: Store) -> str:
 
 def _request_is_visible_for_role(request: ReimbursementRequest, role: UserRole) -> bool:
     if request.status != ReimbursementRequestStatus.submitted:
-        if (
-            request.status == ReimbursementRequestStatus.accounting_reviewed
-            and role == UserRole.accounting_manager
-        ):
-            return request.sap_policy_generated_at is not None
         return True
 
     summary = summarize_reimbursement_request(request)

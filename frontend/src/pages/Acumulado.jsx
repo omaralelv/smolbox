@@ -26,7 +26,7 @@ function Acumulado( {currentRole} ) {
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [returnReason, setReturnReason] = useState('');
     const [accionPendiente, setAccionPendiente] = useState(null);
-    const [motivoDevolucion, setMotivoDevolucion] = useState(() => {
+    const [motivoDevolucion] = useState(() => {
         // Recuperar motivo guardado previamente en localStorage si existe para esta solicitud
         if (!solicitudBackendId) return solicitudSeleccionada?.motivoDevolucion || '';
         return localStorage.getItem(`motivo_dev_${solicitudBackendId}`) || solicitudSeleccionada?.motivoDevolucion || '';

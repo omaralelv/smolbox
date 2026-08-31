@@ -5,7 +5,6 @@ import {
     addExpenseObservation,
     apiErrorMessage,
     getRequestAuditEvents,
-    openProtectedFile,
     removeExpense,
     updateExpenseForReview,
 } from '../lib/api';
@@ -54,11 +53,11 @@ function observacionInicialDesdeGasto(gasto) {
     if (!textoInicial || !textoInicial.trim()) return null;
 
     const gastoId = gastoHistorialId(gasto);
-    // Intentar obtener timestamp válido
+    const fechaRaw = gasto.created_at || gasto.createdAt || gasto.fecha || new Date();
     let timestamp = Date.parse(fechaRaw);
-        if (Number.isNaN(timestamp) || !timestamp) {
-            timestamp = Date.now();
-        }
+    if (Number.isNaN(timestamp) || !timestamp) {
+        timestamp = Date.now();
+    }
 
 
     return {
@@ -67,7 +66,7 @@ function observacionInicialDesdeGasto(gasto) {
         autor: 'TIENDA',
         rol: 'tienda',
         texto: textoInicial.trim(),
-        fecha: fechaLegible(gasto.created_at || gasto.fecha || new Date()),
+        fecha: fechaLegible(fechaRaw),
         fechaTimestamp: timestamp,
         visibilidad: VISIBILIDAD.PUBLIC, // Visibilidad pública para que todos la vean
     };
@@ -236,7 +235,7 @@ function Detalle({ currentRole }) {
         }
 
         const nueva = {
-            id: Date.now(),
+            id: `local-${gastoHistorialId(gastoSeleccionado) || 'gasto'}-${historial.length + 1}`,
             gastoId: gastoHistorialId(gastoSeleccionado),
             autor: rol.toUpperCase(),
             rol,
@@ -271,7 +270,7 @@ function Detalle({ currentRole }) {
 
     const agregarObservacionesSistema = (gastoId, texto, visibilidad) => {
         const nuevaObs = {
-            id: Date.now(),
+            id: `system-${gastoId || 'gasto'}-${historial.length + 1}`,
             gastoId,
             autor: rol.toUpperCase(),
             rol,
@@ -280,39 +279,6 @@ function Detalle({ currentRole }) {
             visibilidad
         };
         setHistorial(prev => [...prev, nuevaObs]);
-    };
-
-    // ACCIONES DE DESACTIVACIÓN Y ACCIÓN PÚBLICA DE OBSERVACIÓN
-    const handleNoAutorizar = (gastoId) => {
-        setGastosDesglosados(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'no_autorizado', autorizacion: 'no_autorizado' } : g));
-        
-        // Registrar observación automática pública
-        agregarObservacionesSistema(gastoId, 'El supervisor no autorizó este gasto.', VISIBILIDAD.PUBLIC);
-    };
-
-    const handleObsGastoEliminado = (gastoId) => {
-        setGastosDesglosados(prev => prev.map(g => g.id === gastoId ? { ...g, estatus: 'eliminado' } : g));
-        
-        // Registrar observación pública obligatoria de auditoría
-        agregarObservacionesSistema(gastoId, `Gasto eliminado por ${rol.toUpperCase()}.`, VISIBILIDAD.PUBLIC);
-    };
-
-
-
-
-
-
-    const abrirArchivo = async (gasto) => {
-        if (!gasto.downloadUrl) {
-            alert('Este gasto no tiene archivo disponible para abrir.');
-            return;
-        }
-
-        try {
-            await openProtectedFile(gasto.downloadUrl);
-        } catch (error) {
-            alert(apiErrorMessage(error));
-        }
     };
 
     const handleEliminarGasto = (gasto) => {
@@ -452,21 +418,6 @@ function Detalle({ currentRole }) {
             setEliminandoGastoId(null);
         }
     };
-
-    // 4. HELPER PARA MOSTRAR EL BADGE DE AUTORIZACIÓN
-    const renderBadgeAutorizacion = (estatus) => {
-        if (estatus === 'autorizado') {
-            return <span style={styles.badgeAutorizado}>Autorizado</span>;
-        }
-        if (estatus === 'no_autorizado') {
-            return <span style={styles.badgeNoAutorizado}>No Autorizado</span>;
-        }
-        return null; // Si no requiere autorización, se queda en blanco
-    };
-
-
-
-
 
     // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
     const ocultarFolio = documentoActivo && observacionesAbiertas;

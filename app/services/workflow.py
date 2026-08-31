@@ -74,7 +74,11 @@ ALLOWED_TRANSITIONS: dict[ReimbursementRequestStatus, TransitionRule] = {
             ReimbursementRequestStatus.accounting_reviewed,
             ReimbursementRequestStatus.treasury_review,
         },
-        allowed_roles={UserRole.accounting_manager, UserRole.treasury, UserRole.admin},
+        allowed_roles={
+            UserRole.accountant,
+            UserRole.treasury,
+            UserRole.admin,
+        },
     ),
     ReimbursementRequestStatus.accounting_manager_approved: TransitionRule(
         allowed_from={ReimbursementRequestStatus.accounting_manager_review},
@@ -324,7 +328,7 @@ def _ensure_step_actor(
         target_status == ReimbursementRequestStatus.accounting_manager_review
         and current_status == ReimbursementRequestStatus.accounting_reviewed
     ):
-        if actor.role not in {UserRole.accounting_manager, UserRole.admin}:
+        if actor.role not in {UserRole.accountant, UserRole.admin}:
             raise WorkflowTransitionError(
                 f"Role {actor.role.value} cannot move request to "
                 f"{ReimbursementRequestStatus.accounting_manager_review.value}"

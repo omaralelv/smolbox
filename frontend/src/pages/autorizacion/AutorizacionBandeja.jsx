@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 // Datos de prueba maquetados (Mock Data)
 const GASTOS_MOCK = [
@@ -12,6 +12,10 @@ function AutorizacionBandeja() {
     //const navigate = useNavigate();
     
     const [gastos, setGastos] = useState(GASTOS_MOCK);
+
+    const abrirArchivo = (_gasto, tipo) => {
+        alert(`Este gasto de prueba no tiene ${tipo} cargado.`);
+    };
 
     // Inicializamos con LocalStorage o Fallback Base
     //const [gastos, setGastos] = useState(() => {

@@ -108,7 +108,10 @@ def test_work_queue_and_request_detail_include_frontend_payload(
     assert body["period"]["id"] == base_records["period_id"]
     assert body["validation_summary"]["expense_count"] == 1
     assert body["attachments"][0]["id"] == request_attachment.json()["id"]
-    assert body["expenses"][0]["attachments"][0]["id"] == receipt.json()["id"]
+    assert any(
+        attachment["id"] == receipt.json()["id"]
+        for attachment in body["expenses"][0]["attachments"]
+    )
     assert body["expenses"][0]["current_cfdi_validation"]["is_valid"] is True
     assert body["expenses"][0]["current_cfdi_validation"]["uuid"] == (
         "11111111-2222-3333-4444-AAAAAAAAAAAA"

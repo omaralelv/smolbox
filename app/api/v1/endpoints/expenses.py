@@ -702,8 +702,8 @@ def _apply_tax_rate_update(expense: Expense, updates: dict[str, object]) -> None
     rate = Decimal(tax_rate).quantize(Decimal("0.01"))
     tax_amount = (
         amount
-        / (Decimal("1") + rate / Decimal("100"))
-        * (rate / Decimal("100"))
+        / (Decimal(1) + rate / Decimal(100))
+        * (rate / Decimal(100))
     ).quantize(Decimal("0.01"))
 
     updates["cfdi_tax_rate"] = rate

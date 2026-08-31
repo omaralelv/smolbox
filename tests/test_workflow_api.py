@@ -997,7 +997,7 @@ def test_later_review_returns_correction_to_accounting(
         client,
         base_records["request_id"],
         target_status="accounting_manager_review",
-        actor_user_id=manager_user_id,
+        actor_user_id=accountant_user_id,
     ).status_code == 200
 
     blocked_store_correction = _transition(
@@ -1092,7 +1092,7 @@ def test_frontend_payment_flow_returns_to_manager_for_confirmation(
         client,
         base_records["request_id"],
         target_status="accounting_manager_review",
-        actor_user_id=manager_user_id,
+        actor_user_id=accountant_user_id,
     ).status_code == 200
     assert _transition(
         client,
@@ -1223,7 +1223,7 @@ def test_later_reviews_return_to_previous_step(
         client,
         base_records["request_id"],
         target_status="accounting_manager_review",
-        actor_user_id=manager_user_id,
+        actor_user_id=accountant_user_id,
     ).status_code == 200
     assert _transition(
         client,

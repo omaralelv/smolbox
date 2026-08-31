@@ -61,7 +61,7 @@ def test_cfdi_and_receipt_test_data_are_accepted(
         json={
             "reimbursement_request_id": base_records["request_id"],
             "merchant": "Papeleria Centro SA",
-            "amount": "830.25",
+            "amount": "1250.00",
             "currency": "MXN",
             "spent_on": "2026-08-05",
             "category": "papeleria",
@@ -88,8 +88,8 @@ def test_cfdi_and_receipt_test_data_are_accepted(
         f"/api/v1/expenses/{expense_id}/cfdi/validate",
         files={
             "file": (
-                "cfdi-valid-830-25.xml",
-                (DATA_DIR / "cfdi" / "cfdi-valid-830-25.xml").read_bytes(),
+                "factura_ejemplo_6.xml",
+                (DATA_DIR / "cfdi" / "factura_ejemplo_6.xml").read_bytes(),
                 "application/xml",
             )
         },
@@ -115,8 +115,8 @@ def test_cfdi_and_receipt_test_data_are_accepted(
         f"/api/v1/expenses/{mismatch_expense.json()['id']}/cfdi/validate",
         files={
             "file": (
-                "cfdi-total-mismatch.xml",
-                (DATA_DIR / "cfdi" / "cfdi-total-mismatch.xml").read_bytes(),
+                "factura_v3_1.xml",
+                (DATA_DIR / "cfdi" / "factura_v3_1.xml").read_bytes(),
                 "application/xml",
             )
         },
@@ -270,7 +270,7 @@ def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
     assert sap_policy.status_code == 200, sap_policy.text
     assert sap_policy.json()["reference"] == "SAP-E2E-001"
 
-    _transition(client, request_id, users["accounting_manager"]["id"], "accounting_manager_review")
+    _transition(client, request_id, users["accountant"]["id"], "accounting_manager_review")
     _transition(client, request_id, users["accounting_manager"]["id"], "accounting_manager_approved")
     _transition(client, request_id, users["treasury"]["id"], "treasury_review")
     _transition(client, request_id, users["treasury"]["id"], "direction_review")
@@ -345,13 +345,13 @@ def _transition(
 
 
 def _cfdi_for_expense(expense: dict[str, object], *, index: int) -> bytes:
-    template = (DATA_DIR / "cfdi" / "cfdi-valid-830-25.xml").read_text(encoding="utf-8")
+    template = (DATA_DIR / "cfdi" / "factura_ejemplo_6.xml").read_text(encoding="utf-8")
     uuid = f"22222222-2222-4222-8{index:03d}-22222222222{index}"
     return (
-        template.replace('Total="830.25"', f'Total="{expense["amount"]}"')
-        .replace('Rfc="PCA9601011A1"', f'Rfc="{expense["supplier_tax_id"]}"')
+        template.replace('Total="1250.00"', f'Total="{expense["amount"]}"')
+        .replace('Rfc="ABC010101XYZ"', f'Rfc="{expense["supplier_tax_id"]}"')
         .replace(
-            'UUID="11111111-1111-4111-8111-111111111111"',
+            'UUID="292E7D88-D7BC-409A-8D21-825C63BCAB21"',
             f'UUID="{uuid}"',
         )
         .encode("utf-8")

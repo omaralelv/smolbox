@@ -1749,10 +1749,13 @@ def _actor_for_transition(
         ReimbursementRequestStatus.accounting_approved,
     }:
         role = UserRole.accountant
-    elif target_status in {
-        ReimbursementRequestStatus.accounting_manager_review,
-        ReimbursementRequestStatus.accounting_manager_approved,
-    }:
+    elif target_status == ReimbursementRequestStatus.accounting_manager_review:
+        role = (
+            UserRole.accountant
+            if current_status == ReimbursementRequestStatus.accounting_reviewed
+            else UserRole.accounting_manager
+        )
+    elif target_status == ReimbursementRequestStatus.accounting_manager_approved:
         role = UserRole.accounting_manager
     elif target_status == ReimbursementRequestStatus.direction_approved:
         role = UserRole.director

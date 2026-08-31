@@ -493,15 +493,15 @@ def test_manager_review_requires_sap_policy_placeholder() -> None:
         )
 
 
-def test_manager_review_allows_prepared_sap_policy_placeholder() -> None:
+def test_accountant_can_send_prepared_sap_policy_to_manager_review() -> None:
     request = ReimbursementRequest(
         status=ReimbursementRequestStatus.accounting_reviewed,
         sap_policy_generated_at=datetime.now(UTC),
     )
     actor = User(
-        email="gerente.preparado@example.com",
-        full_name="Gerente Preparado",
-        role=UserRole.accounting_manager,
+        email="contador.preparado@example.com",
+        full_name="Contador Preparado",
+        role=UserRole.accountant,
         is_active=True,
     )
 

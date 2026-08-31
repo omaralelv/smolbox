@@ -135,7 +135,6 @@ const styles = {
         maxWidth: '420px',
         zIndex: 10, // Encima del canvas
         width: '100%',
-        maxWidth: '420px',
         padding: '100px',margin: '60px auto',
     },
     form: {

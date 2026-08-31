@@ -244,13 +244,55 @@ def test_frontend_accounting_actions_follow_sap_policy_order(
     )
     assert sap_policy.status_code == 200, sap_policy.text
 
+    accountant_detail_after_policy = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=accountant_headers,
+    )
+    assert accountant_detail_after_policy.status_code == 200, accountant_detail_after_policy.text
+    assert accountant_detail_after_policy.json()["availableActions"] == [
+        "start_accounting_manager_review"
+    ]
+
     manager_queue_after_policy = client.get(
         "/api/v1/frontend/bandeja/me",
         headers=manager_headers,
     )
     assert manager_queue_after_policy.status_code == 200, manager_queue_after_policy.text
-    assert manager_queue_after_policy.json()[0]["availableActions"] == [
-        "start_accounting_manager_review"
+    assert manager_queue_after_policy.json() == []
+
+    manager_cannot_start_self_review = _transition(
+        client,
+        base_records["request_id"],
+        "accounting_manager_review",
+        manager_user_id,
+    )
+    assert manager_cannot_start_self_review.status_code == 409
+
+    sent_to_manager = _transition(
+        client,
+        base_records["request_id"],
+        "accounting_manager_review",
+        accountant_user_id,
+    )
+    assert sent_to_manager.status_code == 200, sent_to_manager.text
+
+    accountant_queue_after_send = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=accountant_headers,
+    )
+    assert accountant_queue_after_send.status_code == 200, accountant_queue_after_send.text
+    assert accountant_queue_after_send.json() == []
+
+    manager_queue_after_send = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=manager_headers,
+    )
+    assert manager_queue_after_send.status_code == 200, manager_queue_after_send.text
+    assert manager_queue_after_send.json()[0]["backendStatus"] == "accounting_manager_review"
+    assert manager_queue_after_send.json()[0]["availableActions"] == [
+        "approve_accounting_manager",
+        "return_to_accounting",
+        "reject_request",
     ]
 
 
@@ -315,6 +357,43 @@ def test_frontend_historico_lists_paid_requests(
     assert [item["backendId"] for item in historico.json()] == [base_records["request_id"]]
     assert historico.json()[0]["status"] == "Pagada"
     assert historico.json()[0]["backendStatus"] == "paid"
+
+
+def test_frontend_historico_lists_rejected_requests(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    admin_user_id = _create_user(client, "admin", "frontend.historico.rejected.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    removed = client.post(
+        f"/api/v1/expenses/{expense['id']}/remove",
+        json={
+            "actor_user_id": admin_user_id,
+            "reason": "No corresponde al reembolso",
+            "adjust_reported_total": True,
+        },
+    )
+    assert removed.status_code == 200, removed.text
+
+    headers = _auth_headers(client, "frontend.historico.rejected.admin@example.com")
+    historico = client.get("/api/v1/frontend/historico/me", headers=headers)
+    assert historico.status_code == 200, historico.text
+    assert [item["backendId"] for item in historico.json()] == [base_records["request_id"]]
+    assert historico.json()[0]["status"] == "Rechazada"
+    assert historico.json()[0]["backendStatus"] == "rejected"
 
 
 def test_frontend_detail_keeps_removed_expenses_out_of_total(

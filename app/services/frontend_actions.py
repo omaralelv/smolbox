@@ -81,7 +81,7 @@ def available_actions_for_request(
     if (
         status == ReimbursementRequestStatus.accounting_reviewed
         and role in {
-            UserRole.accounting_manager,
+            UserRole.accountant,
             UserRole.admin,
         }
         and request.sap_policy_generated_at is not None

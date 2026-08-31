@@ -1,20 +1,23 @@
-import uuid
-import os
 import io
-import zipfile
+import os
 import re
-from datetime import date, datetime, timezone
+import uuid
+import zipfile
+from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Annotated
+from zoneinfo import ZoneInfo
+
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-import pandas as pd
 from openpyxl import Workbook, load_workbook
+from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
-from openpyxl.drawing.image import Image 
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
 from app.db.session import get_db
-from zoneinfo import ZoneInfo
 
 # 1. Definir el Router en lugar de la App
 router = APIRouter()
@@ -43,7 +46,7 @@ def cargar_base_tiendas(ruta_archivo):
 
         return df.set_index("TDA").to_dict("index")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"❌ Error tiendas: {e}")
         return {}
 
@@ -66,7 +69,7 @@ def cargar_tipo_gastos(ruta_archivo):
 
         return df.set_index("CODIGO").to_dict("index")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"❌ Error gastos: {e}")
         return {}
 
@@ -132,36 +135,39 @@ def cargar_tiendas_iva_w6(ruta_archivo):
             if tienda
         }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"❌ Error al cargar tiendas con IVA W6: {e}")
         return set()
 
-def determinar_iva_e_indice(descripcion: str, numero_tienda: str, porcentaje_iva: Decimal,
-):
+
+def determinar_iva_e_indice(
+    descripcion: str,
+    numero_tienda: str,
+    porcentaje_iva: Decimal,
+) -> tuple[Decimal, str]:
     descripcion_normalizada = normalizar_texto(descripcion)
-    tienda_normalizada = normalizar_texto(numero_tienda)
 
     # Tiendas incluidas en el archivo W6
-    #if tienda_normalizada in tiendas_iva_w6:
+    # if normalizar_texto(numero_tienda) in tiendas_iva_w6:
     #    return Decimal("8"), "W6"
-    
+
     # Pasajes y taxis siempre usa 0% y W2
     if descripcion_normalizada == normalizar_texto("Pasajes y taxis"):
-        return Decimal("0"), "W2"
+        return Decimal(0), "W2"
 
     # Forzar No Deducibles a 0%: W0
     if descripcion_normalizada == normalizar_texto("No Deducibles"):
-        return Decimal("0"), "W0"
+        return Decimal(0), "W0"
 
     # Cualquier gasto que tenga 0% usa W0
-    if porcentaje_iva == Decimal("0") and not normalizar_texto("Pasajes y taxis"):
-        return "W0"
+    if porcentaje_iva == Decimal(0):
+        return Decimal(0), "W0"
 
-    if porcentaje_iva == Decimal("16") and not normalizar_texto("No Deducibles") and not normalizar_texto("Pasajes y taxis"):
-        return "W1"
+    if porcentaje_iva == Decimal(16):
+        return Decimal(16), "W1"
 
     # Regla 4: Regla general
-    return Decimal("16"), "W1"
+    return porcentaje_iva, "W1"
 
 # Cargamos en memoria RAM del servidor al iniciar
 diccionario_tiendas = cargar_base_tiendas(ruta_tiendas)
@@ -177,7 +183,7 @@ tiendas_iva_w6 = cargar_tiendas_iva_w6(ruta_W6)
 @router.post("/generar-polizas/{solicitud_id}")
 def generar_polizas(
     solicitud_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
 ):
 
     # ========================================================
@@ -259,11 +265,11 @@ def generar_polizas(
 
     if created_at is not None:
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
+            created_at = created_at.replace(tzinfo=UTC)
 
         fecha_poliza_obj = created_at.astimezone(zona_mexico).date()
     else:
-        fecha_poliza_obj = date.today()
+        fecha_poliza_obj = datetime.now(zona_mexico).date()
 
     # Validar periodo actual
     if inicio_caja is None or fin_caja is None:
@@ -373,10 +379,8 @@ def generar_polizas(
     # ========================================================
     poliza_detallada = []
     diccionario_agrupador = {}
-    total_gran_factura = Decimal("0")
-
-    # Fallback para gastos antiguos que todavía no tienen IVA leído del CFDI.
-    porcentaje_iva_default = Decimal("16")
+    total_gran_factura = Decimal(0)
+    porcentaje_iva_default = Decimal(16)
 
     for gasto in gastos_db:
         categoria_bd = str(gasto["category"] or "").strip()
@@ -408,7 +412,7 @@ def generar_polizas(
         tasa_iva_bd = (
             Decimal(str(gasto["cfdi_tax_rate"]))
             if gasto["cfdi_tax_rate"] is not None
-            else Decimal("16")
+            else porcentaje_iva_default
         )
 
         porcentaje_iva, indice_iva = determinar_iva_e_indice(
@@ -417,22 +421,22 @@ def generar_polizas(
             porcentaje_iva=tasa_iva_bd,
         )
 
-        if (gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None and porcentaje_iva not in {Decimal("0"),}):
+        if (gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None and porcentaje_iva not in {Decimal(0),}):
             iva_calculado = Decimal(
                 str(gasto["cfdi_tax_amount"])
             )
             subtotal_factura = Decimal(
                 str(gasto["cfdi_subtotal"])
             )
-        elif porcentaje_iva == Decimal("0"):
+        elif porcentaje_iva == Decimal(0):
             subtotal_factura = monto_total
-            iva_calculado = Decimal("0")
+            iva_calculado = Decimal(0)
         else:
             subtotal_factura = (
                 monto_total
                 / (
-                    Decimal("1")
-                    + porcentaje_iva / Decimal("100")
+                    Decimal(1)
+                    + porcentaje_iva / Decimal(100)
                 )
             )
             iva_calculado = monto_total - subtotal_factura
@@ -476,10 +480,10 @@ def generar_polizas(
         "Cuenta": "Acreedores Diversos / Proveedor",
         "Identificador": "K",
         "Descripcion": "Total Cuenta por Pagar",
-        "Porcentaje_IVA": Decimal("0"),
+        "Porcentaje_IVA": Decimal(0),
         "Indice_IVA": "N/A",
-        "IVA": Decimal("0"),
-        "Subtotal": Decimal("0"),
+        "IVA": Decimal(0),
+        "Subtotal": Decimal(0),
         "Total": -total_gran_factura,
         "Tienda": numero_tienda,
         "Cantidad_facturas": 0,
@@ -514,10 +518,10 @@ def generar_polizas(
     ws_sap['B1'] = 'KR' # Si el identificador es K, entonces va el número de tienda
     ws_sap['C1'] = f'{fecha_poliza_sap}' # Si el identificador es K, entonces va el total de la póliza (en negativo)
     ws_sap['D1'] = f'{fecha_poliza_sap}' # Si el identificador es K, no se escribe nada
-    ws_sap['E1'] = f'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
+    ws_sap['E1'] = 'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
     ws_sap['F1'] = f'{numero_tienda} CAJA CHICA' 
     ws_sap['G1'] = f'{numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' 
-    ws_sap['H1'] = f' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja} 
+    ws_sap['H1'] = ' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja}
 
     for mov in poliza_detallada:
         es_k = (mov['Identificador'] == 'K')
@@ -537,7 +541,7 @@ def generar_polizas(
     try:
         logo = Image(ruta_logo)
         ws_solicitud.add_image(logo, 'C3')
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print("Logo no insertado:", e)
 
     ws_solicitud['I9'] = fecha_poliza_sap
@@ -550,7 +554,7 @@ def generar_polizas(
     ws_solicitud['I29'] = str_fin_caja
     ws_solicitud['F31'] = str_inicio_ant
     ws_solicitud['I31'] = str_fin_ant
-    # ws_solicitud['H34'] = responsable # Removemos al responsable de momento, falta ver cómo lo solucionaremos
+    ws_solicitud['H34'] = responsable
     ws_solicitud['K34'] = supervisor
     ws_solicitud['L29'] = f"{diff_caja} días"
     ws_solicitud['L31'] = f"{diff_ant} días"

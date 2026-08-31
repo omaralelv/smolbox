@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 
-def test_store_code_accepts_free_form_values_and_can_repeat(client: TestClient) -> None:
+def test_store_code_accepts_free_form_values_and_rejects_repeats(client: TestClient) -> None:
     first = client.post(
         "/api/v1/stores/",
         json={
@@ -18,9 +18,8 @@ def test_store_code_accepts_free_form_values_and_can_repeat(client: TestClient) 
         "/api/v1/stores/",
         json={"code": "tienda-001", "name": "Tienda Libre Dos"},
     )
-    assert second.status_code == 201, second.text
-    assert second.json()["code"] == "tienda-001"
-    assert second.json()["id"] != first.json()["id"]
+    assert second.status_code == 400
+    assert second.json()["detail"]["code"] == "STORE_VALUE_INVALID"
 
 
 def test_can_assign_active_user_to_store(

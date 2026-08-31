@@ -133,7 +133,6 @@ class FrontendGastoCreate(BaseModel):
         default=None,
         validation_alias=AliasChoices("cfdi_currency", "cfdiCurrency"),
     )
-    observaciones: str | None = None
     proveedor: str | None = None
     merchant: str | None = None
     moneda: str = "MXN"

@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function Drawer({ 
     documentoActivo,      // 'factura' | 'vale' | null
     observacionesAbiertas, // true | false

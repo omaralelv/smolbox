@@ -12,8 +12,8 @@ de empresa, SAT, bancos ni proveedores.
 - `csv/expenses-valid.csv`: gastos validos para importacion masiva.
 - `csv/expenses-authorization.csv`: gastos importados con algunos que requieren autorizacion.
 - `csv/expenses-invalid.csv`: archivo con errores para probar `dry_run=true`.
-- `cfdi/cfdi-valid-830-25.xml`: CFDI ficticio valido para un gasto de `830.25 MXN`.
-- `cfdi/cfdi-total-mismatch.xml`: CFDI ficticio con total incorrecto para probar alertas.
+- `cfdi/factura_ejemplo_6.xml`: CFDI ficticio valido para un gasto de `1250.00 MXN`.
+- `cfdi/factura_v3_1.xml`: CFDI ficticio que puedes usar contra otro monto para probar alertas.
 - `receipts/receipt-demo.pdf`: PDF minimo para probar subida de comprobante.
 
 ## Forma facil: probar con el HUD
@@ -92,7 +92,7 @@ Primero prueba con `dry_run=true`. Eso valida el archivo sin guardarlo.
 
 Para validar un XML CFDI:
 
-1. Crea un gasto con monto `830.25`, moneda `MXN` y fecha dentro de agosto 2026.
+1. Crea un gasto con monto `1250.00`, moneda `MXN` y fecha dentro de agosto 2026.
 2. Sube `receipts/receipt-demo.pdf` como comprobante del gasto.
 3. Usa:
 
@@ -103,11 +103,11 @@ Para validar un XML CFDI:
 4. Sube:
 
    ```text
-   docs/test-data/cfdi/cfdi-valid-830-25.xml
+   docs/test-data/cfdi/factura_ejemplo_6.xml
    ```
 
 Para probar error de monto, sube:
 
 ```text
-docs/test-data/cfdi/cfdi-total-mismatch.xml
+docs/test-data/cfdi/factura_v3_1.xml
 ```

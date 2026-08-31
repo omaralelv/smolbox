@@ -150,7 +150,7 @@ def _sum_tax_amounts(
     valid_amounts = [amount for amount in amounts if amount is not None]
     if not valid_amounts:
         return None
-    return sum(valid_amounts, Decimal("0"))
+    return sum(valid_amounts, Decimal(0))
 
 
 def _single_tax_rate(
@@ -158,7 +158,7 @@ def _single_tax_rate(
     warnings: list[str],
 ) -> Decimal | None:
     rates = {
-        rate * Decimal("100")
+        rate * Decimal(100)
         for rate in (
             _parse_optional_decimal(
                 transfer.attrib.get("TasaOCuota") or transfer.attrib.get("tasaOCuota"),
