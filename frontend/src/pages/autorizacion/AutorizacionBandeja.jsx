@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
 import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
@@ -70,6 +71,7 @@ const HISTORIAL_MOCK = [
 
 function AutorizacionBandeja( { currentRole } ) {
     //const navigate = useNavigate();
+    const location = useLocation();
     
     const [gastos, setGastos] = useState(GASTOS_MOCK);
     const solicitudBackendId = location.state?.solicitudBackendId || null;
@@ -88,7 +90,7 @@ function AutorizacionBandeja( { currentRole } ) {
     const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
 
     // Mock por si ingresas directo sin state
-    const [gastosDesglosados, setGastosDesglosados] = useState(() => (
+    const [gastosDesglosados] = useState(() => (
         location.state?.desglose?.length > 0
             ? location.state.desglose
             : [
@@ -117,10 +119,6 @@ function AutorizacionBandeja( { currentRole } ) {
         ]
     ));
 
-
-    const abrirArchivo = (_gasto, tipo) => {
-        alert(`Este gasto de prueba no tiene ${tipo} cargado.`);
-    };
 
     // Función pura de UI para cambiar el estatus al dar clic en los botones
     const handleCambiarEstado = (id, nuevoEstado) => {
@@ -181,6 +179,23 @@ function AutorizacionBandeja( { currentRole } ) {
                 activo = false;
             };
         }, [solicitudBackendId, gastosDesglosados]);
+
+
+    const refrescarHistorialBackend = async () => {
+        if (!solicitudBackendId) return;
+
+        const eventos = await getRequestAuditEvents(solicitudBackendId);
+        const obsIniciales = (gastosDesglosados || [])
+            .map(observacionInicialDesdeGasto)
+            .filter(Boolean);
+        const obsEventos = historialDesdeEventos(eventos || []);
+
+        setHistorial(
+            [...obsIniciales, ...obsEventos].sort(
+                (a, b) => a.fechaTimestamp - b.fechaTimestamp
+            )
+        );
+    };
 
 
     // HANDLERS PARA ABRIR Y CERRAR PANELES

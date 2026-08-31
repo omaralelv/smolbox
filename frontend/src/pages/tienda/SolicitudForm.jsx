@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
 import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
@@ -84,6 +84,7 @@ function observacionInicialDesdeGasto(gasto) {
 
 function SolicitudForm({ currentRole }) {
     const navigate = useNavigate();
+    const location = useLocation();
     const [datosIniciales, setDatosIniciales] = useState(DATOS_INICIALES);
     const [enviando, setEnviando] = useState(false);
 
@@ -105,7 +106,7 @@ function SolicitudForm({ currentRole }) {
         const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
     
         // Mock por si ingresas directo sin state
-        const [gastosDesglosados, setGastosDesglosados] = useState(() => (
+        const [gastosDesglosados] = useState(() => (
             location.state?.desglose?.length > 0
                 ? location.state.desglose
                 : [
@@ -259,6 +260,23 @@ function SolicitudForm({ currentRole }) {
             }, [solicitudBackendId, gastosDesglosados]);
     
     
+            const refrescarHistorialBackend = async () => {
+                if (!solicitudBackendId) return;
+
+                const eventos = await getRequestAuditEvents(solicitudBackendId);
+                const obsIniciales = (gastosDesglosados || [])
+                    .map(observacionInicialDesdeGasto)
+                    .filter(Boolean);
+                const obsEventos = historialDesdeEventos(eventos || []);
+
+                setHistorial(
+                    [...obsIniciales, ...obsEventos].sort(
+                        (a, b) => a.fechaTimestamp - b.fechaTimestamp
+                    )
+                );
+            };
+    
+    
         // HANDLERS PARA ABRIR Y CERRAR PANELES
             const handleVerVale = (gasto) => {
                 setGastoSeleccionado(gasto);
@@ -316,11 +334,6 @@ function SolicitudForm({ currentRole }) {
             };
     
     
-        // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
-        const ambosPanelesAbiertos = documentoActivo && observacionesAbiertas;
-
-
-
     return (
         <div style={styles.mainLayout}>
             <div style={styles.container}>
