@@ -46,6 +46,35 @@ const HISTORIAL_MOCK = [
 ];
 
 
+// Función helper para convertir la observación inicial de un gasto en formato de evento
+function observacionInicialDesdeGasto(gasto) {
+    // Busca el texto en las propiedades típicas donde la tienda guarda la nota al crear el gasto
+    const textoInicial = gasto.observaciones || gasto.observacion;
+
+    if (!textoInicial || !textoInicial.trim()) return null;
+
+    const gastoId = gastoHistorialId(gasto);
+    // Intentar obtener timestamp válido
+    let timestamp = Date.parse(fechaRaw);
+        if (Number.isNaN(timestamp) || !timestamp) {
+            timestamp = Date.now();
+        }
+
+
+    return {
+        id: `init-obs-${gastoId}`,
+        gastoId: gastoId,
+        autor: 'TIENDA',
+        rol: 'tienda',
+        texto: textoInicial.trim(),
+        fecha: fechaLegible(gasto.created_at || gasto.fecha || new Date()),
+        fechaTimestamp: timestamp,
+        visibilidad: VISIBILIDAD.PUBLIC, // Visibilidad pública para que todos la vean
+    };
+}
+
+
+
 function Detalle({ currentRole }) {
     const navigate = useNavigate();
     const location = useLocation();
@@ -118,14 +147,41 @@ function Detalle({ currentRole }) {
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
 
+
+
+
+    console.log("🔍 GASTOS DESGLOSADOS:", gastosDesglosados);
+    console.log("🔍 OBS INICIALES DETECTADAS:", (gastosDesglosados || []).map(observacionInicialDesdeGasto));
+
+
+
+
     useEffect(() => {
         let activo = true;
+
+        // 1. Extraemos las notas iniciales ingresadas por la tienda en cada gasto
+                const obsIniciales = (gastosDesglosados || [])
+                    .map(observacionInicialDesdeGasto)
+                    .filter(Boolean);
+
+
         if (!solicitudBackendId) return undefined;
+
 
         getRequestAuditEvents(solicitudBackendId)
             .then((eventos) => {
+
                 if (activo) {
-                    setHistorial(historialDesdeEventos(eventos));
+                    // 1. Mapeamos las observaciones que vienen del backend o eventos
+                    const obsEventos = historialDesdeEventos(eventos || []);
+
+                    // 3. Unificamos descartando posibles duplicados y ordenamos por fecha
+                    const historialCompleto = [...obsIniciales, ...obsEventos].sort(
+                        (a, b) => a.fechaTimestamp - b.fechaTimestamp
+                    );
+
+                    setHistorial(historialCompleto);
+                    //setHistorial(historialDesdeEventos(eventos));
                 }
             })
             .catch((error) => {
@@ -135,7 +191,9 @@ function Detalle({ currentRole }) {
         return () => {
             activo = false;
         };
-    }, [solicitudBackendId]);
+    }, [solicitudBackendId, gastosDesglosados]);
+
+
 
     const refrescarHistorialBackend = async () => {
         if (!solicitudBackendId) return;

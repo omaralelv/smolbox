@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-31T13:00:00"
+  Moneda="MXN"
+  Total="89.90"
+  MetodoPago="PUE">
+  <cfdi:Emisor Rfc="OPQ040404789" Nombre="SOLUCIONES TECNOLOGICAS Y LOGISTICA"/>
+  <cfdi:Receptor Rfc="EEE040404EEE" Nombre="CONSULTORES ASOCIADOS SC"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="27B11B58-56B4-4214-AF9F-5F217484820E"/>
+  </cfdi:Complemento></cfdi:Comprobante>

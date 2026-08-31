@@ -8,10 +8,10 @@ function AnadirGasto() {
     const navigate = useNavigate();
 
     // 1. ESTADOS DEL FORMULARIO
-    const [fecha, setFecha] = useState(null);
+    const [fecha, setFecha] = useState('');
     const [categoria, setCategoria] = useState('Papelería');
-    const [monto, setMonto] = useState(null);
-    const [folio, setFolio] = useState(null);
+    const [monto, setMonto] = useState('');
+    const [folio, setFolio] = useState('');
     const [facturaFile, setFacturaFile] = useState(null);
     const [valeFile, setValeFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
@@ -73,6 +73,10 @@ function AnadirGasto() {
             return;
         }
 
+
+        console.log("📝 TEXTO CAPTURADO EN EL INPUT:", observaciones);
+
+
         // 1. Creamos el objeto con la misma estructura que espera tu lista
         const nuevoGastoItem = {
             id: Date.now(), // Un ID único usando el tiempo actual
@@ -81,7 +85,10 @@ function AnadirGasto() {
             tipo: categoria,
             folio: folio,
             fecha: fecha,
+
             observaciones: observaciones,
+            
+            //observacion: observaciones,
             cfdiUuid: normalizarUuidLocal(cfdiParsed.uuid),
             cfdiSubtotal: numeroOculto(cfdiParsed.subtotal),
             cfdiTotal: cfdiParsed.total,
@@ -94,6 +101,7 @@ function AnadirGasto() {
 
         alert("¡Gasto guardado exitosamente en la solicitud!");
         addDraftGasto(nuevoGastoItem);
+        console.log("📦 OBJETO ENVIADO DESDE AÑADIR GASTO:", nuevoGastoItem);
         
         // 2. Pasamos el objeto dentro de la propiedad 'state' al regresar
         navigate('/solicitud/nueva');
@@ -134,7 +142,7 @@ function AnadirGasto() {
                 <div style={styles.inputGroup}>
                     <label style={styles.label}>Monto *</label>
                     <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} 
-                    placeholder="Ej. 150.35"
+                    placeholder="Ej. 123.45"
                     style={styles.input} />
                 </div>
 
@@ -156,7 +164,7 @@ function AnadirGasto() {
                             style={{
                                 ...styles.input,
                                 flex: 1, // Toma todo el espacio disponible
-                                borderColor: folioValidado ? '#22c55e' : 'var(--border, #cbd5e1)'
+                                borderColor: folioValidado ? '#22c55e' : 'var(--border)'
                             }} 
                         />
                         <button 
@@ -164,7 +172,7 @@ function AnadirGasto() {
                             onClick={handleValidarFolio}
                             style={{
                                 ...styles.btnValidar,
-                                backgroundColor: folioValidado ? '#22c55e' : 'var(--sb-sendBtnBg, #2563eb)'
+                                backgroundColor: folioValidado ? '#22c55e' : 'var(--sb-sendBtnBg)'
                             }}
                         >
                             {folioValidado ? '✓ Confirmado' : 'Confirmar'}
@@ -202,10 +210,10 @@ function AnadirGasto() {
             <div style={styles.obsContainer}>
                 <label style={styles.obsLabel}>Observaciones</label>
                 <textarea 
-                value={observaciones} 
-                onChange={(e) => setObservaciones(e.target.value)} 
-                style={styles.textarea}
-                placeholder="Escribe aquí notas adicionales sobre este reembolso..."
+                    style={styles.textarea}
+                    placeholder="Escribe aquí notas adicionales sobre este reembolso..."
+                    value={observaciones} 
+                    onChange={(e) => setObservaciones(e.target.value)} 
                 />
             </div>
 
@@ -267,7 +275,7 @@ function AnadirGasto() {
         <div style={styles.fixedFooter}>
             <button style={styles.validarActionBtn} onClick={handleValidarGasto}>
             Validar Gasto
-            </button>
+            </button>            
             <button style={styles.añadirActionBtn} onClick={handleGuardarGasto}>
             Añadir
             </button>

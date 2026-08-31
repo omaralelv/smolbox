@@ -52,6 +52,7 @@ class FrontendGastoRead(BaseModel):
     type: str
     folio: str
     folio_fiscal: str | None = Field(default=None, alias="folioFiscal")
+    observaciones: str | None = ""
     cfdi_subtotal: float | None = Field(default=None, alias="cfdiSubtotal")
     cfdi_total: float | None = Field(default=None, alias="cfdiTotal")
     cfdi_tax_amount: float | None = Field(default=None, alias="cfdiTaxAmount")
@@ -95,6 +96,7 @@ class FrontendGastoCreate(BaseModel):
     categoria: str | None = None
     monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     folio: str | None = None
+    observaciones: str | None = ""
     cfdi_uuid: str | None = Field(
         default=None,
         validation_alias=AliasChoices("cfdi_uuid", "cfdiUuid"),

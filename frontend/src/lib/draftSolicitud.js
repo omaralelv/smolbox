@@ -13,7 +13,15 @@ export function loadDraftGastos() {
 export function addDraftGasto(gasto) {
     const gastos = loadDraftGastos();
     const existe = gastos.some((item) => item.id === gasto.id);
-    draftGastos = existe ? gastos : [...gastos, gasto];
+    //draftGastos = existe ? gastos : [...gastos, gasto];
+    if (existe) {
+        // 🔄 Si existe, actualizamos el gasto con los nuevos datos (incluyendo observaciones)
+        draftGastos = gastos.map((item) => (item.id === gasto.id ? gasto : item));
+    } else {
+        // ➕ Si no existe, lo agregamos a la lista
+        draftGastos = [...gastos, gasto];
+    }
+
     persistDraftMetadata();
     return draftGastos;
 }

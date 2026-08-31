@@ -93,7 +93,7 @@ function Acumulado( {currentRole} ) {
         fecha: solicitudSeleccionada?.fecha || "13/08/2026",
         tienda: solicitudSeleccionada?.tienda || "T-001",
         gerente: solicitudSeleccionada?.gerente || "Karen Ponce Hernández",
-        cuentaBancaria: solicitudSeleccionada?.cuentaBancaria || "101328508"
+        cuentaBancaria: solicitudSeleccionada?.cuentaBancaria || "101328508",
     };
 
     // 2. RECUPERAR LOS GASTOS DE ESTA SOLICITUD
@@ -105,7 +105,8 @@ function Acumulado( {currentRole} ) {
             nombre: g.nombre || `Gasto ${index + 1}`,
             tipo: g.tipo || g.type || 'Gasto General',
             facturas: g.facturas || 1,
-            monto: parseFloat(g.monto) || 0,
+            monto: parseFloat(g.monto) || 0,         
+            observaciones: g.observaciones || g.observacion || '',
             folio: g.folio || 'N/A',
             folioFiscal: g.folioFiscal || g.folio_fiscal || g.folio || null,
             cfdiSubtotal: valorFiscalOculto(g.cfdiSubtotal ?? g.cfdi_subtotal),
@@ -178,13 +179,6 @@ function Acumulado( {currentRole} ) {
                 solicitud.motivoDevolucion = motivo;
                 localStorage.setItem(`motivo_dev_${solicitudBackendId}`, motivo);
             }
-
-            // Si avanza a aprobación final / pago, limpiamos el banner para siempre
-            //const statusActual = solicitud?.backendStatus || solicitud?.status;
-            //if (['approved_for_payment', 'paid', 'closed'].includes(statusActual)) {
-              //  localStorage.removeItem(`motivo_dev_${solicitudBackendId}`);
-               // localStorage.removeItem(`devuelto_por_${solicitudBackendId}`);
-            //}
 
             if (['approve_direction', 'mark_approved_for_payment', 'record_payment'].some(a => acciones.includes(a))) {
             setMotivosPorRol({});

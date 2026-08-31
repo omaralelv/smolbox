@@ -455,6 +455,7 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         type=category,
         folio=folio,
         folio_fiscal=expense.cfdi_uuid,
+        observaciones=expense.observaciones or "",
         cfdi_subtotal=_float_or_none(expense.cfdi_subtotal),
         cfdi_total=_float_or_none(expense.cfdi_total),
         cfdi_tax_amount=_float_or_none(expense.cfdi_tax_amount),
