@@ -439,125 +439,125 @@ function Detalle({ currentRole }) {
                 </div>
 
 
-            {/* TABLA DE DESGLOSE */}
-            <div style={styles.tableContainer}>
+                {/* TABLA DE DESGLOSE */}
+                <div style={styles.tableContainer}>
 
-                {/* ENCABEZADO DE COLUMNAS */}
-                <div style={styles.tableHeader}>
-                    <span style={{ flex: 1.25}}></span>
-                    <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>MONTO</span>
+                    {/* ENCABEZADO DE COLUMNAS */}
+                    <div style={styles.tableHeader}>
+                        <span style={{ flex: 1.25}}></span>
+                        <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>MONTO</span>
 
-                    {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
-                        {!ocultarFolio && (
-                            <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingRight: '5px'}}>FOLIO FISCAL</span>
-                        )}
-
-                    <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px',  }}>AUTORIZACION</span>
-                    <span style={{ flex: 1, textAlign: 'right', paddingRight: '5px' }}>HERRAMIENTAS</span>
-                </div>
-                
-
-                {/* FILAS DE GASTOS */}
-                {gastosDesglosados.map((gasto, index) => {
-                    const gastoKey = gasto.backendId || gasto.id || index;
-                    const eliminado = !gastoActivo(gasto);
-                    const estaDesactivado = eliminado || gasto.estatus === 'no_autorizado';
-                
-                    return (
-
-                    <div 
-                        key={gastoKey} 
-                        style={{...styles.tableRow, ...(estaDesactivado ? styles.rowGris : {})}}
-                    >
-
-                        <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
-                            {gasto.nombre || `Gasto ${index + 1}`}
-                            {eliminado ? ' (Eliminado)' : ''}
-                        </span>
-
-
-
-
-                        <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
-                            {parseFloat(gasto.monto || 0).toFixed(2)}
-                        </span>
-
-
-
-
-                        {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
+                        {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
                             {!ocultarFolio && (
-                                <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all', paddingLeft: 50 }}>
-                                    {gasto.folioFiscal || gasto.folio || 'N/A'}
-                                </span>
+                                <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingRight: '5px'}}>FOLIO FISCAL</span>
                             )}
 
-
-                        <span style={{ flex: 1 }}>
-                            {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
-                            {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
-                        </span>
-
-
-
-                        {/* BOTONES DE HERRAMIENTAS (ICONOS) */}
-                        <div style={styles.herramientasContainer}>
-                            {puedeVer('vale') && (
-                                <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
-                                    <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
-                                </button>
-                            )}
-                            {puedeVer('factura') && (
-                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
-                                    <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
-                                </button>
-                            )}
-                            {puedeVer('observaciones') && (
-                                <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
-                                    <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
-                                </button>
-                            )}
-                            {puedeVer('editar') && (
-                                <button
-                                    style={styles.iconBtn}
-                                    title="Editar Gasto"
-                                    onClick={() => handleEditarGasto(gasto)}
-                                    disabled={eliminado}
-                                >
-                                    <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
-                                </button>
-                            )}
-                            {puedeVer('eliminar') && (
-                                <button
-                                    style={{
-                                        ...styles.iconBtn,
-                                        opacity: eliminandoGastoId === gastoKey ? 0.5 : 1,
-                                    }}
-                                    title="Eliminar Gasto"
-                                    onClick={() => handleEliminarGasto(gasto)}
-                                    disabled={eliminado || eliminandoGastoId === gastoKey}
-                                >
-                                    <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
-                                </button>
-                            )}
-                        </div>
+                        <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px',  }}>AUTORIZACION</span>
+                        <span style={{ flex: 1, textAlign: 'right', paddingRight: '5px' }}>HERRAMIENTAS</span>
                     </div>
-                )})}
+                    
+
+                    {/* FILAS DE GASTOS */}
+                    {gastosDesglosados.map((gasto, index) => {
+                        const gastoKey = gasto.backendId || gasto.id || index;
+                        const eliminado = !gastoActivo(gasto);
+                        const estaDesactivado = eliminado || gasto.estatus === 'no_autorizado';
+                    
+                        return (
+
+                        <div 
+                            key={gastoKey} 
+                            style={{...styles.tableRow, ...(estaDesactivado ? styles.rowGris : {})}}
+                        >
+
+                            <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
+                                {gasto.nombre || `Gasto ${index + 1}`}
+                                {eliminado ? ' (Eliminado)' : ''}
+                            </span>
+
+
+
+
+                            <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
+                                {parseFloat(gasto.monto || 0).toFixed(2)}
+                            </span>
+
+
+
+
+                            {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
+                                {!ocultarFolio && (
+                                    <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all', paddingLeft: 50 }}>
+                                        {gasto.folioFiscal || gasto.folio || 'N/A'}
+                                    </span>
+                                )}
+
+
+                            <span style={{ flex: 1 }}>
+                                {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
+                                {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
+                            </span>
+
+
+
+                            {/* BOTONES DE HERRAMIENTAS (ICONOS) */}
+                            <div style={styles.herramientasContainer}>
+                                {puedeVer('vale') && (
+                                    <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
+                                        <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
+                                    </button>
+                                )}
+                                {puedeVer('factura') && (
+                                    <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
+                                        <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                                    </button>
+                                )}
+                                {puedeVer('observaciones') && (
+                                    <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
+                                        <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
+                                    </button>
+                                )}
+                                {puedeVer('editar') && (
+                                    <button
+                                        style={styles.iconBtn}
+                                        title="Editar Gasto"
+                                        onClick={() => handleEditarGasto(gasto)}
+                                        disabled={eliminado}
+                                    >
+                                        <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
+                                    </button>
+                                )}
+                                {puedeVer('eliminar') && (
+                                    <button
+                                        style={{
+                                            ...styles.iconBtn,
+                                            opacity: eliminandoGastoId === gastoKey ? 0.5 : 1,
+                                        }}
+                                        title="Eliminar Gasto"
+                                        onClick={() => handleEliminarGasto(gasto)}
+                                        disabled={eliminado || eliminandoGastoId === gastoKey}
+                                    >
+                                        <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )})}
+                </div>
+
+                {/* TOTAL FINAL DE LA CATEGORÍA */}
+                <div style={styles.totalRow}>
+                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', textAlign: 'left'}}>
+                        TOTAL {categoria.toUpperCase()}:
+                    </span>
+                    <span style={{flex: 3, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
+                        {totalCategoria}
+                    </span>
+                </div>
             </div>
 
-            {/* TOTAL FINAL DE LA CATEGORÍA */}
-            <div style={styles.totalRow}>
-                <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', textAlign: 'left'}}>
-                    TOTAL {categoria.toUpperCase()}:
-                </span>
-                <span style={{flex: 3, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
-                    {totalCategoria}
-                </span>
-            </div>
-        </div>
 
-
-        {/* PANEL DERECHO (DRAWER INTEGRADOR) */}
+            {/* PANEL DERECHO (DRAWER INTEGRADOR) */}
             <Drawer 
                 documentoActivo={documentoActivo}
                 observacionesAbiertas={observacionesAbiertas}
@@ -575,6 +575,8 @@ function Detalle({ currentRole }) {
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
             />
+
+
             {gastoParaEliminar && (
                 <div style={styles.modalOverlay}>
                     <div style={styles.modal}>
