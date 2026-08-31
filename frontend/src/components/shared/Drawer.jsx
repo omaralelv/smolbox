@@ -112,6 +112,7 @@ const styles = {
     },
     panelDocumento: {
         width: '450px',
+        height: '100%',
         maxWidth: '45vw',
         display: 'flex',
         flexDirection: 'column',

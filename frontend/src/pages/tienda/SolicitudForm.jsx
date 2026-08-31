@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import Drawer from '../../components/shared/Drawer';
+import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
+
 import {
+    addExpenseObservation,
+    getRequestAuditEvents,
     apiErrorMessage,
     createFrontendSolicitud,
     currentToken,
@@ -12,6 +17,7 @@ import {
     uploadExpenseAttachment,
     validateExpenseCfdi,
 } from '../../lib/api';
+
 import { clearDraftGastos, loadDraftGastos } from '../../lib/draftSolicitud';
 
 const DATOS_INICIALES = {
@@ -27,6 +33,55 @@ const DATOS_INICIALES = {
     plaza: '',
 };
 
+const HISTORIAL_MOCK = [
+    {
+        id: 1,
+        gastoId: 1,
+        autor: 'Tienda Toluca',
+        rol: 'tienda',
+        texto: 'Compra de insumos de papelería urgentes.',
+        fecha: '10/08/2026 - 09:00 AM',
+        visibilidad: VISIBILIDAD.PUBLIC
+    },
+    {
+        id: 2,
+        gastoId: 2,
+        autor: 'Contabilidad',
+        rol: 'contabilidad',
+        texto: 'Nota interna: Se detectó duplicidad de folio fiscal, procedemos a descartar.',
+        fecha: '11/08/2026 - 10:15 AM',
+        visibilidad: VISIBILIDAD.INTERNO
+    }
+];
+
+// Función helper para convertir la observación inicial de un gasto en formato de evento
+function observacionInicialDesdeGasto(gasto) {
+    // Busca el texto en las propiedades típicas donde la tienda guarda la nota al crear el gasto
+    const textoInicial = gasto.observaciones || gasto.observacion;
+
+    if (!textoInicial || !textoInicial.trim()) return null;
+
+    const gastoId = gastoHistorialId(gasto);
+    const fechaRaw = gasto.created_at || gasto.createdAt || gasto.fecha || new Date();
+    let timestamp = Date.parse(fechaRaw);
+    if (Number.isNaN(timestamp) || !timestamp) {
+        timestamp = Date.now();
+    }
+
+
+    return {
+        id: `init-obs-${gastoId}`,
+        gastoId: gastoId,
+        autor: 'TIENDA',
+        rol: 'tienda',
+        texto: textoInicial.trim(),
+        fecha: fechaLegible(fechaRaw),
+        fechaTimestamp: timestamp,
+        visibilidad: VISIBILIDAD.PUBLIC, // Visibilidad pública para que todos la vean
+    };
+}
+
+
 function SolicitudForm({ currentRole }) {
     const navigate = useNavigate();
     const [datosIniciales, setDatosIniciales] = useState(DATOS_INICIALES);
@@ -34,6 +89,51 @@ function SolicitudForm({ currentRole }) {
 
     // 2. ESTADOS PARA LA LISTA DE GASTOS Y FORMULARIO
     const [gastos] = useState(() => loadDraftGastos());
+
+    const solicitudBackendId = location.state?.solicitudBackendId || null;
+
+    // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
+        const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
+        const [observacionesAbiertas, setObservacionesAbiertas] = useState(false);
+        const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
+    
+        // Estado del chat de observaciones
+        const [comentario, setComentario] = useState('');
+        const [historial, setHistorial] = useState(() => (solicitudBackendId ? [] : HISTORIAL_MOCK));
+    
+        // 2. NORMALIZAR EL ROL
+        const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
+    
+        // Mock por si ingresas directo sin state
+        const [gastosDesglosados, setGastosDesglosados] = useState(() => (
+            location.state?.desglose?.length > 0
+                ? location.state.desglose
+                : [
+                { 
+                    id: 1, 
+                    nombre: 'Gasto 1', 
+                    monto: 150.00, 
+                    folioFiscal: '5FB2822E-396D-4725-8521-CDC4BDD20CCF', 
+                    autorizacion: 'autorizado' // 'autorizado', 'no_autorizado', o ''
+                },
+                { 
+                    id: 2, 
+                    nombre: 'Gasto 2', 
+                    monto: 118.01, 
+                    folioFiscal: '467FE2EF-99E8-45CD-8E2F-F7C63D13847B', 
+                    autorizacion: '' 
+                },
+                { 
+                    id: 3, 
+                    nombre: 'Gasto 3', 
+                    monto: 118.01, 
+                    folioFiscal: 'EF953B9E-8835-2EE7-L8R7-C94OQ8358JKI', 
+                    estatus: 'no_autorizado', // 👈 Gasto deshabilitado de prueba
+                    autorizacion: 'no_autorizado'
+                }
+            ]
+        ));
+
 
     useEffect(() => {
         if (!currentToken()) {
@@ -120,103 +220,254 @@ function SolicitudForm({ currentRole }) {
 
     };
 
-    return (
-        <div style={styles.container}>
+
+    useEffect(() => {
+                let activo = true;
         
-        {/* TÍTULO Y BOTÓN DE AÑADIR */}
-        <div style={styles.titleRow}>
-            <h2 style={styles.mainTitle}>Solicitud de Reembolso</h2>
-            <button 
-            style={styles.añadirBtn} 
-            onClick={() => {
-                navigate('/gasto/nuevo')
+                // 1. Extraemos las notas iniciales ingresadas por la tienda en cada gasto
+                        const obsIniciales = (gastosDesglosados || [])
+                            .map(observacionInicialDesdeGasto)
+                            .filter(Boolean);
+        
+        
+                if (!solicitudBackendId) return undefined;
+        
+        
+                getRequestAuditEvents(solicitudBackendId)
+                    .then((eventos) => {
+        
+                        if (activo) {
+                            // 1. Mapeamos las observaciones que vienen del backend o eventos
+                            const obsEventos = historialDesdeEventos(eventos || []);
+        
+                            // 3. Unificamos descartando posibles duplicados y ordenamos por fecha
+                            const historialCompleto = [...obsIniciales, ...obsEventos].sort(
+                                (a, b) => a.fechaTimestamp - b.fechaTimestamp
+                            );
+        
+                            setHistorial(historialCompleto);
+                            //setHistorial(historialDesdeEventos(eventos));
+                        }
+                    })
+                    .catch((error) => {
+                        console.error('No se pudieron cargar las observaciones', error);
+                    });
+        
+                return () => {
+                    activo = false;
+                };
+            }, [solicitudBackendId, gastosDesglosados]);
+    
+    
+        // HANDLERS PARA ABRIR Y CERRAR PANELES
+            const handleVerVale = (gasto) => {
+                setGastoSeleccionado(gasto);
+                setDocumentoActivo('vale'); // Si había factura, se cambia a vale automáticamente
+            };
+        
+            const handleVerFactura = (gasto) => {
+                setGastoSeleccionado(gasto);
+                setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
+            };
+        
+            const handleToggleObservaciones = (gasto) => {
+                setGastoSeleccionado(gasto);
+                setObservacionesAbiertas(!observacionesAbiertas);
+            };
+        
+            const handleEnviarObservacion = async (e) => {
+                e.preventDefault();
+                const textoObservacion = comentario.trim();
+                if (!textoObservacion || !gastoSeleccionado) return;
+        
+                // REGLA 2: Asignación automática de visibilidad según el rol
+                let visibilidadAsignada = VISIBILIDAD.INTERNO;
+                if (['tienda', 'supervisor'].includes(rol)) {
+                    visibilidadAsignada = VISIBILIDAD.PUBLIC;
                 }
-            }
-            //onClick={() => setMostrarFormGasto(!mostrarFormGasto)}
-            >
-            Añadir Gasto
-            </button>
-        </div>
+        
+                const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
+                if (solicitudBackendId && (!expenseId || typeof expenseId !== 'string')) {
+                    alert('Este gasto no tiene ID de backend para guardar la observación.');
+                    return;
+                }
+        
+                const nueva = {
+                    id: `local-${gastoHistorialId(gastoSeleccionado) || 'gasto'}-${historial.length + 1}`,
+                    gastoId: gastoHistorialId(gastoSeleccionado),
+                    autor: rol.toUpperCase(),
+                    rol,
+                    texto: textoObservacion,
+                    fecha: new Date().toLocaleString(),
+                    visibilidad: visibilidadAsignada
+                };
+        
+                try {
+                    if (solicitudBackendId) {
+                        await addExpenseObservation(expenseId, textoObservacion);
+                        await refrescarHistorialBackend();
+                    } else {
+                        setHistorial([...historial, nueva]);
+                    }
+                    setComentario('');
+                } catch (error) {
+                    alert(apiErrorMessage(error));
+                }
+            };
+    
+    
+        // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
+        const ambosPanelesAbiertos = documentoActivo && observacionesAbiertas;
 
-        {/* BLOQUE DE DATOS AUTOCOMPLETADOS (Campos Fijos) */}
-        <div style={styles.gridAuto}>
-            <div style={styles.inputGroup}>
-            <label style={styles.label}>Fecha</label>
-            <div style={styles.disabledInput}>{datosIniciales.fecha}</div>
-            </div>
-            <div style={styles.inputGroup}>
-            <label style={styles.label}>Tienda</label>
-            <div style={styles.disabledInput}>{datosIniciales.tienda}</div>
-            </div>
-            <div style={styles.inputGroup}>
-            <label style={styles.label}>Gerente</label>
-            <div style={styles.disabledInput}>{datosIniciales.gerente}</div>
-            </div>
-            <div style={styles.inputGroup}>
-            <label style={styles.label}>Cuenta bancaria</label>
-            <div style={styles.disabledInput}>{datosIniciales.cuentaBancaria}</div>
-            </div>
-            <div style={styles.inputGroup}>
-            <label style={styles.label}>Plaza</label>
-            <div style={styles.disabledInput}>{datosIniciales.estadoRegion}</div>
-            </div>
-        </div>
 
 
-        {/* TABLA / LISTADO DE GASTOS AGREGADOS */}
-        <div style={styles.tableContainer}>
-            <div style={styles.tableHeader}>
-            <span style={{ ...styles.tableHeaderCell, textAlign: 'center', flex: 1 }}></span>
-            <span style={{ ...styles.tableHeaderCell, textAlign: 'right', width: '700px' }}>MONTO</span>
-            <span style={{ ...styles.tableHeaderCell, textAlign: 'center', width: '400px', paddingLeft: '100px'}}>TIPO DE GASTO</span>
-            <span style={{ flex: 2, textAlign: 'right', paddingLeft: '60px' }}>HERRAMIENTAS</span>
-            <span style={{ ...styles.tableHeaderCell, textAlign: 'center', width: '100px' }}></span>
+    return (
+        <div style={styles.mainLayout}>
+            <div style={styles.container}>
+            
+            {/* TÍTULO Y BOTÓN DE AÑADIR */}
+            <div style={styles.titleRow}>
+                <h2 style={styles.mainTitle}>Solicitud de Reembolso</h2>
+                <button 
+                style={styles.añadirBtn} 
+                onClick={() => {
+                    navigate('/gasto/nuevo')
+                    }
+                }
+                //onClick={() => setMostrarFormGasto(!mostrarFormGasto)}
+                >
+                Añadir Gasto
+                </button>
             </div>
 
-            {gastos.map((gasto) => (
-            <div key={gasto.id} style={styles.tableRow}>
-                <span style={{ fontWeight: 'bold', textAlign: 'left', flex: 1, paddingLeft: '20px' }}>{gasto.nombre}</span>
-                <span style={{ textAlign: 'center', width: '200px', paddingLeft: '150px' }}>{gasto.monto.toFixed(2)}</span>
-                <span style={{ textAlign: 'center', width: '280px'}}>{gasto.type || gasto.tipo}</span>
-                
-                <div style={styles.herramientasContainer}>
-                    <button style={styles.iconBtn} title="Ver Vale">
-                        <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
-                    </button>
-                
-                
-                    <button style={styles.iconBtn} title="Ver Factura">
-                        <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
-                    </button>
-                
-                
-                    <button style={styles.iconBtn} title="Observaciones">
-                        <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
-                    </button>
+            {/* BLOQUE DE DATOS AUTOCOMPLETADOS (Campos Fijos) */}
+            <div style={styles.gridAuto}>
+                <div style={styles.inputGroup}>
+                <label style={styles.label}>Fecha</label>
+                <div style={styles.disabledInput}>{datosIniciales.fecha}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                <label style={styles.label}>Tienda</label>
+                <div style={styles.disabledInput}>{datosIniciales.tienda}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                <label style={styles.label}>Gerente</label>
+                <div style={styles.disabledInput}>{datosIniciales.gerente}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                <label style={styles.label}>Cuenta bancaria</label>
+                <div style={styles.disabledInput}>{datosIniciales.cuentaBancaria}</div>
+                </div>
+                <div style={styles.inputGroup}>
+                <label style={styles.label}>Plaza</label>
+                <div style={styles.disabledInput}>{datosIniciales.estadoRegion}</div>
                 </div>
             </div>
-            ))}
+
+
+            {/* TABLA / LISTADO DE GASTOS AGREGADOS */}
+            <div style={styles.tableContainer}>
+                {/* ENCABEZADOS DE LA TABLA */}
+                <div style={styles.tableHeader}>
+                    <span style={{ flex: 1.5, textAlign: 'left', fontWeight: 'bold' }}>CONCEPTO</span>
+                    <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>MONTO</span>
+                    <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>TIPO DE GASTO</span>
+                    <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>HERRAMIENTAS</span>
+                </div>
+
+                {/* FILAS DE GASTOS */}
+                {gastos.map((gasto) => (
+                    <div key={gasto.id} style={styles.tableRow}>
+                        {/* 1. CONCEPTO (flex: 2) */}
+                        <span style={{ flex: 1.5, textAlign: 'left', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {gasto.nombre}
+                        </span>
+                        
+                        {/* 2. MONTO (flex: 1) */}
+                        <span style={{ flex: 1.5, textAlign: 'center' }}>
+                            $ {gasto.monto.toFixed(2)}
+                        </span>
+                        
+                        {/* 3. TIPO DE GASTO (flex: 1.5) */}
+                        <span style={{ flex: 1.5, textAlign: 'center' }}>
+                            {gasto.type || gasto.tipo}
+                        </span>
+
+                        {/* 4. HERRAMIENTAS (flex: 1.5) */}
+                        <div style={{ ...styles.herramientasContainer, flex: 1.5, display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                            {/* ICONO DE DOCUMENTO / COMPROBANTE */}
+                            <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
+                                <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
+                            </button>
+
+                            <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
+                                <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                            </button>
+
+                            <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
+                                <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* FOOTER DE TOTALES */}
+            <div style={styles.totalRow}>
+                {/* CONCEPTO (flex: 2) -> Mantiene la etiqueta alineada como en la columna de nombres */}
+                <span style={{ flex: 1.5, textAlign: 'left', fontWeight: 'bold', fontSize: '15px' }}>
+                    TOTAL : 
+                </span>
+
+                {/* MONTO (flex: 1) -> Coincide exactamente abajo de los importes de la tabla */}
+                <span style={{ flex: 2, textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
+                    ${calcularTotal()}
+                </span>
+
+                {/* TIPO DE GASTO (flex: 1.5) -> Espacio vacío para rellenar */}
+                <span style={{ flex: 1 }}></span>
+
+                {/* TIPO DE GASTO (flex: 1.5) -> Espacio vacío para rellenar */}
+                <span style={{ flex: 1.5 }}></span>
+            </div>
+
+        
+
+            {/* BARRA FIJA INFERIOR (Solo para esta pantalla) */}
+            <div style={{...styles.fixedStickyFooter, 
+                right: (documentoActivo && observacionesAbiertas) ? '795px' 
+                    : (documentoActivo || observacionesAbiertas) ? '350px' 
+                    : 0
+            }}>
+                <button
+                    onClick={handleEnviarSolicitud}
+                    style={styles.enviarSolicitudBtnFixed}
+                    disabled={enviando}
+                >
+                {enviando ? 'Enviando...' : 'Enviar Solicitud'}
+                </button>
+            </div>
+
+            </div>
+
+            <Drawer 
+                documentoActivo={documentoActivo}
+                observacionesAbiertas={observacionesAbiertas}
+                gasto={gastoSeleccionado}
+                onCloseDocumento={() => setDocumentoActivo(null)}
+                onCloseObservaciones={() => setObservacionesAbiertas(false)}
+                comentario={comentario}
+                setComentario={setComentario}
+
+                // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
+                historial={historial.filter(obs => 
+                    idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
+                    PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
+                )}
+                onEnviarObservacion={handleEnviarObservacion}
+                currentRole={rol}
+            />
         </div>
-
-        {/* FOOTER DE TOTALES */}
-        <div style={styles.totalRow}>
-            <span style={styles.totalLabel}>TOTAL :</span>
-            <span style={styles.totalAmount}>$ {calcularTotal()}</span>
-        </div>
-
-
-        {/* BARRA FIJA INFERIOR (Solo para esta pantalla) */}
-        <div style={styles.fixedStickyFooter}>
-            <button
-                onClick={handleEnviarSolicitud}
-                style={styles.enviarSolicitudBtnFixed}
-                disabled={enviando}
-            >
-            {enviando ? 'Enviando...' : 'Enviar Solicitud'}
-            </button>
-        </div>
-
-    </div>
     );
     }
 
@@ -323,14 +574,31 @@ function folioManual(folio) {
     return folio;
 }
 
-    // 🎨 ESTILOS INTEGRADOS CON TU INDEX.CSS
-    const styles = {
+// 🎨 ESTILOS INTEGRADOS CON TU INDEX.CSS
+const styles = {
+    // Layout principal en horizontal
+    mainLayout: {
+        display: 'flex',
+        width: '100%',
+        height: 'calc(100vh - 140px)', 
+        padding: 0,
+        overflow: 'hidden',
+        margin: 0,
+    },
+
     container: {
-        maxWidth: '1000px',
+        width: '100%',
+        height: '100%',
         margin: '0 auto',
-        padding: '20px',
-        paddingBottom: '100px',
+        padding: '20px 20px 0 20px',
         textAlign: 'left',
+        flex: 1,
+        minWidth: 0, // CRUCIAL: Permite que la tabla se reduzca sin salirse de la pantalla
+        display: 'flex',
+        flexDirection: 'column',
+        paddingBottom: '0px',
+        overflowY: 'auto',
+        position: 'relative',
     },
     titleRow: {
         display: 'flex',
@@ -357,7 +625,7 @@ function folioManual(folio) {
     gridAuto: {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '20px',
+        gap: '10px',
         marginBottom: '40px',
     },
     inputGroup: {
@@ -425,6 +693,7 @@ function folioManual(folio) {
     },
     tableContainer: {
         display: 'flex',
+        width: '100%',
         flexDirection: 'column',
         gap: '12px',
         marginBottom: '20px',
@@ -485,7 +754,7 @@ function folioManual(folio) {
         display: 'flex',
         alignItems: 'left',
         gap: '270px',
-        paddingLeft: '30px',
+        paddingLeft: '15px',
         marginBottom: '5px',
     },
     totalLabel: {
@@ -503,15 +772,15 @@ function folioManual(folio) {
         position: 'fixed',
         bottom: 0,
         left: 0,
-        width: '100%',
         backgroundColor: 'var(--sb-subhead)', /* Usa el fondo blanco de tu index.css */
         boxShadow: '0 -4px 10px rgba(0, 0, 0, 0.05)', /* Una sombra sutil hacia arriba para separarlo del contenido */
-        padding: '25px 0',
+        padding: '12px 0',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
         zIndex: 1000, /* Se asegura de quedar por encima de las filas de los gastos */
         borderTop: '1px solid #fff0f0',
+        
     },
     enviarSolicitudBtnFixed: {
         backgroundColor: 'var(--sb-sendBtnBg)',
@@ -529,3 +798,109 @@ function folioManual(folio) {
 };
 
 export default SolicitudForm;
+
+
+
+function gastoHistorialId(gasto) {
+    return gasto?.backendId ?? gasto?.backend_id ?? gasto?.id ?? null;
+}
+
+function idsIguales(uno, dos) {
+    if (uno === null || uno === undefined || dos === null || dos === undefined) return false;
+    return String(uno) === String(dos);
+}
+
+function historialDesdeEventos(eventos = []) {
+    return eventos
+        .map(observacionDesdeEvento)
+        .filter(Boolean)
+        .sort((a, b) => a.fechaTimestamp - b.fechaTimestamp);
+}
+
+function observacionDesdeEvento(evento) {
+    const action = evento.action;
+    const expenseId = evento.expense_id || evento.expenseId;
+    const textoBase = evento.message || '';
+
+    if (!expenseId || !textoBase) return null;
+    if (![
+        'expense_observation_added',
+        'expense_removed_from_request',
+        'expense_review_updated',
+        'expense_authorization_rejected',
+    ].includes(action)) {
+        return null;
+    }
+
+    const rol = rolDesdeEvento(evento);
+    const autor = autorDesdeRol(rol);
+    const texto = textoDesdeEvento(action, textoBase, autor);
+    const fechaTimestamp = Date.parse(evento.created_at || evento.createdAt || '');
+
+    return {
+        id: evento.id,
+        gastoId: expenseId,
+        autor,
+        rol,
+        texto,
+        fecha: fechaLegible(evento.created_at || evento.createdAt),
+        fechaTimestamp: Number.isNaN(fechaTimestamp) ? 0 : fechaTimestamp,
+        visibilidad: visibilidadDesdeEvento(action, rol),
+    };
+}
+
+function rolDesdeEvento(evento) {
+    const payload = evento.event_payload || evento.payload || {};
+    const rolBackend = String(payload.actor_role || '').toLowerCase().trim();
+    const roles = {
+        store: 'tienda',
+        authorizer: 'supervisor',
+        accountant: 'contabilidad',
+        accounting_manager: 'gerencia',
+        treasury: 'tesoreria',
+        director: 'direccion',
+        admin: 'admin',
+    };
+    return roles[rolBackend] || rolBackend || 'sistema';
+}
+
+function autorDesdeRol(rol) {
+    const autores = {
+        tienda: 'TIENDA',
+        supervisor: 'SUPERVISOR',
+        contabilidad: 'CONTABILIDAD',
+        gerencia: 'GERENCIA',
+        tesoreria: 'TESORERIA',
+        direccion: 'DIRECCION',
+        admin: 'ADMIN',
+        sistema: 'SISTEMA',
+    };
+    return autores[rol] || String(rol || 'sistema').toUpperCase();
+}
+
+function textoDesdeEvento(action, textoBase, autor) {
+    if (action === 'expense_removed_from_request') {
+        return `Gasto eliminado por ${autor}. Motivo: ${textoBase}`;
+    }
+    if (action === 'expense_authorization_rejected') {
+        return `Gasto no autorizado. Motivo: ${textoBase}`;
+    }
+    return textoBase;
+}
+
+function visibilidadDesdeEvento(action, rol) {
+    if (['expense_removed_from_request', 'expense_authorization_rejected'].includes(action)) {
+        return VISIBILIDAD.PUBLIC;
+    }
+    if (['tienda', 'supervisor'].includes(rol)) {
+        return VISIBILIDAD.PUBLIC;
+    }
+    return VISIBILIDAD.INTERNO;
+}
+
+function fechaLegible(fecha) {
+    if (!fecha) return new Date().toLocaleString();
+    const parsed = new Date(fecha);
+    if (Number.isNaN(parsed.getTime())) return String(fecha);
+    return parsed.toLocaleString();
+}

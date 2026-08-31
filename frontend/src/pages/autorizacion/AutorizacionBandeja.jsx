@@ -122,12 +122,6 @@ function AutorizacionBandeja( { currentRole } ) {
         alert(`Este gasto de prueba no tiene ${tipo} cargado.`);
     };
 
-    // Inicializamos con LocalStorage o Fallback Base
-    //const [gastos, setGastos] = useState(() => {
-    //    const guardados = localStorage.getItem('autorizacionGastos');
-    //    return guardados ? JSON.parse(guardados) : GASTOS_MOCK;
-    //});
-
     // Función pura de UI para cambiar el estatus al dar clic en los botones
     const handleCambiarEstado = (id, nuevoEstado) => {
         setGastos(prevGastos =>
@@ -339,23 +333,23 @@ function AutorizacionBandeja( { currentRole } ) {
             </div>
 
             {/* PANEL DERECHO (DRAWER INTEGRADOR) */}
-                    <Drawer 
-                        documentoActivo={documentoActivo}
-                        observacionesAbiertas={observacionesAbiertas}
-                        gasto={gastoSeleccionado}
-                        onCloseDocumento={() => setDocumentoActivo(null)}
-                        onCloseObservaciones={() => setObservacionesAbiertas(false)}
-                        comentario={comentario}
-                        setComentario={setComentario}
-        
-                        // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
-                        historial={historial.filter(obs => 
-                            idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
-                            PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
-                        )}
-                        onEnviarObservacion={handleEnviarObservacion}
-                        currentRole={rol}
-                    />
+            <Drawer 
+                documentoActivo={documentoActivo}
+                observacionesAbiertas={observacionesAbiertas}
+                gasto={gastoSeleccionado}
+                onCloseDocumento={() => setDocumentoActivo(null)}
+                onCloseObservaciones={() => setObservacionesAbiertas(false)}
+                comentario={comentario}
+                setComentario={setComentario}
+
+                // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
+                historial={historial.filter(obs => 
+                    idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
+                    PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
+                )}
+                onEnviarObservacion={handleEnviarObservacion}
+                currentRole={rol}
+            />
 
         </div>
     );
