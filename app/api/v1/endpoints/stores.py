@@ -11,14 +11,32 @@ from app.models.store import Store, StoreUserAssignment
 from app.models.user import User
 from app.schemas.store import StoreCreate, StoreRead, StoreUpdate
 from app.schemas.store_assignment import StoreUserAssignmentCreate, StoreUserAssignmentRead
+from app.services.store_catalog import obtener_datos_excel_por_codigo
 
 router = APIRouter()
 
 
 @router.post("/", response_model=StoreRead, status_code=status.HTTP_201_CREATED)
 def create_store(store_in: StoreCreate, db: Annotated[Session, Depends(get_db)]) -> Store:
-    store = Store(**store_in.model_dump())
+    datos_excel = obtener_datos_excel_por_codigo(store_in.code)
+
+    store_data = store_in.model_dump()
+
+    if datos_excel is not None:
+        store_data["name"] = datos_excel.get("PLAZA") or store_data["name"]
+        store_data["state_region"] = datos_excel.get("PLAZA") or store_data["state_region"]
+        store_data["manager_name"] = (
+            datos_excel.get("NOMBRE_GERENTE") or store_data.get("manager_name")
+        )
+        store_data["bank_account"] = (
+            datos_excel.get("CUENTA") or store_data.get("bank_account")
+        )
+        store_data["contact_email"] = datos_excel.get("CORREO DE TIENDA") or store_data["contact_email"]
+        store_data["assigned_accountant"] = datos_excel.get("RESPONSABLE") or store_data["assigned_accountant"]
+
+    store = Store(**store_data)
     db.add(store)
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -30,9 +48,9 @@ def create_store(store_in: StoreCreate, db: Annotated[Session, Depends(get_db)])
                 "message": "Store could not be saved because one of its values is invalid",
             },
         ) from exc
+
     db.refresh(store)
     return store
-
 
 @router.get("/", response_model=list[StoreRead])
 def list_stores(

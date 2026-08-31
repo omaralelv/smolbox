@@ -18,12 +18,13 @@ const DATOS_INICIALES = {
     fecha: new Date().toLocaleDateString('es-MX', {
         day: '2-digit',
         month: '2-digit',
-        year: 'numeric'
+        year: 'numeric',
     }),
-    tienda: 'V001',
-    gerente: 'Karen Ponce Hernández',
-    cuentaBancaria: '101328508',
-    estadoRegion: 'CDMX'
+    tienda: 'V000',
+    gerente: 'Por especificar',
+    cuentaBancaria: 'Por especificar',
+    estadoRegion: 'Por especificar',
+    plaza: '',
 };
 
 function SolicitudForm({ currentRole }) {
@@ -156,7 +157,7 @@ function SolicitudForm({ currentRole }) {
             <div style={styles.disabledInput}>{datosIniciales.cuentaBancaria}</div>
             </div>
             <div style={styles.inputGroup}>
-            <label style={styles.label}>Estado</label>
+            <label style={styles.label}>Plaza</label>
             <div style={styles.disabledInput}>{datosIniciales.estadoRegion}</div>
             </div>
         </div>
