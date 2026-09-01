@@ -979,7 +979,16 @@ export default Acumulado;
 function gastoActivo(gasto) {
     const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();
     const status = String(gasto.status || '').toLowerCase();
-    return backendStatus !== 'removed' && status !== 'eliminado';
+    const autorizacion = String(gasto.autorizacion || '').toLowerCase();
+    return (
+        backendStatus !== 'removed'
+        && backendStatus !== 'rejected'
+        && status !== 'removed'
+        && status !== 'eliminado'
+        && status !== 'rejected'
+        && status !== 'no autorizado'
+        && autorizacion !== 'no_autorizado'
+    );
 }
 
 function valorFiscalOculto(value) {

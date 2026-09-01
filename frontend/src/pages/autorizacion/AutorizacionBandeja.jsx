@@ -84,6 +84,10 @@ function AutorizacionBandeja( { currentRole } ) {
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
     const [historial, setHistorial] = useState(() => (solicitudInicialBackendId ? [] : HISTORIAL_MOCK));
+    const [confirmacionAutorizacion, setConfirmacionAutorizacion] = useState(null);
+    const [justificacionRechazo, setJustificacionRechazo] = useState('');
+    const [errorJustificacion, setErrorJustificacion] = useState('');
+    const [guardandoDecision, setGuardandoDecision] = useState(false);
 
     // 2. NORMALIZAR EL ROL
     const rol = String(
@@ -136,8 +140,8 @@ function AutorizacionBandeja( { currentRole } ) {
     }, [navigate, solicitudInicialBackendId]);
 
 
-    // Función pura de UI para cambiar el estatus al dar clic en los botones
-    const handleCambiarEstado = async (gasto, nuevoEstado) => {
+    // Función para cambiar el estatus al dar clic en los botones
+    const handleCambiarEstado = async (gasto, nuevoEstado, decision) => {
         const expenseId = gasto.backendId || gasto.id;
         const requestId = gasto.solicitudBackendId;
 
@@ -147,22 +151,60 @@ function AutorizacionBandeja( { currentRole } ) {
                     item.id === gasto.id ? { ...item, estado: nuevoEstado } : item
                 )
             );
-            return;
+            return true;
         }
 
         try {
             await asegurarSolicitudEnRevisionAutorizacion(requestId);
 
             if (nuevoEstado === 'Autorizada') {
-                await authorizeExpense(expenseId, 'Gasto autorizado desde pantalla de autorización.');
+                await authorizeExpense(expenseId, decision.note);
             } else {
-                await rejectAuthorizationExpense(expenseId, 'Gasto no autorizado desde pantalla de autorización.');
+                await rejectAuthorizationExpense(expenseId, decision.reason);
             }
 
             await avanzarSolicitudSiAutorizacionCompleta(requestId);
             await cargarGastosAutorizacion();
+            return true;
         } catch (error) {
             alert(apiErrorMessage(error));
+            return false;
+        }
+    };
+
+    const abrirConfirmacionCambio = (gasto, nuevoEstado) => {
+        setGastoSeleccionado(gasto);
+        setConfirmacionAutorizacion({ gasto, nuevoEstado });
+        setJustificacionRechazo('');
+        setErrorJustificacion('');
+    };
+
+    const cerrarConfirmacionCambio = () => {
+        if (guardandoDecision) return;
+        setConfirmacionAutorizacion(null);
+        setJustificacionRechazo('');
+        setErrorJustificacion('');
+    };
+
+    const confirmarDecisionAutorizacion = async () => {
+        if (!confirmacionAutorizacion) return;
+
+        const { gasto, nuevoEstado } = confirmacionAutorizacion;
+        const decision = decisionDesdeConfirmacion(nuevoEstado, justificacionRechazo);
+
+        if (!decision) {
+            setErrorJustificacion('La justificación es obligatoria para no autorizar el gasto.');
+            return;
+        }
+
+        setGuardandoDecision(true);
+        const actualizado = await handleCambiarEstado(gasto, nuevoEstado, decision);
+        setGuardandoDecision(false);
+
+        if (actualizado) {
+            setConfirmacionAutorizacion(null);
+            setJustificacionRechazo('');
+            setErrorJustificacion('');
         }
     };
 
@@ -348,13 +390,13 @@ function AutorizacionBandeja( { currentRole } ) {
                                     <>
                                         <button
                                             style={styles.btnAutorizar}
-                                            onClick={() => handleCambiarEstado(gasto, 'Autorizada')}
+                                            onClick={() => abrirConfirmacionCambio(gasto, 'Autorizada')}
                                         >
                                             {ocultarTienda ? '✓' : 'AUTORIZAR'}
                                         </button>
                                         <button
                                             style={styles.btnNoAutorizar}
-                                            onClick={() => handleCambiarEstado(gasto, 'No Autorizada')}
+                                            onClick={() => abrirConfirmacionCambio(gasto, 'No Autorizada')}
                                         >
                                             {ocultarTienda ? '✕' : 'NO AUTORIZAR'}
                                         </button>
@@ -403,6 +445,65 @@ function AutorizacionBandeja( { currentRole } ) {
                 currentRole={rol}
             />
 
+            {confirmacionAutorizacion && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modal}>
+                        <h3 style={styles.modalTitle}>
+                            {confirmacionAutorizacion.nuevoEstado === 'Autorizada'
+                                ? 'Confirmar autorización'
+                                : 'No autorizar gasto'}
+                        </h3>
+                        <p style={styles.modalText}>
+                            {confirmacionAutorizacion.nuevoEstado === 'Autorizada'
+                                ? `¿Confirmas autorizar ${confirmacionAutorizacion.gasto?.nombre || 'este gasto'}?`
+                                : `Escribe la justificación para no autorizar ${confirmacionAutorizacion.gasto?.nombre || 'este gasto'}.`}
+                        </p>
+                        {confirmacionAutorizacion.nuevoEstado === 'No Autorizada' && (
+                            <>
+                                <textarea
+                                    style={styles.modalTextarea}
+                                    value={justificacionRechazo}
+                                    onChange={(event) => {
+                                        setJustificacionRechazo(event.target.value);
+                                        if (errorJustificacion) setErrorJustificacion('');
+                                    }}
+                                    placeholder="Justificación"
+                                    disabled={guardandoDecision}
+                                />
+                                {errorJustificacion && (
+                                    <p style={styles.modalError}>{errorJustificacion}</p>
+                                )}
+                            </>
+                        )}
+                        <div style={styles.modalActions}>
+                            <button
+                                type="button"
+                                style={styles.btnCancelarModal}
+                                onClick={cerrarConfirmacionCambio}
+                                disabled={guardandoDecision}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                style={
+                                    confirmacionAutorizacion.nuevoEstado === 'Autorizada'
+                                        ? styles.btnConfirmarModal
+                                        : styles.btnRechazarModal
+                                }
+                                onClick={confirmarDecisionAutorizacion}
+                                disabled={guardandoDecision}
+                            >
+                                {guardandoDecision
+                                    ? 'Guardando...'
+                                    : confirmacionAutorizacion.nuevoEstado === 'Autorizada'
+                                        ? 'Autorizar'
+                                        : 'No autorizar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -518,6 +619,87 @@ const styles = {
         height: '18px',
         objectFit: 'contain',
     },
+    modalOverlay: {
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+    },
+    modal: {
+        width: 'min(420px, calc(100vw - 32px))',
+        backgroundColor: 'var(--bg)',
+        border: '1px solid var(--border)',
+        borderRadius: '10px',
+        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.2)',
+        padding: '22px',
+        fontFamily: 'sans-serif',
+    },
+    modalTitle: {
+        margin: '0 0 10px',
+        fontSize: '18px',
+        color: 'var(--text)',
+    },
+    modalText: {
+        margin: '0 0 14px',
+        fontSize: '14px',
+        lineHeight: 1.4,
+        color: '#333',
+    },
+    modalTextarea: {
+        width: '100%',
+        minHeight: '92px',
+        resize: 'vertical',
+        border: '1px solid var(--border)',
+        borderRadius: '6px',
+        padding: '10px',
+        fontSize: '14px',
+        fontFamily: 'sans-serif',
+        boxSizing: 'border-box',
+    },
+    modalError: {
+        margin: '8px 0 0',
+        fontSize: '12px',
+        color: 'var(--text-denegada)',
+    },
+    modalActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '18px',
+    },
+    btnCancelarModal: {
+        backgroundColor: 'transparent',
+        color: '#333',
+        border: '1px solid var(--border)',
+        borderRadius: '6px',
+        padding: '8px 14px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    },
+    btnConfirmarModal: {
+        backgroundColor: 'var(--text-pagada)',
+        color: 'var(--text-CBtn)',
+        border: 'none',
+        borderRadius: '6px',
+        padding: '8px 14px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    },
+    btnRechazarModal: {
+        backgroundColor: 'var(--text-denegada)',
+        color: 'var(--text-CBtn)',
+        border: 'none',
+        borderRadius: '6px',
+        padding: '8px 14px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    },
 };
 
 export default AutorizacionBandeja;
@@ -561,6 +743,17 @@ function estadoAutorizacionDesdeGasto(gasto) {
     if (autorizacion === 'autorizado' || status === 'approved') return 'Autorizada';
     if (autorizacion === 'no_autorizado' || status === 'rejected') return 'No Autorizada';
     return 'Pendiente';
+}
+
+function decisionDesdeConfirmacion(nuevoEstado, justificacionRechazo) {
+    if (nuevoEstado === 'Autorizada') {
+        return { note: 'Gasto autorizado desde pantalla de autorización.' };
+    }
+
+    const cleanReason = justificacionRechazo.trim();
+    if (!cleanReason) return null;
+
+    return { reason: cleanReason };
 }
 
 async function asegurarSolicitudEnRevisionAutorizacion(requestId) {
