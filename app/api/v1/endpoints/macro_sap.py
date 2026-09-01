@@ -581,17 +581,18 @@ def generar_polizas(
     buffer_solicitud = io.BytesIO()
     wb_solicitud.save(buffer_solicitud)
 
+    
+    folio = str(solicitud["folio"] or solicitud_id).strip()
+    folio_archivo = limpiar_nombre_archivo(folio)
+
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         # Aquí definimos cómo se llamarán los archivos DENTRO del ZIP
-        zip_file.writestr(f"CAJA CHICA {numero_tienda}{fecha_poliza_sap}.xlsx", buffer_sap.getvalue())
-        zip_file.writestr(f"Poliza Reembolso {numero_tienda}{fecha_poliza_sap}.xlsx", buffer_solicitud.getvalue())
+        zip_file.writestr(f"CAJA CHICA {folio}.xlsx", buffer_sap.getvalue())
+        zip_file.writestr(f"Poliza Reembolso {folio}.xlsx", buffer_solicitud.getvalue())
 
     # Reiniciamos el cursor del buffer de ZIP al inicio antes de enviarlo
     zip_buffer.seek(0)
-
-    folio = str(solicitud["folio"] or solicitud_id).strip()
-    folio_archivo = limpiar_nombre_archivo(folio)
 
     nombre_zip = f"Poliza_{folio_archivo}.zip"
 
