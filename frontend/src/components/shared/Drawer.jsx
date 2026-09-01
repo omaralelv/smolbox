@@ -132,7 +132,7 @@ const styles = {
     },
     panelObservaciones: {
         width: '320px',
-        height: '100%',
+        height: '90.5%',
         maxHeight: '100%',
         maxWidth: '35vw',
         display: 'flex',
