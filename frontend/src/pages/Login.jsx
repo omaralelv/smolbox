@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { apiErrorMessage, login } from '../lib/api';
+import { apiErrorMessage, login, currentStoredRole } from '../lib/api';
 
 import Grainient from './Grainient';
 
@@ -17,8 +17,27 @@ function Login() {
         setLoading(true);
 
         try {
-            await login(email, password);
-            window.location.href = '/bandeja';
+            // 1. Autenticar usuario
+            const response = await login(email, password);
+
+            // 2. Imprimir en consola sin navegar
+            console.log("1. Respuesta directa de login():", response);
+            console.log("2. Resultado de currentStoredRole():", currentStoredRole());
+            console.log("3. localStorage currentRole:", localStorage.getItem('currentRole'));
+            
+            
+            // 2. Extraer el rol directamente de la respuesta o del storage
+            const rolBackend = response?.user?.role || response?.role || currentStoredRole() || '';
+            const rolActual = String(rolBackend).toLowerCase().trim();
+
+            console.log("Rol detectado al loguear:", rolActual);
+
+            // 3. Redirigir según el rol
+            if (rolActual === 'supervisor') {
+                window.location.href = '/autorizacion';
+            } else {
+                window.location.href = '/bandeja';
+            }
         } catch (err) {
             setError(apiErrorMessage(err));
         } finally {
