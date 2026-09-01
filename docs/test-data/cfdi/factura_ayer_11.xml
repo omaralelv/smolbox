@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-27T18:10:00"
+  Moneda="MXN"
+  Total="550.53"
+  MetodoPago="PUE">
+  <cfdi:Emisor Rfc="ABC010101XYZ" Nombre="COMERCIALIZADORA DEL NORTE SA DE CV"/>
+  <cfdi:Receptor Rfc="BBB010101BBB" Nombre="SMOLBOX DEMO"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="31A219EE-2FB1-4463-B9AD-2626613E7B67"/>
+  </cfdi:Complemento></cfdi:Comprobante>

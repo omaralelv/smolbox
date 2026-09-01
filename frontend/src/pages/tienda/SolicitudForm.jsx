@@ -33,26 +33,6 @@ const DATOS_INICIALES = {
     plaza: '',
 };
 
-const HISTORIAL_MOCK = [
-    {
-        id: 1,
-        gastoId: 1,
-        autor: 'Tienda Toluca',
-        rol: 'tienda',
-        texto: 'Compra de insumos de papelería urgentes.',
-        fecha: '10/08/2026 - 09:00 AM',
-        visibilidad: VISIBILIDAD.PUBLIC
-    },
-    {
-        id: 2,
-        gastoId: 2,
-        autor: 'Contabilidad',
-        rol: 'contabilidad',
-        texto: 'Nota interna: Se detectó duplicidad de folio fiscal, procedemos a descartar.',
-        fecha: '11/08/2026 - 10:15 AM',
-        visibilidad: VISIBILIDAD.INTERNO
-    }
-];
 
 // Función helper para convertir la observación inicial de un gasto en formato de evento
 function observacionInicialDesdeGasto(gasto) {
@@ -89,7 +69,7 @@ function SolicitudForm({ currentRole }) {
     const [enviando, setEnviando] = useState(false);
 
     // 2. ESTADOS PARA LA LISTA DE GASTOS Y FORMULARIO
-    const [gastos] = useState(() => loadDraftGastos());
+    const [gastos, setGastos] = useState(() => loadDraftGastos());
 
     const solicitudBackendId = location.state?.solicitudBackendId || null;
 
@@ -100,40 +80,13 @@ function SolicitudForm({ currentRole }) {
     
         // Estado del chat de observaciones
         const [comentario, setComentario] = useState('');
-        const [historial, setHistorial] = useState(() => (solicitudBackendId ? [] : HISTORIAL_MOCK));
+        const [historial, setHistorial] = useState([]);
     
         // 2. NORMALIZAR EL ROL
         const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
     
         // Mock por si ingresas directo sin state
-        const [gastosDesglosados] = useState(() => (
-            location.state?.desglose?.length > 0
-                ? location.state.desglose
-                : [
-                { 
-                    id: 1, 
-                    nombre: 'Gasto 1', 
-                    monto: 150.00, 
-                    folioFiscal: '5FB2822E-396D-4725-8521-CDC4BDD20CCF', 
-                    autorizacion: 'autorizado' // 'autorizado', 'no_autorizado', o ''
-                },
-                { 
-                    id: 2, 
-                    nombre: 'Gasto 2', 
-                    monto: 118.01, 
-                    folioFiscal: '467FE2EF-99E8-45CD-8E2F-F7C63D13847B', 
-                    autorizacion: '' 
-                },
-                { 
-                    id: 3, 
-                    nombre: 'Gasto 3', 
-                    monto: 118.01, 
-                    folioFiscal: 'EF953B9E-8835-2EE7-L8R7-C94OQ8358JKI', 
-                    estatus: 'no_autorizado', // 👈 Gasto deshabilitado de prueba
-                    autorizacion: 'no_autorizado'
-                }
-            ]
-        ));
+        const [gastosDesglosados] = useState([]);
 
 
     useEffect(() => {
@@ -223,115 +176,167 @@ function SolicitudForm({ currentRole }) {
 
 
     useEffect(() => {
-                let activo = true;
-        
-                // 1. Extraemos las notas iniciales ingresadas por la tienda en cada gasto
-                        const obsIniciales = (gastosDesglosados || [])
-                            .map(observacionInicialDesdeGasto)
-                            .filter(Boolean);
-        
-        
-                if (!solicitudBackendId) return undefined;
-        
-        
-                getRequestAuditEvents(solicitudBackendId)
-                    .then((eventos) => {
-        
-                        if (activo) {
-                            // 1. Mapeamos las observaciones que vienen del backend o eventos
-                            const obsEventos = historialDesdeEventos(eventos || []);
-        
-                            // 3. Unificamos descartando posibles duplicados y ordenamos por fecha
-                            const historialCompleto = [...obsIniciales, ...obsEventos].sort(
-                                (a, b) => a.fechaTimestamp - b.fechaTimestamp
-                            );
-        
-                            setHistorial(historialCompleto);
-                            //setHistorial(historialDesdeEventos(eventos));
-                        }
-                    })
-                    .catch((error) => {
-                        console.error('No se pudieron cargar las observaciones', error);
-                    });
-        
-                return () => {
-                    activo = false;
-                };
-            }, [solicitudBackendId, gastosDesglosados]);
-    
-    
-            const refrescarHistorialBackend = async () => {
-                if (!solicitudBackendId) return;
+        let activo = true;
 
-                const eventos = await getRequestAuditEvents(solicitudBackendId);
-                const obsIniciales = (gastosDesglosados || [])
-                    .map(observacionInicialDesdeGasto)
-                    .filter(Boolean);
-                const obsEventos = historialDesdeEventos(eventos || []);
+        // 1. Extraemos las notas iniciales de la lista de gastos
+        // Revisa 'gastos' (borrador local) y 'gastosDesglosados'
+        const listaGastos = solicitudBackendId ? gastosDesglosados : gastos;
+        const obsIniciales = (listaGastos || [])
+            .map(observacionInicialDesdeGasto)
+            .filter(Boolean);
 
-                setHistorial(
-                    [...obsIniciales, ...obsEventos].sort(
+        console.log("Observaciones Iniciales: ", obsIniciales)
+
+        // Si es un borrador (modo creación sin backendId)
+        if (!solicitudBackendId) {
+            if (activo) {
+                // Unimos las iniciales con las agregadas en esta sesión evitando duplicados por ID
+                ////setHistorial((prevHistorial) => {
+                   // const map = new Map();
+                    // Agregar iniciales
+                   // obsIniciales.forEach(item => map.set(item.id, item));
+                    // Conservar las agregadas manualmente desde la interfaz
+                   // prevHistorial.forEach(item => map.set(item.id, item));
+                   // return Array.from(map.values());
+                
+                setHistorial((prevHistorial) => {
+                // Mantenemos solo las observaciones creadas localmente desde SolicitudForm 
+                // y las combinamos con las iniciales de los gastos
+                const obsLocalesNuevas = prevHistorial.filter((obs) => String(obs.id).startsWith('local-obs-'));
+
+                // Evitamos duplicar observaciones iniciales
+                const map = new Map();
+                obsIniciales.forEach((item) => map.set(item.id, item));
+                obsLocalesNuevas.forEach((item) => map.set(item.id, item));
+
+                const resultado = Array.from(map.values());
+                console.log("🔄 [useEffect] Historial recalculado:", resultado);
+                return resultado;
+            });
+        }
+            return undefined;
+    }
+        
+
+        getRequestAuditEvents(solicitudBackendId)
+            .then((eventos) => {
+
+                if (activo) {
+                    // 1. Mapeamos las observaciones que vienen del backend o eventos
+                    const obsEventos = historialDesdeEventos(eventos || []);
+
+                    // 3. Unificamos descartando posibles duplicados y ordenamos por fecha
+                    const historialCompleto = [...obsIniciales, ...obsEventos].sort(
                         (a, b) => a.fechaTimestamp - b.fechaTimestamp
-                    )
+                    );
+
+                    setHistorial(historialCompleto);
+                    //setHistorial(historialDesdeEventos(eventos));
+                }
+            })
+            .catch((error) => {
+                console.error('No se pudieron cargar las observaciones', error);
+            });
+
+        return () => {
+            activo = false;
+        };
+    }, [solicitudBackendId, gastos]);
+    
+    
+    const refrescarHistorialBackend = async () => {
+        if (!solicitudBackendId) return;
+
+        const eventos = await getRequestAuditEvents(solicitudBackendId);
+        const obsIniciales = (gastosDesglosados || [])
+            .map(observacionInicialDesdeGasto)
+            .filter(Boolean);
+        const obsEventos = historialDesdeEventos(eventos || []);
+
+        setHistorial(
+            [...obsIniciales, ...obsEventos].sort(
+                (a, b) => a.fechaTimestamp - b.fechaTimestamp
+            )
+        );
+    };
+
+
+    // HANDLERS PARA ABRIR Y CERRAR PANELES
+    const handleVerVale = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setDocumentoActivo('vale'); // Si había factura, se cambia a vale automáticamente
+    };
+
+    const handleVerFactura = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
+    };
+
+    const handleToggleObservaciones = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setObservacionesAbiertas(!observacionesAbiertas);
+    };
+
+    const handleEnviarObservacion = async (e) => {
+        e.preventDefault();
+        const textoObservacion = comentario.trim();
+        if (!textoObservacion || !gastoSeleccionado) return;
+
+        const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
+        if (solicitudBackendId && (!expenseId || typeof expenseId !== 'string')) {
+            alert('Este gasto no tiene ID de backend para guardar la observación.');
+            return;
+        }
+                
+        
+        const currentGastoId = gastoHistorialId(gastoSeleccionado); // 👈 Asigna el ID del gasto activo
+        
+        const nueva = {
+            id: `local-${currentGastoId || 'gasto'}-${Date.now()}`,
+            gastoId: currentGastoId,
+            autor: rol.toUpperCase(),
+            rol,
+            texto: textoObservacion,
+            fecha: new Date().toLocaleString(),
+            fechaTimestamp: Date.now(),
+            visibilidad: VISIBILIDAD.PUBLIC,
+        };
+
+        console.log("➡️ 1. Intentando añadir nueva observación:", nueva);
+
+        try {
+            if (solicitudBackendId) {
+                await addExpenseObservation(expenseId, textoObservacion);
+                await refrescarHistorialBackend();
+            } else {
+                // 1. Actualizamos el historial visible en pantalla
+                setHistorial((prevHistorial) => [...prevHistorial, nueva]);
+
+                // 2. ACTUALIZAMOS EL OBJETO GASTO EN 'gastos'
+                // Concatenamos las observaciones para que al enviar la solicitud no se pierdan
+                setGastos((prevGastos) =>
+                    prevGastos.map((g) => {
+                        if (idsIguales(gastoHistorialId(g), currentGastoId)) {
+                            const obsPrevia = g.observaciones || g.observacion || '';
+                            const obsNueva = obsPrevia 
+                                ? `${obsPrevia} | [${rol.toUpperCase()}]: ${textoObservacion}`
+                                : textoObservacion;
+                            
+                            return {
+                                ...g,
+                                observaciones: obsNueva,
+                                observacion: obsNueva,
+                            };
+                        }
+                        return g;
+                    })
                 );
-            };
-    
-    
-        // HANDLERS PARA ABRIR Y CERRAR PANELES
-            const handleVerVale = (gasto) => {
-                setGastoSeleccionado(gasto);
-                setDocumentoActivo('vale'); // Si había factura, se cambia a vale automáticamente
-            };
-        
-            const handleVerFactura = (gasto) => {
-                setGastoSeleccionado(gasto);
-                setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
-            };
-        
-            const handleToggleObservaciones = (gasto) => {
-                setGastoSeleccionado(gasto);
-                setObservacionesAbiertas(!observacionesAbiertas);
-            };
-        
-            const handleEnviarObservacion = async (e) => {
-                e.preventDefault();
-                const textoObservacion = comentario.trim();
-                if (!textoObservacion || !gastoSeleccionado) return;
-        
-                // REGLA 2: Asignación automática de visibilidad según el rol
-                let visibilidadAsignada = VISIBILIDAD.INTERNO;
-                if (['tienda', 'supervisor'].includes(rol)) {
-                    visibilidadAsignada = VISIBILIDAD.PUBLIC;
-                }
-        
-                const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
-                if (solicitudBackendId && (!expenseId || typeof expenseId !== 'string')) {
-                    alert('Este gasto no tiene ID de backend para guardar la observación.');
-                    return;
-                }
-        
-                const nueva = {
-                    id: `local-${gastoHistorialId(gastoSeleccionado) || 'gasto'}-${historial.length + 1}`,
-                    gastoId: gastoHistorialId(gastoSeleccionado),
-                    autor: rol.toUpperCase(),
-                    rol,
-                    texto: textoObservacion,
-                    fecha: new Date().toLocaleString(),
-                    visibilidad: visibilidadAsignada
-                };
-        
-                try {
-                    if (solicitudBackendId) {
-                        await addExpenseObservation(expenseId, textoObservacion);
-                        await refrescarHistorialBackend();
-                    } else {
-                        setHistorial([...historial, nueva]);
-                    }
-                    setComentario('');
-                } catch (error) {
-                    alert(apiErrorMessage(error));
-                }
-            };
+            }
+            setComentario('');
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
+    };
     
     
     return (
