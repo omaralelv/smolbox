@@ -101,7 +101,7 @@ function AnadirGasto() {
 
         alert("¡Gasto guardado exitosamente en la solicitud!");
         addDraftGasto(nuevoGastoItem);
-        console.log("📦 OBJETO ENVIADO DESDE AÑADIR GASTO:", nuevoGastoItem);
+        //console.log("📦 OBJETO ENVIADO DESDE AÑADIR GASTO:", nuevoGastoItem);
         
         // 2. Pasamos el objeto dentro de la propiedad 'state' al regresar
         navigate('/solicitud/nueva');
