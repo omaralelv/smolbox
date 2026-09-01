@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
 import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
@@ -7,17 +7,14 @@ import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/rol
 import {
     addExpenseObservation,
     apiErrorMessage,
+    authorizeExpense,
+    currentToken,
+    executeRequestAction,
+    getFrontendBandeja,
+    getFrontendSolicitud,
     getRequestAuditEvents,
+    rejectAuthorizationExpense,
 } from '../../lib/api';
-
-
-// Datos de prueba maquetados (Mock Data)
-const GASTOS_MOCK = [
-    { id: 1, nombre: 'Gasto 1', tienda: 'T001', tipo: 'Sistemas', estado: 'Pendiente' },
-    { id: 2, nombre: 'Gasto 2', tienda: 'T006', tipo: 'Sistemas', estado: 'Pendiente' },
-    { id: 3, nombre: 'Gasto 3', tienda: 'T212', tipo: 'Papelería', estado: 'Autorizada' },
-    { id: 4, nombre: 'Gasto 4', tienda: 'T124', tipo: 'Alimentos', estado: 'No Autorizada' },
-];
 
 
 const HISTORIAL_MOCK = [
@@ -71,62 +68,102 @@ const HISTORIAL_MOCK = [
 
 function AutorizacionBandeja( { currentRole } ) {
     //const navigate = useNavigate();
+    const navigate = useNavigate();
     const location = useLocation();
     
-    const [gastos, setGastos] = useState(GASTOS_MOCK);
-    const solicitudBackendId = location.state?.solicitudBackendId || null;
+    const solicitudInicialBackendId = location.state?.solicitudBackendId || null;
+    const [gastos, setGastos] = useState(() => gastosDesdeState(location.state));
 
 
     // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
     const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
     const [observacionesAbiertas, setObservacionesAbiertas] = useState(false);
     const [gastoSeleccionado, setGastoSeleccionado] = useState(null);
+    const solicitudBackendId = gastoSeleccionado?.solicitudBackendId || solicitudInicialBackendId;
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
-    const [historial, setHistorial] = useState(() => (solicitudBackendId ? [] : HISTORIAL_MOCK));
+    const [historial, setHistorial] = useState(() => (solicitudInicialBackendId ? [] : HISTORIAL_MOCK));
 
     // 2. NORMALIZAR EL ROL
-    const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
+    const rol = String(
+        currentRole || localStorage.getItem('smolboxFrontendRole') || localStorage.getItem('currentRole') || 'admin'
+    ).toLowerCase().trim();
 
-    // Mock por si ingresas directo sin state
-    const [gastosDesglosados] = useState(() => (
-        location.state?.desglose?.length > 0
-            ? location.state.desglose
-            : [
-            { 
-                id: 1, 
-                nombre: 'Gasto 1', 
-                monto: 150.00, 
-                folioFiscal: '5FB2822E-396D-4725-8521-CDC4BDD20CCF', 
-                autorizacion: 'autorizado' // 'autorizado', 'no_autorizado', o ''
-            },
-            { 
-                id: 2, 
-                nombre: 'Gasto 2', 
-                monto: 118.01, 
-                folioFiscal: '467FE2EF-99E8-45CD-8E2F-F7C63D13847B', 
-                autorizacion: '' 
-            },
-            { 
-                id: 3, 
-                nombre: 'Gasto 3', 
-                monto: 118.01, 
-                folioFiscal: 'EF953B9E-8835-2EE7-L8R7-C94OQ8358JKI', 
-                estatus: 'no_autorizado', // 👈 Gasto deshabilitado de prueba
-                autorizacion: 'no_autorizado'
+    const gastosDesglosados = gastos;
+
+    const cargarGastosAutorizacion = async () => {
+        const solicitudes = solicitudInicialBackendId
+            ? [await getFrontendSolicitud(solicitudInicialBackendId)]
+            : await getFrontendBandeja();
+
+        const nuevosGastos = solicitudes.flatMap(gastosAutorizacionDesdeSolicitud);
+        setGastos(nuevosGastos);
+        setGastoSeleccionado((actual) => {
+            if (!actual) return actual;
+            return nuevosGastos.find((gasto) => idsIguales(gastoHistorialId(gasto), gastoHistorialId(actual))) || actual;
+        });
+    };
+
+    useEffect(() => {
+        let activo = true;
+
+        if (!currentToken()) {
+            navigate('/login');
+            return () => {
+                activo = false;
+            };
+        }
+
+        const cargar = async () => {
+            try {
+                const solicitudes = solicitudInicialBackendId
+                    ? [await getFrontendSolicitud(solicitudInicialBackendId)]
+                    : await getFrontendBandeja();
+
+                if (!activo) return;
+                setGastos(solicitudes.flatMap(gastosAutorizacionDesdeSolicitud));
+            } catch (error) {
+                if (activo) alert(apiErrorMessage(error));
             }
-        ]
-    ));
+        };
+
+        cargar();
+
+        return () => {
+            activo = false;
+        };
+    }, [navigate, solicitudInicialBackendId]);
 
 
     // Función pura de UI para cambiar el estatus al dar clic en los botones
-    const handleCambiarEstado = (id, nuevoEstado) => {
-        setGastos(prevGastos =>
-            prevGastos.map(gasto =>
-                gasto.id === id ? { ...gasto, estado: nuevoEstado } : gasto
-            )
-        );
+    const handleCambiarEstado = async (gasto, nuevoEstado) => {
+        const expenseId = gasto.backendId || gasto.id;
+        const requestId = gasto.solicitudBackendId;
+
+        if (!requestId || !expenseId) {
+            setGastos(prevGastos =>
+                prevGastos.map(item =>
+                    item.id === gasto.id ? { ...item, estado: nuevoEstado } : item
+                )
+            );
+            return;
+        }
+
+        try {
+            await asegurarSolicitudEnRevisionAutorizacion(requestId);
+
+            if (nuevoEstado === 'Autorizada') {
+                await authorizeExpense(expenseId, 'Gasto autorizado desde pantalla de autorización.');
+            } else {
+                await rejectAuthorizationExpense(expenseId, 'Gasto no autorizado desde pantalla de autorización.');
+            }
+
+            await avanzarSolicitudSiAutorizacionCompleta(requestId);
+            await cargarGastosAutorizacion();
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        }
     };
 
     // Helper para pintar el pill/tag de estado según su valor
@@ -311,13 +348,13 @@ function AutorizacionBandeja( { currentRole } ) {
                                     <>
                                         <button
                                             style={styles.btnAutorizar}
-                                            onClick={() => handleCambiarEstado(gasto.id, 'Autorizada')}
+                                            onClick={() => handleCambiarEstado(gasto, 'Autorizada')}
                                         >
                                             {ocultarTienda ? '✓' : 'AUTORIZAR'}
                                         </button>
                                         <button
                                             style={styles.btnNoAutorizar}
-                                            onClick={() => handleCambiarEstado(gasto.id, 'No Autorizada')}
+                                            onClick={() => handleCambiarEstado(gasto, 'No Autorizada')}
                                         >
                                             {ocultarTienda ? '✕' : 'NO AUTORIZAR'}
                                         </button>
@@ -485,6 +522,70 @@ const styles = {
 
 export default AutorizacionBandeja;
 
+
+function gastosDesdeState(state) {
+    if (!state?.desglose?.length) return [];
+    return state.desglose.map((gasto) => ({
+        ...gasto,
+        backendId: gasto.backendId || gasto.backend_id || gasto.id,
+        solicitudBackendId: state.solicitudBackendId || gasto.solicitudBackendId,
+        tienda: gasto.tienda || state.solicitud?.tienda || '',
+        tipo: gasto.tipo || gasto.type || '',
+        estado: estadoAutorizacionDesdeGasto(gasto),
+    }));
+}
+
+function gastosAutorizacionDesdeSolicitud(solicitud) {
+    const solicitudBackendId = solicitud?.backendId || solicitud?.backend_id;
+    const solicitudStatus = solicitud?.backendStatus || solicitud?.backend_status;
+    if (!['submitted', 'authorization_review'].includes(solicitudStatus)) return [];
+
+    return (solicitud?.gastos || [])
+        .filter((gasto) => Boolean(gasto.requiresAuthorization || gasto.requires_authorization))
+        .map((gasto) => ({
+            ...gasto,
+            backendId: gasto.backendId || gasto.backend_id || gasto.id,
+            solicitudBackendId,
+            solicitudFolio: solicitud?.folio || solicitud?.id,
+            tienda: gasto.tienda || solicitud?.tienda || '',
+            tipo: gasto.tipo || gasto.type || 'Gasto General',
+            estado: estadoAutorizacionDesdeGasto(gasto),
+            urlRecibo: gasto.urlRecibo || gasto.downloadUrl,
+        }));
+}
+
+function estadoAutorizacionDesdeGasto(gasto) {
+    const autorizacion = String(gasto?.autorizacion || '').toLowerCase().trim();
+    const status = String(gasto?.backendStatus || gasto?.backend_status || gasto?.status || '').toLowerCase().trim();
+
+    if (autorizacion === 'autorizado' || status === 'approved') return 'Autorizada';
+    if (autorizacion === 'no_autorizado' || status === 'rejected') return 'No Autorizada';
+    return 'Pendiente';
+}
+
+async function asegurarSolicitudEnRevisionAutorizacion(requestId) {
+    let solicitud = await getFrontendSolicitud(requestId);
+    const status = solicitud?.backendStatus || solicitud?.backend_status;
+
+    if (status === 'submitted' && solicitud?.availableActions?.includes('start_authorization_review')) {
+        await executeRequestAction(requestId, 'start_authorization_review');
+        solicitud = await getFrontendSolicitud(requestId);
+    }
+
+    return solicitud;
+}
+
+async function avanzarSolicitudSiAutorizacionCompleta(requestId) {
+    const solicitud = await getFrontendSolicitud(requestId);
+    const tienePendientes = (solicitud?.gastos || []).some((gasto) => (
+        Boolean(gasto.requiresAuthorization || gasto.requires_authorization)
+        && estadoAutorizacionDesdeGasto(gasto) === 'Pendiente'
+    ));
+
+    if (!tienePendientes && solicitud?.availableActions?.includes('approve_authorization')) {
+        await executeRequestAction(requestId, 'approve_authorization');
+    }
+}
 
 
 function gastoHistorialId(gasto) {

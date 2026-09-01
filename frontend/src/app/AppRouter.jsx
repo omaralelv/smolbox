@@ -29,7 +29,7 @@ function AppRouter({ currentRole }) {
         <Route path="/login" element={<Login />} />
         <Route path="/solicitud/nueva" element={<SolicitudForm currentRole={currentRole} />} />
         <Route path="/gasto/nuevo" element={<AnadirGasto />} />
-        <Route path="/autorizacion" element={<AutorizacionBandeja/>} />
+        <Route path="/autorizacion" element={<AutorizacionBandeja currentRole={currentRole}/>} />
         <Route path="/bandeja" element={<Bandeja currentRole={currentRole}/>} />
 
         <Route path="/acumulado" element={<Acumulado currentRole={currentRole} />}/>

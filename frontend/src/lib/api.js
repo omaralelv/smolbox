@@ -178,6 +178,23 @@ export async function addExpenseObservation(expenseId, note) {
     });
 }
 
+export async function authorizeExpense(expenseId, note = 'Gasto autorizado desde frontend.') {
+    return request(`/expenses/${expenseId}/authorize/me`, {
+        method: 'POST',
+        body: { note },
+    });
+}
+
+export async function rejectAuthorizationExpense(expenseId, reason = 'Gasto no autorizado desde frontend.') {
+    return request(`/expenses/${expenseId}/reject/me`, {
+        method: 'POST',
+        body: {
+            reason,
+            adjust_reported_total: true,
+        },
+    });
+}
+
 export function apiErrorMessage(error) {
     if (!error) return 'No se pudo completar la operación.';
     return error.message || 'No se pudo completar la operación.';
