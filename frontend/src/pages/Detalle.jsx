@@ -139,6 +139,7 @@ function Detalle({ currentRole }) {
     const visibilidadIconos = {
         vale: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         factura: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
+        recibo: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         observaciones: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         editar: ['contabilidad', 'gerencia', 'admin'],
         eliminar: ['contabilidad', 'gerencia', 'admin']
@@ -219,6 +220,11 @@ function Detalle({ currentRole }) {
     const handleVerFactura = (gasto) => {
         setGastoSeleccionado(gasto);
         setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
+    };
+
+    const handleVerRecibo = (gasto) => {
+        setGastoSeleccionado(gasto);
+        setDocumentoActivo('recibo'); // nuevo tipo de documento
     };
 
     const handleToggleObservaciones = (gasto) => {
@@ -511,14 +517,19 @@ function Detalle({ currentRole }) {
 
                             {/* BOTONES DE HERRAMIENTAS (ICONOS) */}
                             <div style={styles.herramientasContainer}>
+                                {puedeVer('factura') && (
+                                    <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
+                                        <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                                    </button>
+                                )}
                                 {puedeVer('vale') && (
                                     <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
                                         <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                                     </button>
                                 )}
-                                {puedeVer('factura') && (
-                                    <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
-                                        <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                                {puedeVer('recibo') && (
+                                    <button style={styles.iconBtn} title="Ver Recibo" onClick={() => handleVerRecibo(gasto)}>
+                                        <img src="/Recibo.png" alt="Recibo" style={styles.iconImg} />
                                     </button>
                                 )}
                                 {puedeVer('observaciones') && (
