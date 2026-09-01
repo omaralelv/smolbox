@@ -14,6 +14,7 @@ function AnadirGasto() {
     const [folio, setFolio] = useState('');
     const [facturaFile, setFacturaFile] = useState(null);
     const [valeFile, setValeFile] = useState(null);
+    const [reciboFile, setReciboFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
 
     const [folioValidado, setFolioValidado] = useState(false);
@@ -184,7 +185,7 @@ function AnadirGasto() {
             {/* SECCIÓN DE CARGA DE ARCHIVOS */}
             <div style={styles.fileUploadContainer}>
                 <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar CFDI XML *</span>
+                <span style={styles.fileLabel}>Cargar Factura</span>
                 <div style={styles.fileRow}>
                     <span style={styles.fileName}>{facturaFile ? facturaFile.name : "Ningún archivo seleccionado"}</span>
                     <label style={styles.fileButtonLabel}>
@@ -195,12 +196,23 @@ function AnadirGasto() {
                 </div>
 
                 <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar Vale (opcional)</span>
+                <span style={styles.fileLabel}>Cargar Vale</span>
                 <div style={styles.fileRow}>
                     <span style={styles.fileName}>{valeFile ? valeFile.name : "Ningún archivo seleccionado"}</span>
                     <label style={styles.fileButtonLabel}>
                     Seleccionar archivo...
                     <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setValeFile(e.target.files[0])} />
+                    </label>
+                </div>
+                </div>
+
+                <div style={styles.fileBox}>
+                <span style={styles.fileLabel}>Cargar Recibo</span>
+                <div style={styles.fileRow}>
+                    <span style={styles.fileName}>{reciboFile ? reciboFile.name : "Ningún archivo seleccionado"}</span>
+                    <label style={styles.fileButtonLabel}>
+                    Seleccionar archivo...
+                    <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setReciboFile(e.target.files[0])} />
                     </label>
                 </div>
                 </div>
@@ -417,14 +429,16 @@ function AnadirGasto() {
     },
     fileUploadContainer: {
         display: 'flex',
-        gap: '40px',
+        gap: '16px',
         marginTop: '10px',
+        flexWrap: 'wrap',
     },
     fileBox: {
-        flex: 1,
+        flex: '1 1 0',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
+        minWidth: '150px',
     },
     fileLabel: {
         fontSize: '14px',
