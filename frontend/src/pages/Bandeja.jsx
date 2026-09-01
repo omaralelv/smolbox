@@ -13,19 +13,27 @@ const SOLICITUDES_BASE = [
 
 function obtenerEstadoAlerta(solicitud, currentRole) {
     const solicitudBackendId = solicitud?.backendId || solicitud?.reimbursementRequestId || solicitud?.id;
-    if (!solicitudBackendId) return { esDevuelto: false, esResuelto: false };
+    //if (!solicitudBackendId) return { esDevuelto: false, esResuelto: false };
+    const queueStatus = solicitud?.accountingQueueStatus || solicitud?.accounting_queue_status || 'single';
 
-    // Recuperar información guardada por Acumulado.jsx
-    const motivosPorRolRaw = localStorage.getItem(`motivos_map_${solicitudBackendId}`);
-    const motivosPorRol = motivosPorRolRaw ? JSON.parse(motivosPorRolRaw) : {};
-    
-    const devueltoPor = localStorage.getItem(`devuelto_por_${solicitudBackendId}`) || solicitud?.devueltoPor || '';
-    const devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || solicitud?.devueltoPorOriginal || devueltoPor;
+    // Recuperar motivos/devuelto guardados en localStorage
+    let motivosPorRol = {};
+    let devueltoPor = '';
+    let devueltoPorOriginal = '';
+
+    if(solicitudBackendId) {
+        // Recuperar información guardada por Acumulado.jsx
+        const motivosPorRolRaw = localStorage.getItem(`motivos_map_${solicitudBackendId}`);
+        motivosPorRol = motivosPorRolRaw ? JSON.parse(motivosPorRolRaw) : {};
+        
+        devueltoPor = localStorage.getItem(`devuelto_por_${solicitudBackendId}`) || solicitud?.devueltoPor || '';
+        devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || solicitud?.devueltoPorOriginal || devueltoPor;
+    }
     
     const currentBackendStatus = solicitud?.backendStatus || solicitud?.backend_status || '';
 
     // Regla 1: Evaluador de Devuelto (AMARILLO)
-    const esDevuelto = Boolean(
+    const esDevueltoBase = Boolean(
         Object.keys(motivosPorRol).length && 
         (
             (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
@@ -34,7 +42,7 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
     );
 
     // Regla 2: Evaluador de Resuelto (VERDE)
-    const esResuelto = Boolean(
+    const esResueltoBase = Boolean(
         Object.keys(motivosPorRol).length && 
         (
             (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
@@ -45,11 +53,37 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
     // Ocultar banderas si ya avanzó de Tesorería en adelante
     const ocultarBanner = ['direction_review', 'direction_approved', 'approved_for_payment', 'paid', 'closed', 'rejected'].includes(currentBackendStatus);
 
-    if (ocultarBanner) {
-        return { esDevuelto: false, esResuelto: false };
+    let esDevuelto = !ocultarBanner && esDevueltoBase;
+    let esResuelto = !ocultarBanner && esResueltoBase;
+
+
+    // 🎯 REGLAS EXCLUSIVAS PARA CONTABILIDAD
+    if (currentRole === 'contabilidad') {
+        // Si la tomó otro contador, anula cualquier color o alerta devuelta para este usuario
+        if (queueStatus === 'taken_other') {
+            return {
+                esDevuelto: false,
+                esResuelto: false,
+                queueStatus: 'taken_other',
+            };
+        }
+
+        // Si la solicitud está devuelta Y fue tomada por el perfil activo (taken),
+        // prevalece el estado de devuelto en amarillo para este contador.
+        if (queueStatus === 'taken' && esDevuelto) {
+            return {
+                esDevuelto: true,
+                esResuelto: false,
+                queueStatus: 'taken',
+            };
+        }
     }
 
-    return { esDevuelto, esResuelto };
+    return {
+        esDevuelto,
+        esResuelto,
+        queueStatus,
+    };
 }
 
 
@@ -92,9 +126,11 @@ function Bandeja({currentRole}) {
 
 
     const obtenerTienda = (solicitud) => solicitud.tienda || 'T-001';
+
     const tiendasDisponibles = Array.from(
         new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
     ).sort();
+
     const baseFiltrada = filtroTienda === 'todas'
         ? solicitudes
         : solicitudes.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
@@ -104,10 +140,20 @@ function Bandeja({currentRole}) {
         const alertaA = obtenerEstadoAlerta(a, currentRole);
         const alertaB = obtenerEstadoAlerta(b, currentRole);
 
-        const pesoA = (alertaA.esDevuelto || alertaA.esResuelto) ? 1 : 2;
-        const pesoB = (alertaB.esDevuelto || alertaB.esResuelto) ? 1 : 2;
 
-        return pesoA - pesoB;
+        // Asignación de pesos para priorizar el renderizado
+        // 1: Devueltas/Resueltas o Asignadas a mí (taken)
+        // 2: Estado base (single)
+        // 3: Tomadas por alguien más (taken_other)
+        const getPeso = (alerta) => {
+            if (alerta.queueStatus === 'taken_other') return 3;
+            if (alerta.esDevuelto || alerta.esResuelto || alerta.queueStatus === 'taken') return 1;
+            return 2;
+        };
+        //const pesoA = (alertaA.esDevuelto || alertaA.esResuelto) ? 1 : 2;
+        //const pesoB = (alertaB.esDevuelto || alertaB.esResuelto) ? 1 : 2;
+
+        return getPeso(alertaA) - getPeso(alertaB);
     });
 
   // Función para asignar colores exactos a cada Badge
@@ -179,39 +225,81 @@ function Bandeja({currentRole}) {
                         No hay solicitudes para la tienda seleccionada.
                     </div>
                 ) : (solicitudesFiltradas.map((sol) => {
-                    const { esDevuelto, esResuelto } = obtenerEstadoAlerta(sol, currentRole);
+                    const { esDevuelto, esResuelto, queueStatus } = obtenerEstadoAlerta(sol, currentRole);
 
                     // Definición de estilos condicionales para la fila
                     let rowStyle = { ...styles.row };
                     let textoEstatus = sol.status;
                     let badgeStyleOverride = {};
 
+                    // 1. REGLA: Devuelta (Amarillo) - Prevalece si es devuelta y tomada por mí
                     if (esDevuelto) {
                         rowStyle = {
                             ...styles.row,
                             backgroundColor: '#fffbe6', // Fondo amarillo
-                            borderColor: '#ffe58f',     // Borde amarillo
+                            borderColor: '#fac61d',     // Borde amarillo
                         };
                         textoEstatus = 'Devuelta';
                         badgeStyleOverride = {
-                            backgroundColor: '#ffe58f',
-                            color: '#d48806',
+                            backgroundColor: '#ffe693',
+                            color: '#c17a00',
                             fontWeight: 'bold',
                         };
-                    } else if (esResuelto) {
+                    } 
+
+                    // 2. REGLA: Resuelta (Verde)
+                    else if (esResuelto) {
                         rowStyle = {
                             ...styles.row,
-                            backgroundColor: '#f6ffed', // Fondo verde
-                            borderColor: '#b7eb8f',     // Borde verde
+                            backgroundColor: '#f4ffec', // Fondo verde
+                            borderColor: '#66d809',     // Borde verde
                         };
                         textoEstatus = 'Resuelta';
                         badgeStyleOverride = {
-                            backgroundColor: '#b7eb8f',
-                            color: '#389e0d',
+                            backgroundColor: '#cffeb8',
+                            color: '#2e9a00',
                             fontWeight: 'bold',
                         };
                     }
 
+                    // 3. REGLA CONTABILIDAD: Taken por otro contador (Grisáceo Opaco)
+                    else if (currentRole === 'contabilidad' && queueStatus === 'taken_other') {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#fcf3f3', // Gris suave opaco
+                            backgroundColor: '#f1e9e9', // Gris suave opaco
+                            borderColor: '#ceb8b8',
+                            color: '#e7d8d8',
+                            opacity: 0.6,            // Baja opacidad para dar a entender que está ocupado
+                        };
+                        textoEstatus = 'Ajeno';
+                        badgeStyleOverride = {
+                            backgroundColor: '#957878',
+                            color: '#ede2e2',
+                            fontWeight: 'bold',
+                        };
+                    }
+
+                    // 4. REGLA CONTABILIDAD: Taken por el perfil activo (Rosa Pastel)
+                    else if (currentRole === 'contabilidad' && queueStatus === 'taken') {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#fff5f6', // Rosa pastel delicado
+                            borderColor: '#f38c98',     // Borde rosa suave
+
+                            
+                            
+                        };
+                        textoEstatus = 'Propio';
+                        badgeStyleOverride = {
+                            backgroundColor: '#ffdaf9',
+                            color: '#af1e9e',
+                            fontWeight: 'bold',
+
+                            
+                        }
+                    };
+                    
                     return (
                         <div key={sol.id} style={rowStyle}>
                             {/* 1. Nombre / ID Solicitud */}
