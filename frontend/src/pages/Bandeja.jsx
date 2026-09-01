@@ -9,6 +9,51 @@ const SOLICITUDES_BASE = [
     { id: 'Solicitud 1', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' }
 ];
 
+
+
+function obtenerEstadoAlerta(solicitud, currentRole) {
+    const solicitudBackendId = solicitud?.backendId || solicitud?.reimbursementRequestId || solicitud?.id;
+    if (!solicitudBackendId) return { esDevuelto: false, esResuelto: false };
+
+    // Recuperar información guardada por Acumulado.jsx
+    const motivosPorRolRaw = localStorage.getItem(`motivos_map_${solicitudBackendId}`);
+    const motivosPorRol = motivosPorRolRaw ? JSON.parse(motivosPorRolRaw) : {};
+    
+    const devueltoPor = localStorage.getItem(`devuelto_por_${solicitudBackendId}`) || solicitud?.devueltoPor || '';
+    const devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || solicitud?.devueltoPorOriginal || devueltoPor;
+    
+    const currentBackendStatus = solicitud?.backendStatus || solicitud?.backend_status || '';
+
+    // Regla 1: Evaluador de Devuelto (AMARILLO)
+    const esDevuelto = Boolean(
+        Object.keys(motivosPorRol).length && 
+        (
+            (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
+            (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+        )
+    );
+
+    // Regla 2: Evaluador de Resuelto (VERDE)
+    const esResuelto = Boolean(
+        Object.keys(motivosPorRol).length && 
+        (
+            (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
+            (devueltoPorOriginal === 'tesoreria' && currentRole === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+        )
+    );
+
+    // Ocultar banderas si ya avanzó de Tesorería en adelante
+    const ocultarBanner = ['direction_review', 'direction_approved', 'approved_for_payment', 'paid', 'closed', 'rejected'].includes(currentBackendStatus);
+
+    if (ocultarBanner) {
+        return { esDevuelto: false, esResuelto: false };
+    }
+
+    return { esDevuelto, esResuelto };
+}
+
+
+
 function Bandeja({currentRole}) {
     const navigate = useNavigate();
     const [filtroTienda, setFiltroTienda] = useState('todas');
@@ -50,10 +95,20 @@ function Bandeja({currentRole}) {
     const tiendasDisponibles = Array.from(
         new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
     ).sort();
-    const solicitudesFiltradas = filtroTienda === 'todas'
+    const baseFiltrada = filtroTienda === 'todas'
         ? solicitudes
         : solicitudes.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
 
+    // Ordenamos situando las alertas (Devuelto/Resuelto) arriba
+    const solicitudesFiltradas = [...baseFiltrada].sort((a, b) => {
+        const alertaA = obtenerEstadoAlerta(a, currentRole);
+        const alertaB = obtenerEstadoAlerta(b, currentRole);
+
+        const pesoA = (alertaA.esDevuelto || alertaA.esResuelto) ? 1 : 2;
+        const pesoB = (alertaB.esDevuelto || alertaB.esResuelto) ? 1 : 2;
+
+        return pesoA - pesoB;
+    });
 
   // Función para asignar colores exactos a cada Badge
     const getBadgeStyle = (status) => {
@@ -123,41 +178,82 @@ function Bandeja({currentRole}) {
                     <div style={styles.emptyState}>
                         No hay solicitudes para la tienda seleccionada.
                     </div>
-                ) : (solicitudesFiltradas.map((sol) => (
-                    <div key={sol.id} style={styles.row}>
-                        {/* 1. Nombre / ID Solicitud */}
-                        <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
-                            {sol.id}
-                        </span>
+                ) : (solicitudesFiltradas.map((sol) => {
+                    const { esDevuelto, esResuelto } = obtenerEstadoAlerta(sol, currentRole);
 
-                        {/* 2. Tienda */}
-                        <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
-                            {obtenerTienda(sol)}
-                        </span>
+                    // Definición de estilos condicionales para la fila
+                    let rowStyle = { ...styles.row };
+                    let textoEstatus = sol.status;
+                    let badgeStyleOverride = {};
 
-                        {/* 3. Fecha de Envío */}
-                        <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
-                            {sol.fecha || new Date().toLocaleDateString()}
-                        </span>
+                    if (esDevuelto) {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#fffbe6', // Fondo amarillo
+                            borderColor: '#ffe58f',     // Borde amarillo
+                        };
+                        textoEstatus = 'Devuelta';
+                        badgeStyleOverride = {
+                            backgroundColor: '#ffe58f',
+                            color: '#d48806',
+                            fontWeight: 'bold',
+                        };
+                    } else if (esResuelto) {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#f6ffed', // Fondo verde
+                            borderColor: '#b7eb8f',     // Borde verde
+                        };
+                        textoEstatus = 'Resuelta';
+                        badgeStyleOverride = {
+                            backgroundColor: '#b7eb8f',
+                            color: '#389e0d',
+                            fontWeight: 'bold',
+                        };
+                    }
 
-                        {/* 4. Pill / Badge de Estatus */}
-                        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-                            <span style={{ ...styles.statusBadge, ...getBadgeStyle(sol.status) }}>
-                                {sol.status}
+                    return (
+                        <div key={sol.id} style={rowStyle}>
+                            {/* 1. Nombre / ID Solicitud */}
+                            <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
+                                {sol.id}
                             </span>
-                        </div>
 
-                        {/* 5. Botón / Acción Abrir */}
-                        <div style={{ width: '100px', textAlign: 'center' }}>
-                            <button 
-                                style={styles.abrirBtn}
-                                onClick={() => navigate('/acumulado', { state: { solicitud: sol } })}
-                            >
-                                Abrir
-                            </button>
+                            {/* 2. Tienda */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
+                                {obtenerTienda(sol)}
+                            </span>
+
+                            {/* 3. Fecha de Envío */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
+                                {sol.fecha || new Date().toLocaleDateString()}
+                            </span>
+
+                            {/* 4. Pill / Badge de Estatus */}
+                            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                                <span style={{ 
+                                    ...styles.statusBadge, 
+                                    ...getBadgeStyle(sol.status),
+                                    ...badgeStyleOverride 
+                                }}>
+                                    {textoEstatus}
+                                </span>
+                            </div>
+
+                            {/* 5. Botón Abrir */}
+                            <div style={{ width: '100px', textAlign: 'center' }}>
+                                <button 
+                                    style={styles.abrirBtn}
+                                    onClick={() => navigate('/acumulado', { state: { solicitud: sol } })}
+                                >
+                                    Abrir
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )))}
+                    );
+                })
+
+                )}
             </div>
 
         </div>
