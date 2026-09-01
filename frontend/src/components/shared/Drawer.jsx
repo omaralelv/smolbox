@@ -15,6 +15,17 @@ export default function Drawer({
 
     const rolNormalizado = String(currentRole).toLowerCase().trim();
 
+    const tituloDocumento =
+        documentoActivo === 'factura' ? 'Factura' :
+        documentoActivo === 'vale' ? 'Vale' :
+        documentoActivo === 'recibo' ? 'Recibo' : '';
+
+    const srcDocumento =
+        documentoActivo === 'factura' ? gasto?.urlFactura :
+        documentoActivo === 'vale' ? gasto?.urlVale :
+        documentoActivo === 'recibo' ? gasto?.urlRecibo : undefined;
+
+
     return (
         <div style={styles.drawerWrapper}>
             
@@ -23,14 +34,14 @@ export default function Drawer({
                 <div style={styles.panelDocumento}>
                     <div style={styles.header}>
                         <h3 style={styles.title}>
-                            {documentoActivo === 'factura' ? 'Factura' : 'Vale'} {gasto?.nombre || gasto?.id || ''}
+                            {tituloDocumento} {gasto?.nombre || gasto?.id || ''}
                         </h3>
                         <button style={styles.closeBtn} onClick={onCloseDocumento}>✕</button>
                     </div>
 
                     <div style={styles.documentoBody}>
                         <iframe 
-                            src={documentoActivo === 'factura' ? gasto?.urlFactura : gasto?.urlVale} 
+                            src={srcDocumento} 
                             title="Comprobante"
                             style={styles.iframe}
                         />
