@@ -328,6 +328,11 @@ function SolicitudForm({ currentRole }) {
         setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
     };
 
+    const handleVerRecibo = (gasto) => {
+            setGastoSeleccionado(gasto);
+            setDocumentoActivo('recibo'); // nuevo tipo de documento
+    };
+
     const handleToggleObservaciones = (gasto) => {
         setGastoSeleccionado(gasto);
         setObservacionesAbiertas(!observacionesAbiertas);
@@ -441,15 +446,20 @@ function SolicitudForm({ currentRole }) {
                             {gasto.type || gasto.tipo}
                         </span>
 
+                        
                         {/* 4. HERRAMIENTAS (flex: 1.5) */}
                         <div style={{ ...styles.herramientasContainer, flex: 1.5, display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                            <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
+                                <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                            </button>
+
                             {/* ICONO DE DOCUMENTO / COMPROBANTE */}
                             <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
                                 <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                             </button>
-
-                            <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
-                                <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                            {/* ICONO DE DOCUMENTO / COMPROBANTE */}
+                            <button style={styles.iconBtn} title="Ver Recibo" onClick={() => handleVerRecibo(gasto)}>
+                                <img src="/Recibo.png" alt="Recibo" style={styles.iconImg} />
                             </button>
 
                             <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
