@@ -26,6 +26,8 @@ from app.schemas.frontend import (
     FrontendStoreRead,
     FrontendUserRead,
 )
+from app.services.accounting_queue import mark_accounting_request_taken_on_open
+from app.services.expense_authorization_rules import expense_requires_authorization
 from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_validation import summarize_reimbursement_request
@@ -246,6 +248,7 @@ def get_frontend_request_detail(
 ) -> FrontendSolicitudRead:
     request = _get_request_by_frontend_identifier(request_identifier, db)
     _ensure_request_visible(request, current_user, db)
+    request = _mark_accounting_request_taken_if_needed(request, current_user, db)
     return _request_payload(request, current_user)
 
 
@@ -423,6 +426,9 @@ def _request_payload(
         fecha_formateada=display_date.strftime("%d%m%Y"),
         status=_frontend_request_status(request.status),
         backend_status=request.status.value,
+        accounting_queue_status=(
+            request.accounting_queue_status.value if request.accounting_queue_status else None
+        ),
         gerente=request.store.manager_name,
         cuenta_bancaria=request.store.bank_account,
         estado_region=request.store.state_region,
@@ -559,7 +565,12 @@ def _expense_from_frontend(
         cfdi_currency=(expense_in.cfdi_currency or expense_in.moneda).upper(),
         cfdi_tax_amount=_money_or_none(expense_in.cfdi_tax_amount),
         cfdi_tax_rate=_rate_or_none(expense_in.cfdi_tax_rate),
-        requires_authorization=expense_in.requiere_autorizacion,
+        requires_authorization=expense_requires_authorization(
+            explicit=expense_in.requiere_autorizacion,
+            category=category,
+            description=expense_in.observaciones,
+            merchant=merchant,
+        ),
     )
 
 
@@ -611,6 +622,34 @@ def _ensure_request_visible(
                 "message": "Actor must be assigned to the request store",
             },
         )
+
+
+def _mark_accounting_request_taken_if_needed(
+    request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> ReimbursementRequest:
+    summary = summarize_reimbursement_request(request)
+    if not mark_accounting_request_taken_on_open(
+        request,
+        actor=current_user,
+        summary=summary,
+    ):
+        return request
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="accounting_request_taken",
+            from_status="single",
+            to_status="taken",
+            message="Accounting request opened by user.",
+        )
+    )
+    db.commit()
+    return _get_request_by_id(request.id, db)
 
 
 def _current_open_period(db: Session) -> Period | None:

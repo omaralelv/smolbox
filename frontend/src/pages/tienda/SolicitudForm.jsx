@@ -18,7 +18,7 @@ import {
     validateExpenseCfdi,
 } from '../../lib/api';
 
-import { clearDraftGastos, loadDraftGastos } from '../../lib/draftSolicitud';
+import { clearDraftGastos, loadDraftGastos, updateDraftGasto } from '../../lib/draftSolicitud';
 
 const DATOS_INICIALES = {
     fecha: new Date().toLocaleDateString('es-MX', {
@@ -61,6 +61,82 @@ function observacionInicialDesdeGasto(gasto) {
     };
 }
 
+function historialBorradorDesdeGastos(gastos = []) {
+    return gastos
+        .flatMap((gasto) => {
+            const gastoId = gastoHistorialId(gasto);
+            const historialGuardado = Array.isArray(gasto.observacionesHistorial)
+                ? gasto.observacionesHistorial
+                : [];
+
+            if (historialGuardado.length > 0) {
+                return historialGuardado.map((obs) => normalizarObservacionBorrador(obs, gastoId));
+            }
+
+            const inicial = observacionInicialDesdeGasto(gasto);
+            return inicial ? [inicial] : [];
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.fechaTimestamp - b.fechaTimestamp);
+}
+
+function normalizarObservacionBorrador(obs, gastoId) {
+    const idOriginal = String(obs.id || '');
+    const idNormalizado = idOriginal.startsWith('local-') && !idOriginal.startsWith('local-obs-')
+        ? idOriginal.replace(/^local-/, 'local-obs-')
+        : idOriginal;
+
+    return {
+        ...obs,
+        id: idNormalizado || `local-obs-${gastoId || 'gasto'}-${obs.fechaTimestamp || 0}`,
+        gastoId: obs.gastoId ?? gastoId,
+        fechaTimestamp: Number(obs.fechaTimestamp || 0),
+        visibilidad: obs.visibilidad || VISIBILIDAD.PUBLIC,
+    };
+}
+
+function crearObservacionLocal(gastoId, rol, textoObservacion) {
+    const fechaCreacion = new Date();
+    const timestamp = fechaCreacion.getTime();
+
+    return {
+        id: `local-obs-${gastoId || 'gasto'}-${timestamp}`,
+        gastoId,
+        autor: rol.toUpperCase(),
+        rol,
+        texto: textoObservacion,
+        fecha: fechaCreacion.toLocaleString(),
+        fechaTimestamp: timestamp,
+        visibilidad: VISIBILIDAD.PUBLIC,
+    };
+}
+
+function agregarObservacionLocalAGasto(gasto, gastoId, rol, observacion) {
+    if (!idsIguales(gastoHistorialId(gasto), gastoId)) return gasto;
+
+    const historialExistente = Array.isArray(gasto.observacionesHistorial)
+        ? gasto.observacionesHistorial.map((obs) => normalizarObservacionBorrador(obs, gastoId))
+        : [];
+    const observacionInicial = historialExistente.length === 0
+        ? observacionInicialDesdeGasto(gasto)
+        : null;
+    const obsPrevia = gasto.observaciones || gasto.observacion || '';
+    const obsNueva = obsPrevia
+        ? `${obsPrevia} | [${rol.toUpperCase()}]: ${observacion.texto}`
+        : observacion.texto;
+
+    return {
+        ...gasto,
+        observaciones: obsNueva,
+        observacion: obsNueva,
+        observacionesHistorial: [
+            ...(observacionInicial ? [observacionInicial] : []),
+            ...historialExistente,
+            observacion,
+        ],
+    };
+}
+
 
 function SolicitudForm({ currentRole }) {
     const navigate = useNavigate();
@@ -80,7 +156,7 @@ function SolicitudForm({ currentRole }) {
     
         // Estado del chat de observaciones
         const [comentario, setComentario] = useState('');
-        const [historial, setHistorial] = useState([]);
+        const [historial, setHistorial] = useState(() => historialBorradorDesdeGastos(loadDraftGastos()));
     
         // 2. NORMALIZAR EL ROL
         const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
@@ -176,21 +252,11 @@ function SolicitudForm({ currentRole }) {
 
 
     useEffect(() => {
-        let activo = true;
-
-        // 1. Extraemos las notas iniciales de la lista de gastos
-        // Revisa 'gastos' (borrador local) y 'gastosDesglosados'
-        const listaGastos = solicitudBackendId ? gastosDesglosados : gastos;
-        const obsIniciales = (listaGastos || [])
-            .map(observacionInicialDesdeGasto)
-            .filter(Boolean);
-
-        console.log("Observaciones Iniciales: ", obsIniciales)
-
-        // Si es un borrador (modo creación sin backendId)
         if (!solicitudBackendId) {
-            if (activo) {
-                // Unimos las iniciales con las agregadas en esta sesión evitando duplicados por ID
+            // 1. Extraemos las notas iniciales de la lista de gastos
+            // Revisa 'gastos' (borrador local) y 'gastosDesglosados'
+            // Si es un borrador (modo creación sin backendId)
+            // Unimos las iniciales con las agregadas en esta sesión evitando duplicados por ID
                 ////setHistorial((prevHistorial) => {
                    // const map = new Map();
                     // Agregar iniciales
@@ -198,25 +264,15 @@ function SolicitudForm({ currentRole }) {
                     // Conservar las agregadas manualmente desde la interfaz
                    // prevHistorial.forEach(item => map.set(item.id, item));
                    // return Array.from(map.values());
-                
-                setHistorial((prevHistorial) => {
-                // Mantenemos solo las observaciones creadas localmente desde SolicitudForm 
-                // y las combinamos con las iniciales de los gastos
-                const obsLocalesNuevas = prevHistorial.filter((obs) => String(obs.id).startsWith('local-obs-'));
-
-                // Evitamos duplicar observaciones iniciales
-                const map = new Map();
-                obsIniciales.forEach((item) => map.set(item.id, item));
-                obsLocalesNuevas.forEach((item) => map.set(item.id, item));
-
-                const resultado = Array.from(map.values());
-                console.log("🔄 [useEffect] Historial recalculado:", resultado);
-                return resultado;
-            });
-        }
             return undefined;
-    }
-        
+        }
+
+        let activo = true;
+
+        // 1. Extraemos las notas iniciales de la lista de gastos
+        const obsIniciales = (gastosDesglosados || [])
+            .map(observacionInicialDesdeGasto)
+            .filter(Boolean);
 
         getRequestAuditEvents(solicitudBackendId)
             .then((eventos) => {
@@ -241,7 +297,7 @@ function SolicitudForm({ currentRole }) {
         return () => {
             activo = false;
         };
-    }, [solicitudBackendId, gastos]);
+    }, [solicitudBackendId, gastosDesglosados]);
     
     
     const refrescarHistorialBackend = async () => {
@@ -288,19 +344,8 @@ function SolicitudForm({ currentRole }) {
             return;
         }
                 
-        
         const currentGastoId = gastoHistorialId(gastoSeleccionado); // 👈 Asigna el ID del gasto activo
-        
-        const nueva = {
-            id: `local-${currentGastoId || 'gasto'}-${Date.now()}`,
-            gastoId: currentGastoId,
-            autor: rol.toUpperCase(),
-            rol,
-            texto: textoObservacion,
-            fecha: new Date().toLocaleString(),
-            fechaTimestamp: Date.now(),
-            visibilidad: VISIBILIDAD.PUBLIC,
-        };
+        const nueva = crearObservacionLocal(currentGastoId, rol, textoObservacion);
 
         console.log("➡️ 1. Intentando añadir nueva observación:", nueva);
 
@@ -309,28 +354,13 @@ function SolicitudForm({ currentRole }) {
                 await addExpenseObservation(expenseId, textoObservacion);
                 await refrescarHistorialBackend();
             } else {
-                // 1. Actualizamos el historial visible en pantalla
-                setHistorial((prevHistorial) => [...prevHistorial, nueva]);
-
                 // 2. ACTUALIZAMOS EL OBJETO GASTO EN 'gastos'
                 // Concatenamos las observaciones para que al enviar la solicitud no se pierdan
-                setGastos((prevGastos) =>
-                    prevGastos.map((g) => {
-                        if (idsIguales(gastoHistorialId(g), currentGastoId)) {
-                            const obsPrevia = g.observaciones || g.observacion || '';
-                            const obsNueva = obsPrevia 
-                                ? `${obsPrevia} | [${rol.toUpperCase()}]: ${textoObservacion}`
-                                : textoObservacion;
-                            
-                            return {
-                                ...g,
-                                observaciones: obsNueva,
-                                observacion: obsNueva,
-                            };
-                        }
-                        return g;
-                    })
-                );
+                const actualizarGasto = (g) => agregarObservacionLocalAGasto(g, currentGastoId, rol, nueva);
+                const gastosActualizados = gastos.map(actualizarGasto);
+                setGastos(gastosActualizados);
+                setHistorial(historialBorradorDesdeGastos(gastosActualizados));
+                updateDraftGasto(currentGastoId, actualizarGasto);
             }
             setComentario('');
         } catch (error) {

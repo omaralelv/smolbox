@@ -51,6 +51,11 @@ class ReimbursementRequestStatus(str, enum.Enum):
     rejected = "rejected"
 
 
+class AccountingQueueStatus(str, enum.Enum):
+    single = "single"
+    taken = "taken"
+
+
 class ReimbursementRequest(Base):
     __tablename__ = "reimbursement_requests"
 
@@ -117,6 +122,10 @@ class ReimbursementRequest(Base):
         nullable=True,
     )
     correction_reason: Mapped[str | None] = mapped_column(Text)
+    accounting_queue_status: Mapped[AccountingQueueStatus | None] = mapped_column(
+        Enum(AccountingQueueStatus, name="accounting_queue_status"),
+        nullable=True,
+    )
 
     store: Mapped[Store] = relationship(back_populates="reimbursement_requests")
     period: Mapped[Period] = relationship(back_populates="reimbursement_requests")

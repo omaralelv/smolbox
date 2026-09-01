@@ -38,7 +38,9 @@ from app.schemas.reimbursement_request import (
     SapPolicyPrepare,
     SapPolicyRead,
 )
+from app.services.accounting_queue import mark_accounting_request_taken_on_open
 from app.services.automation_review import build_automated_review
+from app.services.expense_authorization_rules import expense_requires_authorization
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.frontend_actions import available_actions_for_request
@@ -151,6 +153,11 @@ def get_reimbursement_request_detail_as_current_user(
 ) -> ReimbursementRequestDetailRead:
     reimbursement_request = _get_request_detail_or_404(request_id, db)
     _ensure_request_visible_to_user(reimbursement_request, current_user, db)
+    reimbursement_request = _mark_accounting_request_taken_if_needed(
+        reimbursement_request,
+        current_user,
+        db,
+    )
     return _build_request_detail(reimbursement_request, current_user)
 
 
@@ -700,7 +707,12 @@ async def import_reimbursement_request_expenses(
             category=row.category,
             description=row.description,
             supplier_tax_id=row.supplier_tax_id,
-            requires_authorization=row.requires_authorization,
+            requires_authorization=expense_requires_authorization(
+                explicit=row.requires_authorization,
+                category=row.category,
+                description=row.description,
+                merchant=row.merchant,
+            ),
         )
         for row in parsed_rows
     ]
@@ -966,6 +978,34 @@ def _ensure_request_visible_to_user(
                 "message": "Actor must be assigned to the request store",
             },
         )
+
+
+def _mark_accounting_request_taken_if_needed(
+    reimbursement_request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> ReimbursementRequest:
+    summary = summarize_reimbursement_request(reimbursement_request)
+    if not mark_accounting_request_taken_on_open(
+        reimbursement_request,
+        actor=current_user,
+        summary=summary,
+    ):
+        return reimbursement_request
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="accounting_request_taken",
+            from_status="single",
+            to_status="taken",
+            message="Accounting request opened by user.",
+        )
+    )
+    db.commit()
+    return _get_request_detail_or_404(reimbursement_request.id, db)
 
 
 def _build_request_detail(

@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.reimbursement_request import (
+    AccountingQueueStatus,
+    ReimbursementRequest,
+    ReimbursementRequestStatus,
+)
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import ReimbursementValidationSummary
 
@@ -237,6 +241,12 @@ def transition_reimbursement_request(
         )
 
     request.status = target_status
+    _sync_accounting_queue_status(
+        request,
+        target_status,
+        from_status=current_status,
+        summary=summary,
+    )
     _stamp_transition(request, target_status, from_status=current_status)
     return current_status, target_status
 
@@ -283,6 +293,50 @@ def _stamp_transition(
         request.paid_at = now
     elif target_status == ReimbursementRequestStatus.closed:
         request.closed_at = now
+
+
+def _sync_accounting_queue_status(
+    request: ReimbursementRequest,
+    target_status: ReimbursementRequestStatus,
+    *,
+    from_status: ReimbursementRequestStatus,
+    summary: ReimbursementValidationSummary,
+) -> None:
+    if target_status == ReimbursementRequestStatus.submitted:
+        request.accounting_queue_status = (
+            AccountingQueueStatus.single
+            if not summary.missing_authorization_expense_ids
+            else None
+        )
+        return
+
+    if target_status == ReimbursementRequestStatus.authorized:
+        request.accounting_queue_status = AccountingQueueStatus.single
+        return
+
+    if target_status == ReimbursementRequestStatus.under_accounting_review:
+        request.accounting_queue_status = (
+            AccountingQueueStatus.single
+            if from_status == ReimbursementRequestStatus.accounting_manager_review
+            else AccountingQueueStatus.taken
+        )
+        return
+
+    if target_status in {
+        ReimbursementRequestStatus.authorization_review,
+        ReimbursementRequestStatus.accounting_reviewed,
+        ReimbursementRequestStatus.accounting_approved,
+        ReimbursementRequestStatus.accounting_manager_review,
+        ReimbursementRequestStatus.accounting_manager_approved,
+        ReimbursementRequestStatus.treasury_review,
+        ReimbursementRequestStatus.direction_review,
+        ReimbursementRequestStatus.direction_approved,
+        ReimbursementRequestStatus.approved_for_payment,
+        ReimbursementRequestStatus.paid,
+        ReimbursementRequestStatus.closed,
+        ReimbursementRequestStatus.rejected,
+    }:
+        request.accounting_queue_status = None
 
 
 def _review_roles_for_status(status: ReimbursementRequestStatus) -> set[UserRole]:

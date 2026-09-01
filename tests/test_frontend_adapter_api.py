@@ -147,6 +147,74 @@ def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> 
     assert detail.json()["backendId"] == created_body["backendId"]
 
 
+def test_frontend_taxi_expense_routes_request_to_authorization(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    store_user_id = _create_user(client, "store", "frontend.taxi.store@example.com")
+    authorizer_user_id = _create_user(
+        client,
+        "authorizer",
+        "frontend.taxi.authorizer@example.com",
+    )
+    accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.taxi.accountant@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+
+    store_headers = _auth_headers(client, "frontend.taxi.store@example.com")
+    created = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=store_headers,
+        json={
+            "tienda": "T001",
+            "montoTotal": "1500.00",
+            "gastos": [
+                {
+                    "fecha": "07/08/2026",
+                    "categoria": "Pasajes y Taxis",
+                    "monto": "1500.00",
+                    "observaciones": "Traslado operativo",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    created_body = created.json()
+    created_expense = created_body["gastos"][0]
+    assert created_expense["requiresAuthorization"] is True
+    assert created_expense["autorizacion"] == ""
+
+    _attach_valid_cfdi(
+        client,
+        created_expense["backendId"],
+        "1500.00",
+        uuid="66666666-6666-4666-8666-666666666666",
+    )
+
+    submitted = _transition(
+        client,
+        created_body["backendId"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    authorizer_headers = _auth_headers(client, "frontend.taxi.authorizer@example.com")
+    authorizer_queue = client.get("/api/v1/frontend/bandeja/me", headers=authorizer_headers)
+    assert authorizer_queue.status_code == 200, authorizer_queue.text
+    assert [item["backendId"] for item in authorizer_queue.json()] == [created_body["backendId"]]
+
+    accountant_headers = _auth_headers(client, "frontend.taxi.accountant@example.com")
+    accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    assert accountant_queue.json() == []
+
+
 def test_frontend_accounting_actions_follow_sap_policy_order(
     client: TestClient,
     base_records: dict[str, str],
@@ -464,6 +532,58 @@ def test_frontend_detail_keeps_removed_expenses_out_of_total(
     assert removed_item["status"] == "Eliminado"
     assert removed_item["backendStatus"] == "removed"
     assert removed_item["monto"] == 500.0
+
+
+def test_accounting_queue_status_is_single_until_accountant_opens_request(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "1500.00",
+        uuid="55555555-5555-4555-8555-555555555555",
+    )
+
+    store_user_id = _create_user(client, "store", "frontend.single.store@example.com")
+    accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.single.accountant@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["status"] == "submitted"
+    assert submitted.json()["accounting_queue_status"] == "single"
+
+    accountant_headers = _auth_headers(client, "frontend.single.accountant@example.com")
+    accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    assert accountant_queue.json()[0]["backendStatus"] == "submitted"
+    assert accountant_queue.json()[0]["accountingQueueStatus"] == "single"
+
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=accountant_headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["backendStatus"] == "submitted"
+    assert detail.json()["accountingQueueStatus"] == "taken"
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    assert "accounting_request_taken" in {event["action"] for event in audit_events.json()}
 
 
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:

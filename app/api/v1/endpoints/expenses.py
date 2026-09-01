@@ -30,6 +30,7 @@ from app.schemas.expense import (
     ExpenseReviewUpdate,
     ExpenseUpdate,
 )
+from app.services.expense_authorization_rules import expense_requires_authorization
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
@@ -106,6 +107,12 @@ def create_expense(
             },
         )
 
+    expense_data["requires_authorization"] = expense_requires_authorization(
+        explicit=bool(expense_data.get("requires_authorization", False)),
+        category=expense_data.get("category"),
+        description=expense_data.get("description"),
+        merchant=expense_data.get("merchant"),
+    )
     expense = Expense(**expense_data)
     db.add(expense)
     db.flush()

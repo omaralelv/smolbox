@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.reimbursement_request import ReimbursementRequestStatus
+from app.models.reimbursement_request import AccountingQueueStatus, ReimbursementRequestStatus
 from app.schemas.attachment import AttachmentRead
 from app.schemas.audit_log import AuditLogRead
 from app.schemas.cfdi import CfdiValidationRead
@@ -81,6 +81,7 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     correction_requested_by_user_id: UUID | None = None
     correction_return_status: ReimbursementRequestStatus | None = None
     correction_reason: str | None = None
+    accounting_queue_status: AccountingQueueStatus | None = None
     created_at: datetime
     updated_at: datetime
 

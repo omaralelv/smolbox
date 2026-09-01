@@ -77,6 +77,7 @@ class FrontendSolicitudRead(BaseModel):
     fecha_formateada: str = Field(alias="fechaFormateada")
     status: str
     backend_status: str = Field(alias="backendStatus")
+    accounting_queue_status: str | None = Field(default=None, alias="accountingQueueStatus")
     gerente: str | None = None
     cuenta_bancaria: str | None = Field(default=None, alias="cuentaBancaria")
     estado_region: str | None = Field(default=None, alias="estadoRegion")

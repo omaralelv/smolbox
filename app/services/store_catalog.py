@@ -1,4 +1,5 @@
 import os
+
 import pandas as pd
 
 # store_catalog.py está en: /app/app/services/store_catalog.py
@@ -17,8 +18,8 @@ def cargar_catalogo_tiendas(ruta_archivo: str = RUTA_TIENDAS_EXCEL) -> dict:
 
         return df.set_index("TDA").to_dict("index")
 
-    except Exception as e:
-        print(f"❌ Error al cargar catálogo de tiendas: {e}")
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"Error al cargar catalogo de tiendas: {exc}")
         return {}
 
 

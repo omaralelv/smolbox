@@ -197,7 +197,16 @@ function Detalle({ currentRole }) {
     const refrescarHistorialBackend = async () => {
         if (!solicitudBackendId) return;
         const eventos = await getRequestAuditEvents(solicitudBackendId);
-        setHistorial(historialDesdeEventos(eventos));
+        const obsIniciales = (gastosDesglosados || [])
+            .map(observacionInicialDesdeGasto)
+            .filter(Boolean);
+        const obsEventos = historialDesdeEventos(eventos || []);
+
+        setHistorial(
+            [...obsIniciales, ...obsEventos].sort(
+                (a, b) => a.fechaTimestamp - b.fechaTimestamp
+            )
+        );
     };
 
 
