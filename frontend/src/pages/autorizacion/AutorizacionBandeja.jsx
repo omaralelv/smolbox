@@ -497,8 +497,8 @@ function AutorizacionBandeja( { currentRole } ) {
                                 {guardandoDecision
                                     ? 'Guardando...'
                                     : confirmacionAutorizacion.nuevoEstado === 'Autorizada'
-                                        ? 'Autorizar'
-                                        : 'No autorizar'}
+                                        ? 'AUTORIZAR'
+                                        : 'NO AUTORIZAR'}
                             </button>
                         </div>
                     </div>
@@ -622,7 +622,7 @@ const styles = {
     modalOverlay: {
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+        backgroundColor: 'rgba(78, 68, 68, 0.35)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -633,7 +633,7 @@ const styles = {
         backgroundColor: 'var(--bg)',
         border: '1px solid var(--border)',
         borderRadius: '10px',
-        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.2)',
+        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)',
         padding: '22px',
         fontFamily: 'sans-serif',
     },
@@ -644,7 +644,7 @@ const styles = {
     },
     modalText: {
         margin: '0 0 14px',
-        fontSize: '14px',
+        fontSize: '13px',
         lineHeight: 1.4,
         color: '#333',
     },
@@ -658,6 +658,7 @@ const styles = {
         fontSize: '14px',
         fontFamily: 'sans-serif',
         boxSizing: 'border-box',
+        background: '#ffffff'
     },
     modalError: {
         margin: '8px 0 0',
@@ -681,23 +682,23 @@ const styles = {
         cursor: 'pointer',
     },
     btnConfirmarModal: {
-        backgroundColor: 'var(--text-pagada)',
+        background: 'var(--gradient)',
         color: 'var(--text-CBtn)',
         border: 'none',
         borderRadius: '6px',
         padding: '8px 14px',
-        fontSize: '12px',
-        fontWeight: 'bold',
+        fontSize: '13px',
+        fontWeight: '600',
         cursor: 'pointer',
     },
     btnRechazarModal: {
-        backgroundColor: 'var(--text-denegada)',
+        background: 'var(--gradient)',
         color: 'var(--text-CBtn)',
         border: 'none',
         borderRadius: '6px',
         padding: '8px 14px',
-        fontSize: '12px',
-        fontWeight: 'bold',
+        fontSize: '13px',
+        fontWeight: '600',
         cursor: 'pointer',
     },
 };
