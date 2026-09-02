@@ -45,7 +45,11 @@ function AnadirGasto() {
         setCargandoValidacion(true);
 
         try {
-            await validarCfdiAntesDeAnadir(facturaFile, monto, `Gasto - ${categoria}`);
+            const cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, `Gasto - ${categoria}`);
+            validarSolicitudDespuesDeAnadir([
+                ...loadDraftGastos(),
+                crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
+            ]);
             setEstadoValidacion('listo');
         } catch (error) {
             setEstadoValidacion('error');
@@ -99,6 +103,14 @@ function AnadirGasto() {
             facturaFile: facturaFile,
             valeFile: valeFile,
         };
+
+        try {
+            validarSolicitudDespuesDeAnadir([...loadDraftGastos(), nuevoGastoItem]);
+        } catch (error) {
+            setEstadoValidacion('error');
+            alert(apiErrorMessage(error));
+            return;
+        }
 
         alert("¡Gasto guardado exitosamente en la solicitud!");
         addDraftGasto(nuevoGastoItem);
@@ -625,6 +637,99 @@ function uuidYaExisteEnSolicitud(uuid) {
         );
         return uuidExistente === uuid;
     });
+}
+
+function crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }) {
+    return {
+        id: `validacion-${Date.now()}`,
+        nombre: `Gasto - ${categoria}`,
+        monto: parseFloat(monto) || 0,
+        tipo: categoria,
+        folio,
+        fecha,
+        observaciones,
+        cfdiUuid: normalizarUuidLocal(cfdiParsed.uuid),
+        cfdiSubtotal: numeroOculto(cfdiParsed.subtotal),
+        cfdiTotal: cfdiParsed.total,
+        cfdiCurrency: cfdiParsed.currency,
+        cfdiTaxAmount: numeroOculto(cfdiParsed.tax_amount),
+        cfdiTaxRate: numeroOculto(cfdiParsed.tax_rate),
+        facturaFile,
+        valeFile,
+    };
+}
+
+function validarSolicitudDespuesDeAnadir(gastos) {
+    const activos = gastos.filter(esGastoActivo);
+    const errores = [];
+
+    const sinCfdiValido = activos.filter((gasto) => !gastoTieneCfdiValido(gasto));
+    if (sinCfdiValido.length) {
+        errores.push(`Todos los gastos activos deben tener CFDI XML válido. Falta CFDI válido en ${sinCfdiValido.length} gasto(s).`);
+    }
+
+    const cfdisDuplicados = obtenerCfdisDuplicados(activos);
+    if (cfdisDuplicados.length) {
+        errores.push(`No debe haber CFDI duplicado. UUID repetido: ${cfdisDuplicados.join(', ')}.`);
+    }
+
+    const totalGastos = activos.reduce((sum, gasto) => sum + (Number(gasto.monto) || 0), 0);
+    const totalCfdis = activos.reduce((sum, gasto) => sum + (cfdiTotalDesdeGasto(gasto) || 0), 0);
+    if (redondearMonto(totalGastos) !== redondearMonto(totalCfdis)) {
+        errores.push(`El total de gastos (${formatoMonto(totalGastos)}) no coincide con el total fiscal de los CFDI (${formatoMonto(totalCfdis)}).`);
+    }
+
+    if (errores.length) {
+        throw new Error([
+            'No se puede añadir el gasto porque la solicitud quedaría con errores:',
+            ...errores,
+        ].join('\n'));
+    }
+}
+
+function esGastoActivo(gasto) {
+    if (!gasto) return false;
+    if (gasto.deletedAt || gasto.deleted_at || gasto.removedAt || gasto.removed_at) return false;
+
+    const estado = String(gasto.backendStatus || gasto.backend_status || gasto.status || gasto.estado || '')
+        .trim()
+        .toLowerCase();
+    return !['deleted', 'removed', 'rejected', 'eliminado', 'no autorizado', 'no_autorizado'].includes(estado);
+}
+
+function gastoTieneCfdiValido(gasto) {
+    const uuid = cfdiUuidDesdeGasto(gasto);
+    const total = cfdiTotalDesdeGasto(gasto);
+    const moneda = String(gasto.cfdiCurrency || gasto.cfdi_currency || 'MXN').trim().toUpperCase();
+    const archivoXmlValido = gasto.facturaFile ? esXml(gasto.facturaFile) : Boolean(uuid && total !== null);
+
+    return Boolean(uuid) && total !== null && moneda === 'MXN' && archivoXmlValido;
+}
+
+function obtenerCfdisDuplicados(gastos) {
+    const vistos = new Set();
+    const duplicados = new Set();
+
+    gastos.forEach((gasto) => {
+        const uuid = cfdiUuidDesdeGasto(gasto);
+        if (!uuid) return;
+        if (vistos.has(uuid)) {
+            duplicados.add(uuid);
+        }
+        vistos.add(uuid);
+    });
+
+    return Array.from(duplicados);
+}
+
+function cfdiUuidDesdeGasto(gasto) {
+    return normalizarUuidLocal(
+        gasto?.cfdiUuid || gasto?.cfdi_uuid || gasto?.folioFiscal || gasto?.folio_fiscal
+    );
+}
+
+function cfdiTotalDesdeGasto(gasto) {
+    return numeroOculto(gasto?.cfdiTotal ?? gasto?.cfdi_total ?? gasto?.totalCfdi ?? gasto?.total_cfdi);
 }
 
 function normalizarUuidLocal(value) {

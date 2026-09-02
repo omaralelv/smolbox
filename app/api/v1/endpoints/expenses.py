@@ -474,6 +474,12 @@ def _reject_expense_with_actor(
             },
         )
     )
+    _reject_request_if_no_payable_expenses(
+        reimbursement_request,
+        actor=actor,
+        authenticated=require_store_assignment,
+        db=db,
+    )
     db.commit()
     db.refresh(expense)
     return expense

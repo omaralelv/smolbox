@@ -14,7 +14,7 @@ function Historico({currentRole}) {
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem('bandejaSolicitudes');
         const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
-        return lista.filter((s) => String(s.status || s.estatus).toLowerCase() === 'pagada');
+        return lista.filter(esSolicitudHistorica);
     });
 
 
@@ -31,17 +31,17 @@ function Historico({currentRole}) {
         getFrontendHistorico()
             .then((datos) => {
                 if (!activo) return;
-                const soloPagadas = Array.isArray(datos)
-                ? datos.filter((s) => String(s.status || s.estatus).toLowerCase() === 'pagada') : []
+                const historicas = Array.isArray(datos)
+                ? datos.filter(esSolicitudHistorica) : []
 
-                setSolicitudes(soloPagadas);
-                localStorage.setItem('bandejaSolicitudes', JSON.stringify(soloPagadas));
+                setSolicitudes(historicas);
+                localStorage.setItem('bandejaSolicitudes', JSON.stringify(historicas));
             })
             .catch(() => {
                 if (!activo) return;
                 const guardadas = localStorage.getItem('bandejaSolicitudes');
                 const listaFallback = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
-                setSolicitudes(listaFallback.filter((s) => String(s.status || s.estatus).toLowerCase() === 'pagada'));
+                setSolicitudes(listaFallback.filter(esSolicitudHistorica));
             });
 
         return () => {
@@ -52,18 +52,22 @@ function Historico({currentRole}) {
 
 
   // Función para asignar colores exactos a cada Badge
-    const getBadgeStyle = () => {
+    const getBadgeStyle = (status) => {
+        if (String(status || '').toLowerCase() === 'rechazada') {
             return {
-                backgroundColor: 'var(--sb-pagadaBg, #e6ffe6)',
-                color: 'var(--text-pagada, #52c41a)'
+                backgroundColor: 'var(--sb-denegadaBg, #fff1e6)',
+                color: 'var(--text-denegada, #d46b08)'
             };
+        }
+        return {
+            backgroundColor: 'var(--sb-pagadaBg, #e6ffe6)',
+            color: 'var(--text-pagada, #52c41a)'
+        };
     };
 
 
     // Filtrado de seguridad en render
-    const solicitudesPagadas = solicitudes.filter(
-        (sol) => String(sol.status || sol.estatus).toLowerCase() === 'pagada'
-    );
+    const solicitudesHistoricas = solicitudes.filter(esSolicitudHistorica);
 
 
     return (
@@ -86,11 +90,11 @@ function Historico({currentRole}) {
 
         {/* LISTA DE FILAS DE SOLICITUDES */}
             <div style={styles.listContainer}>
-                {solicitudesPagadas.length === 0 ? (
+                {solicitudesHistoricas.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
-                        No hay solicitudes pagadas registradas en el histórico.
+                        No hay solicitudes registradas en el histórico.
                     </div>
-                ) : (solicitudesPagadas.map((sol) => (
+                ) : (solicitudesHistoricas.map((sol) => (
                     <div key={sol.id} style={styles.row}>
                         {/* 1. Nombre / ID Solicitud */}
                         <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
@@ -109,7 +113,7 @@ function Historico({currentRole}) {
 
                         {/* 4. Pill / Badge de Estatus */}
                         <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-                            <span style={{ ...styles.statusBadge, ...getBadgeStyle() }}>
+                            <span style={{ ...styles.statusBadge, ...getBadgeStyle(sol.status || sol.estatus) }}>
                                 {sol.status}
                             </span>
                         </div>
@@ -184,3 +188,8 @@ const styles = {
 };
 
 export default Historico;
+
+function esSolicitudHistorica(solicitud) {
+    const status = String(solicitud?.status || solicitud?.estatus || '').toLowerCase();
+    return status === 'pagada' || status === 'rechazada';
+}
