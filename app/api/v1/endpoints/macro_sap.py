@@ -4,9 +4,9 @@ import re
 import uuid
 import zipfile
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo 
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,6 +32,7 @@ ruta_gastos = os.path.join(ASSETS_DIR, "TiposGastos.xlsx")
 ruta_plantilla = os.path.join(ASSETS_DIR, "COPIA FORMATO REEMBOLSO.xlsx")
 ruta_logo = os.path.join(ASSETS_DIR, "logoV.png")
 ruta_W6 = os.path.join(ASSETS_DIR, "TDAS IVA W6.xlsx")
+ruta_saldos = os.path.join(ASSETS_DIR, "COPIA SALDO DE TDAS ANOS 24 25 Y 26.xlsx")
 
 
 def limpiar_nombre_archivo(valor: str) -> str:
@@ -169,11 +170,104 @@ def determinar_iva_e_indice(
     # Regla 4: Regla general
     return porcentaje_iva, "W1"
 
+
+def convertir_decimal(valor):
+    try:
+        texto = str(valor).strip()
+
+        if not texto or texto.lower() == "nan":
+            return Decimal("0.00")
+
+        texto = texto.replace("\u00A0", "")
+        texto = texto.replace("$", "")
+        texto = texto.replace(",", "")
+
+        if texto.startswith("(") and texto.endswith(")"):
+            texto = f"-{texto[1:-1]}"
+
+        return Decimal(texto).quantize(
+            Decimal("0.01")
+        )
+
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(
+            f"Saldo no numérico encontrado: {valor!r}"
+        ) from exc
+
+
+def cargar_saldos_tiendas(ruta_archivo):
+    try:
+        df = pd.read_excel(
+            ruta_archivo,
+            sheet_name="PRESUPUESTO 2024-2026",
+            usecols="A,D,E",
+            header=None,
+            dtype=str,
+        ).fillna("")
+
+        # Asignamos nombres internos sin depender de los encabezados visuales
+        df.columns = [
+            "TDA",
+            "GASTO_2025",
+            "GASTO_2026",
+        ]
+
+        # Limpiar texto en la columna de tienda
+        df["TDA"] = df["TDA"].astype(str).str.strip()
+
+        # Solo aceptamos códigos reales de tienda:
+        # V001, V042, V999, etc.
+        patron_tienda = patron_tienda = r"^[A-Z]+\d+$"
+
+        df = df[
+            df["TDA"].str.fullmatch(
+                patron_tienda,
+                case=False,
+                na=False,
+            )
+        ].copy()
+
+        # Normalizar el código final como mayúsculas
+        df["TDA"] = df["TDA"].str.upper()
+
+        if df.empty:
+            raise ValueError(
+                "No se encontraron tiendas con formato V###. "
+                "Revisa la columna A y el patrón de los códigos."
+            )
+
+        # Convertir únicamente datos de filas reales de tienda
+        df["GASTO_2025"] = df["GASTO_2025"].apply(
+            convertir_decimal
+        )
+
+        df["GASTO_2026"] = df["GASTO_2026"].apply(
+            convertir_decimal
+        )
+
+        # Validar códigos duplicados
+        if df["TDA"].duplicated().any():
+            duplicados = df.loc[
+                df["TDA"].duplicated(keep=False),
+                "TDA",
+            ].tolist()
+
+            raise ValueError(
+                f"Hay tiendas duplicadas en el archivo: {duplicados}"
+            )
+
+        return df.set_index("TDA").to_dict("index")
+
+    except Exception as e:
+        print(f"❌ Error al cargar saldos de tiendas: {e}")
+        return {}
+
+
 # Cargamos en memoria RAM del servidor al iniciar
 diccionario_tiendas = cargar_base_tiendas(ruta_tiendas)
 diccionario_gastos = cargar_tipo_gastos(ruta_gastos)
 indice_categorias = crear_indice_categorias(diccionario_gastos)
-
+diccionario_saldos = cargar_saldos_tiendas(ruta_saldos)
 tiendas_iva_w6 = cargar_tiendas_iva_w6(ruta_W6)
 
 # =========================================================
@@ -537,6 +631,20 @@ def generar_polizas(
     # E) Creación del Archivo 2: Solicitud (En memoria)
     wb_solicitud = load_workbook(ruta_plantilla)
     ws_solicitud = wb_solicitud.active
+
+    saldo_tienda = diccionario_saldos.get(numero_tienda)
+
+    if saldo_tienda is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"La tienda '{numero_tienda}' no existe "
+                "en SALDO DE TDAS ANOS 24 25 Y 26.xlsx."
+            ),
+    )
+
+    gasto_2025 = saldo_tienda["GASTO_2025"]
+    gasto_2026 = saldo_tienda["GASTO_2026"]
     
     try:
         logo = Image(ruta_logo)
@@ -564,6 +672,9 @@ def generar_polizas(
     ws_solicitud['I65'] = float(total_gran_factura)
     ws_solicitud['I68'] = float(total_gran_factura)
     ws_solicitud['G63'] = float(suma_ivas)
+
+    ws_solicitud["E22"] = gasto_2025
+    ws_solicitud["E24"] = gasto_2026
 
     fila_actual = 41
     for mov in poliza_agrupada:
