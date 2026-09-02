@@ -30,12 +30,33 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+BASE_SCHEMA_TABLES = (
+    "stores",
+    "periods",
+    "reimbursement_requests",
+    "expenses",
+    "attachments",
+    "users",
+    "store_user_assignments",
+    "audit_logs",
+    "business_rules",
+    "cfdi_validations",
+    "payments",
+)
+
 
 def upgrade() -> None:
     bind = op.get_bind()
     _ensure_reimbursement_status_values(bind)
     _ensure_stage2_enum_types(bind)
-    Base.metadata.create_all(bind=bind)
+    Base.metadata.create_all(
+        bind=bind,
+        tables=[
+            Base.metadata.tables[table_name]
+            for table_name in BASE_SCHEMA_TABLES
+            if table_name in Base.metadata.tables
+        ],
+    )
     _upgrade_existing_reimbursement_requests(bind)
 
 
