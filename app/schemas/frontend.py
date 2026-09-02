@@ -90,6 +90,22 @@ class FrontendSolicitudRead(BaseModel):
     action_labels: dict[str, str] = Field(default_factory=dict, alias="actionLabels")
 
 
+class FrontendObservationCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    texto: str = Field(
+        default="",
+        validation_alias=AliasChoices("texto", "text", "message", "note"),
+    )
+    rol: str | None = None
+    autor: str | None = None
+    fecha_timestamp: int | float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("fecha_timestamp", "fechaTimestamp", "timestamp"),
+    )
+    visibilidad: str | None = None
+
+
 class FrontendGastoCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -140,6 +156,10 @@ class FrontendGastoCreate(BaseModel):
     requiere_autorizacion: bool = Field(
         default=False,
         validation_alias=AliasChoices("requiere_autorizacion", "requiresAuthorization"),
+    )
+    observaciones_historial: list[FrontendObservationCreate] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("observaciones_historial", "observacionesHistorial"),
     )
 
 

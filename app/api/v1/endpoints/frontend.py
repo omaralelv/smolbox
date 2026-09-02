@@ -21,6 +21,7 @@ from app.schemas.frontend import (
     FrontendContextRead,
     FrontendGastoCreate,
     FrontendGastoRead,
+    FrontendObservationCreate,
     FrontendSolicitudCreate,
     FrontendSolicitudRead,
     FrontendStoreRead,
@@ -91,7 +92,6 @@ STORE_MONITORING_STATUSES = {
     ReimbursementRequestStatus.direction_approved,
     ReimbursementRequestStatus.approved_for_payment,
     ReimbursementRequestStatus.paid,
-    ReimbursementRequestStatus.rejected,
 }
 
 HISTORICAL_STATUSES = {
@@ -298,7 +298,16 @@ def create_frontend_request(
     )
 
     for expense_in in request_in.gastos:
-        db.add(_expense_from_frontend(expense_in, request=request, period=period))
+        expense = _expense_from_frontend(expense_in, request=request, period=period)
+        db.add(expense)
+        db.flush()
+        _add_frontend_observation_events(
+            expense_in,
+            request=request,
+            expense=expense,
+            actor=current_user,
+            db=db,
+        )
 
     try:
         db.commit()
@@ -352,6 +361,13 @@ def add_frontend_expense(
     expense = _expense_from_frontend(expense_in, request=request, period=request.period)
     db.add(expense)
     db.flush()
+    _add_frontend_observation_events(
+        expense_in,
+        request=request,
+        expense=expense,
+        actor=current_user,
+        db=db,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=request.id,
@@ -572,6 +588,70 @@ def _expense_from_frontend(
             merchant=merchant,
         ),
     )
+
+
+def _add_frontend_observation_events(
+    expense_in: FrontendGastoCreate,
+    *,
+    request: ReimbursementRequest,
+    expense: Expense,
+    actor: User,
+    db: Session,
+) -> None:
+    seen: set[tuple[str, int | float | None]] = set()
+
+    for observation in expense_in.observaciones_historial:
+        note = observation.texto.strip()
+        if not note:
+            continue
+
+        key = (note, observation.fecha_timestamp)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        created_at = _frontend_observation_created_at(observation)
+        audit_log = AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_observation_added",
+            message=note,
+            event_payload={
+                "actor_role": actor.role.value,
+                "request_status": request.status.value,
+                "source": "frontend_draft",
+                "frontend_role": observation.rol,
+                "frontend_author": observation.autor,
+                "frontend_visibility": observation.visibilidad,
+                "fecha_timestamp": observation.fecha_timestamp,
+            },
+        )
+        if created_at is not None:
+            audit_log.created_at = created_at
+
+        db.add(
+            audit_log
+        )
+
+
+def _frontend_observation_created_at(
+    observation: FrontendObservationCreate,
+) -> datetime | None:
+    timestamp = observation.fecha_timestamp
+    if timestamp is None:
+        return None
+
+    try:
+        timestamp_value = float(timestamp)
+    except (TypeError, ValueError):
+        return None
+
+    if timestamp_value > 10_000_000_000:
+        timestamp_value = timestamp_value / 1000
+
+    return datetime.fromtimestamp(timestamp_value, UTC)
 
 
 def _get_request_by_frontend_identifier(

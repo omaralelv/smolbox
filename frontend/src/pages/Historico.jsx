@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendHistorico } from '../lib/api';
 
+const HISTORICO_CACHE_KEY = 'historicoSolicitudes';
+const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
+
 const SOLICITUDES_BASE = [
     { id: 'Solicitud 3', tienda: 'T-001', fecha: '12/08/2026', status: 'Pagada' },
     { id: 'Solicitud 2', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' },
@@ -12,7 +15,7 @@ const SOLICITUDES_BASE = [
 function Historico({currentRole}) {
     const navigate = useNavigate();
     const [solicitudes, setSolicitudes] = useState(() => {
-        const guardadas = localStorage.getItem('bandejaSolicitudes');
+        const guardadas = localStorage.getItem(HISTORICO_CACHE_KEY) || localStorage.getItem(BANDEJA_CACHE_KEY);
         const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
         return lista.filter(esSolicitudHistorica);
     });
@@ -35,11 +38,11 @@ function Historico({currentRole}) {
                 ? datos.filter(esSolicitudHistorica) : []
 
                 setSolicitudes(historicas);
-                localStorage.setItem('bandejaSolicitudes', JSON.stringify(historicas));
+                localStorage.setItem(HISTORICO_CACHE_KEY, JSON.stringify(historicas));
             })
             .catch(() => {
                 if (!activo) return;
-                const guardadas = localStorage.getItem('bandejaSolicitudes');
+                const guardadas = localStorage.getItem(HISTORICO_CACHE_KEY) || localStorage.getItem(BANDEJA_CACHE_KEY);
                 const listaFallback = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
                 setSolicitudes(listaFallback.filter(esSolicitudHistorica));
             });

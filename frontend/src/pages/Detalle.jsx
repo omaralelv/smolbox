@@ -176,9 +176,7 @@ function Detalle({ currentRole }) {
                     const obsEventos = historialDesdeEventos(eventos || []);
 
                     // 3. Unificamos descartando posibles duplicados y ordenamos por fecha
-                    const historialCompleto = [...obsIniciales, ...obsEventos].sort(
-                        (a, b) => a.fechaTimestamp - b.fechaTimestamp
-                    );
+                    const historialCompleto = combinarHistorialObservaciones(obsIniciales, obsEventos);
 
                     setHistorial(historialCompleto);
                     //setHistorial(historialDesdeEventos(eventos));
@@ -203,11 +201,7 @@ function Detalle({ currentRole }) {
             .filter(Boolean);
         const obsEventos = historialDesdeEventos(eventos || []);
 
-        setHistorial(
-            [...obsIniciales, ...obsEventos].sort(
-                (a, b) => a.fechaTimestamp - b.fechaTimestamp
-            )
-        );
+        setHistorial(combinarHistorialObservaciones(obsIniciales, obsEventos));
     };
 
 
@@ -953,6 +947,23 @@ function idsIguales(uno, dos) {
     return String(uno) === String(dos);
 }
 
+function combinarHistorialObservaciones(obsIniciales = [], obsEventos = []) {
+    const gastosConEventos = new Set(
+        obsEventos
+            .map((obs) => obs.gastoId)
+            .filter((id) => id !== null && id !== undefined)
+            .map((id) => String(id))
+    );
+    const inicialesSinEvento = obsIniciales.filter((obs) => {
+        if (obs.gastoId === null || obs.gastoId === undefined) return true;
+        return !gastosConEventos.has(String(obs.gastoId));
+    });
+
+    return [...inicialesSinEvento, ...obsEventos].sort(
+        (a, b) => a.fechaTimestamp - b.fechaTimestamp
+    );
+}
+
 function historialDesdeEventos(eventos = []) {
     return eventos
         .map(observacionDesdeEvento)
@@ -978,7 +989,7 @@ function observacionDesdeEvento(evento) {
     const rol = rolDesdeEvento(evento);
     const autor = autorDesdeRol(rol);
     const texto = textoDesdeEvento(action, textoBase, autor);
-    const fechaTimestamp = Date.parse(evento.created_at || evento.createdAt || '');
+    const fechaTimestamp = timestampDesdeEvento(evento);
 
     return {
         id: evento.id,
@@ -990,6 +1001,17 @@ function observacionDesdeEvento(evento) {
         fechaTimestamp: Number.isNaN(fechaTimestamp) ? 0 : fechaTimestamp,
         visibilidad: visibilidadDesdeEvento(action, rol),
     };
+}
+
+function timestampDesdeEvento(evento) {
+    const payload = evento.event_payload || evento.payload || {};
+    const timestampPayload = Number(payload.fecha_timestamp || payload.fechaTimestamp || 0);
+    if (Number.isFinite(timestampPayload) && timestampPayload > 0) {
+        return timestampPayload > 10_000_000_000 ? timestampPayload : timestampPayload * 1000;
+    }
+
+    const fechaTimestamp = Date.parse(evento.created_at || evento.createdAt || '');
+    return Number.isNaN(fechaTimestamp) ? 0 : fechaTimestamp;
 }
 
 function rolDesdeEvento(evento) {

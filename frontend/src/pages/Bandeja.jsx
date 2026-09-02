@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendBandeja } from '../lib/api';
 
+const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
+
 const SOLICITUDES_BASE = [
     { id: 'Solicitud 3', tienda: 'T-001', fecha: '12/08/2026', status: 'Aprobada' },
     { id: 'Solicitud 2', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' },
@@ -92,8 +94,9 @@ function Bandeja({currentRole}) {
     const navigate = useNavigate();
     const [filtroTienda, setFiltroTienda] = useState('todas');
     const [solicitudes, setSolicitudes] = useState(() => {
-        const guardadas = localStorage.getItem('bandejaSolicitudes');
-        return guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
+        const guardadas = localStorage.getItem(BANDEJA_CACHE_KEY);
+        const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
+        return lista.filter(esSolicitudDeMonitoreo);
     });
 
 
@@ -110,13 +113,17 @@ function Bandeja({currentRole}) {
         getFrontendBandeja()
             .then((datos) => {
                 if (!activo) return;
-                setSolicitudes(datos);
-                localStorage.setItem('bandejaSolicitudes', JSON.stringify(datos));
+                const monitoreo = Array.isArray(datos)
+                    ? datos.filter(esSolicitudDeMonitoreo)
+                    : [];
+                setSolicitudes(monitoreo);
+                localStorage.setItem(BANDEJA_CACHE_KEY, JSON.stringify(monitoreo));
             })
             .catch(() => {
                 if (!activo) return;
-                const guardadas = localStorage.getItem('bandejaSolicitudes');
-                setSolicitudes(guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE);
+                const guardadas = localStorage.getItem(BANDEJA_CACHE_KEY);
+                const listaFallback = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
+                setSolicitudes(listaFallback.filter(esSolicitudDeMonitoreo));
             });
 
         return () => {
@@ -429,3 +436,9 @@ const styles = {
 };
 
 export default Bandeja;
+
+function esSolicitudDeMonitoreo(solicitud) {
+    const status = String(solicitud?.status || solicitud?.estatus || '').toLowerCase();
+    const backendStatus = String(solicitud?.backendStatus || solicitud?.backend_status || '').toLowerCase();
+    return status !== 'rechazada' && backendStatus !== 'rejected';
+}
