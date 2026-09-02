@@ -312,7 +312,7 @@ function AnadirGasto() {
     // 🎨 ESTILOS UNIFICADOS CON TU IDENTIDAD
     const styles = {
     container: {
-        maxWidth: '1100px',
+        maxWidth: '1350px',
         margin: '0 auto',
         padding: '20px',
         paddingBottom: '100px',
@@ -341,13 +341,13 @@ function AnadirGasto() {
     },
     mainGrid: {
         display: 'flex',
-        gap: '20px',
+        gap: '15px',
     },
     formColumn: {
         flex: 2,
         display: 'flex',
         flexDirection: 'column',
-        gap: '20px',
+        gap: '15px',
     },
     divider: {
         width: '1px',
@@ -465,7 +465,7 @@ function AnadirGasto() {
         gap: '10px',
     },
     fileName: {
-        fontSize: '13px',
+        fontSize: '12px',
         color: 'var(--text)',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
@@ -474,9 +474,9 @@ function AnadirGasto() {
     fileButtonLabel: {
         background: 'var(--sb-gradient-tab, var(--sb-sendBtnBg))',
         color: 'var(--text-CBtn)',
-        padding: '6px 14px',
+        padding: '5px 8px',
         borderRadius: '8px',
-        fontSize: '13px',
+        fontSize: '12px',
         fontWeight: '500',
         cursor: 'pointer',
         textAlign: 'center',
@@ -485,7 +485,7 @@ function AnadirGasto() {
     obsContainer: {
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: '10px',
     },
     obsLabel: {
         fontSize: '14px',
