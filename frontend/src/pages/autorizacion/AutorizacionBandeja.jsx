@@ -658,6 +658,7 @@ const styles = {
         fontSize: '14px',
         fontFamily: 'sans-serif',
         boxSizing: 'border-box',
+        color: '#000000',
         background: '#ffffff'
     },
     modalError: {
