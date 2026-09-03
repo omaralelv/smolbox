@@ -45,7 +45,6 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
         ReimbursementRequestStatus.treasury_review,
         ReimbursementRequestStatus.direction_approved,
         ReimbursementRequestStatus.approved_for_payment,
-        ReimbursementRequestStatus.paid,
     },
     UserRole.director: {
         ReimbursementRequestStatus.direction_review,

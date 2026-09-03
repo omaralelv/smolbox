@@ -659,8 +659,8 @@ def test_dev_hud_bulk_demo_seeds_realistic_queues(client: TestClient) -> None:
         "treasury_review",
         "direction_approved",
         "approved_for_payment",
-        "paid",
     }.issubset(role_queue_statuses("treasury"))
+    assert "paid" not in role_queue_statuses("treasury")
 
     frontend_login = client.post(
         "/api/v1/auth/login",

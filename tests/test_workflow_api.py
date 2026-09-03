@@ -1160,6 +1160,25 @@ def test_frontend_payment_flow_returns_to_manager_for_confirmation(
     assert paid_request.status_code == 200, paid_request.text
     assert paid_request.json()["status"] == "paid"
 
+    treasury_headers = _auth_headers(client, "treasury@example.com")
+    treasury_bandeja = client.get("/api/v1/frontend/bandeja/me", headers=treasury_headers)
+    assert treasury_bandeja.status_code == 200, treasury_bandeja.text
+    assert base_records["request_id"] not in {
+        item["backendId"] for item in treasury_bandeja.json()
+    }
+
+    treasury_work_queue = client.get("/api/v1/work-queue/me", headers=treasury_headers)
+    assert treasury_work_queue.status_code == 200, treasury_work_queue.text
+    assert base_records["request_id"] not in {
+        item["id"] for item in treasury_work_queue.json()
+    }
+
+    treasury_historico = client.get("/api/v1/frontend/historico/me", headers=treasury_headers)
+    assert treasury_historico.status_code == 200, treasury_historico.text
+    assert base_records["request_id"] in {
+        item["backendId"] for item in treasury_historico.json()
+    }
+
 
 def test_later_reviews_return_to_previous_step(
     client: TestClient,
