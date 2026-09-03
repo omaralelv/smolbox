@@ -478,21 +478,14 @@ function Detalle({ currentRole }) {
                             key={gastoKey} 
                             style={{...styles.tableRow, ...(estaDesactivado ? styles.rowGris : {})}}
                         >
-
                             <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
                                 {gasto.nombre || `Gasto ${index + 1}`}
                                 {eliminado ? ' (Eliminado)' : ''}
                             </span>
 
-
-
-
                             <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
                                 {parseFloat(gasto.monto || 0).toFixed(2)}
                             </span>
-
-
-
 
                             {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
                                 {!ocultarFolio && (
@@ -501,8 +494,7 @@ function Detalle({ currentRole }) {
                                     </span>
                                 )}
 
-
-                            <span style={{ flex: 1 }}>
+                            <span style={{ flex: 1, textAlign: 'right'}}>
                                 {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
                                 {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
                             </span>
