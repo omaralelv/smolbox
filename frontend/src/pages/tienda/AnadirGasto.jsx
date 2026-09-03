@@ -12,12 +12,27 @@ function AnadirGasto() {
     const [categoria, setCategoria] = useState('Papelería');
     const [monto, setMonto] = useState('');
     const [folio, setFolio] = useState('');
+    const [tipoDocumento, setTipoDocumento] = useState('factura'); // 'factura' | 'vale' | 'recibo'
+
     const [facturaFile, setFacturaFile] = useState(null);
     const [valeFile, setValeFile] = useState(null);
     const [reciboFile, setReciboFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
 
     const [folioValidado, setFolioValidado] = useState(false);
+
+
+    // Cambio dinámico de tipo de documento
+    const handleTipoDocumentoChange = (nuevoTipo) => {
+        setTipoDocumento(nuevoTipo);
+        if (nuevoTipo === 'vale' || nuevoTipo === 'recibo') {
+            setFolio('N/A');
+            setFolioValidado(true);
+        } else {
+            if (folio === 'N/A') setFolio('');
+            setFolioValidado(false);
+        }
+    };
 
     const handleValidarFolio = () => {
         if (!folio.trim()) return;
@@ -41,6 +56,11 @@ function AnadirGasto() {
             alert(errorCfdi);
             return;
         }
+        
+        if (tipoDocumento === 'factura' && !folioValidado) {
+            alert("Por favor, confirma el Folio Fiscal antes de validar.");
+            return;
+        }
 
         setCargandoValidacion(true);
 
@@ -51,10 +71,12 @@ function AnadirGasto() {
                 crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
             ]);
             setEstadoValidacion('listo');
-        } catch (error) {
+        } 
+        catch (error) {
             setEstadoValidacion('error');
             alert(apiErrorMessage(error));
-        } finally {
+        } 
+        finally {
             setCargandoValidacion(false);
         }
     };
@@ -88,7 +110,8 @@ function AnadirGasto() {
             nombre: `Gasto - ${categoria}`,
             monto: parseFloat(monto) || 0,
             tipo: categoria,
-            folio: folio,
+            tipoDocumento: tipoDocumento,
+            folio: tipoDocumento === 'factura' ? folio : 'N/A',
             fecha: fecha,
 
             observaciones: observaciones,
@@ -100,16 +123,21 @@ function AnadirGasto() {
             cfdiCurrency: cfdiParsed.currency,
             cfdiTaxAmount: numeroOculto(cfdiParsed.tax_amount),
             cfdiTaxRate: numeroOculto(cfdiParsed.tax_rate),
-            facturaFile: facturaFile,
-            valeFile: valeFile,
-        };
 
-        try {
-            validarSolicitudDespuesDeAnadir([...loadDraftGastos(), nuevoGastoItem]);
-        } catch (error) {
-            setEstadoValidacion('error');
-            alert(apiErrorMessage(error));
-            return;
+            facturaFile: tipoDocumento === 'factura' ? facturaFile : null,
+            valeFile: tipoDocumento === 'vale' ? valeFile : null,
+            reciboFile: tipoDocumento === 'recibo' ? reciboFile : null,
+        };
+    
+
+        if (tipoDocumento === 'factura'){
+            try {
+                validarSolicitudDespuesDeAnadir([...loadDraftGastos(), nuevoGastoItem]);
+            } catch (error) {
+                setEstadoValidacion('error');
+                alert(apiErrorMessage(error));
+                return;
+            }
         }
 
         alert("¡Gasto guardado exitosamente en la solicitud!");
@@ -139,96 +167,183 @@ function AnadirGasto() {
             {/* COLUMNA IZQUIERDA: FORMULARIO MANUAL */}
             <div style={styles.formColumn}>
             
-            <div style={styles.formGrid}>
-                <div style={styles.inputGroup}>
-                    <label style={styles.label}>Fecha de la Factura *</label>
-                    <input type="text" value={fecha} onChange={(e) => setFecha(e.target.value)} 
-                        placeholder="DD/MM/AAAA"
+                <div style={styles.formGrid}>
+                    <div style={styles.inputGroup}>
+                        <label style={styles.label}>Fecha de la Factura *</label>
+                        <input type="text" value={fecha} onChange={(e) => setFecha(e.target.value)} 
+                            placeholder="DD/MM/AAAA"
+                            style={styles.input} />
+                    </div>
+                    <div style={styles.inputGroup}>
+                        <label style={styles.label}>Categoría *</label>
+                        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={styles.select}>
+                            {categoriasGasto.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                    </div>
+                    <div style={styles.inputGroup}>
+                        <label style={styles.label}>Monto *</label>
+                        <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} 
+                        placeholder="Ej. 123.45"
                         style={styles.input} />
-                </div>
-                <div style={styles.inputGroup}>
-                    <label style={styles.label}>Categoría *</label>
-                    <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={styles.select}>
-                        {categoriasGasto.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                    </select>
-                </div>
-                <div style={styles.inputGroup}>
-                    <label style={styles.label}>Monto *</label>
-                    <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} 
-                    placeholder="Ej. 123.45"
-                    style={styles.input} />
-                </div>
+                    </div>
 
-
-
-
-                {/* FOLIO FISCAL OCUPANDO AMBAS COLUMNAS CON BOTÓN DE CONFIRMACIÓN */}
-                <div style={styles.inputGroupFull}>
-                    <label style={styles.label}>Folio Fiscal *</label>
-                    <div style={styles.inputWithButton}>
-                        <input 
-                            type="text" 
-                            value={folio} 
-                            onChange={(e) => {
-                                setFolio(e.target.value);
-                                setFolioValidado(false); // Resetea el estatus si el usuario edita el folio
-                            }} 
-                            placeholder="Ej. 12345678-ABCD-1234-ABCD-1234567890AB"
-                            style={{
-                                ...styles.input,
-                                flex: 1, // Toma todo el espacio disponible
-                                borderColor: folioValidado ? '#22c55e' : 'var(--border)'
-                            }} 
-                        />
-                        <button 
-                            type="button" 
-                            onClick={handleValidarFolio}
-                            style={{
-                                ...styles.btnValidar,
-                                backgroundColor: folioValidado ? '#22c55e' : 'var(--sb-sendBtnBg)'
-                            }}
-                        >
-                            {folioValidado ? '✓ Confirmado' : 'Confirmar'}
-                        </button>
+                    {/* FOLIO FISCAL OCUPANDO AMBAS COLUMNAS CON BOTÓN DE CONFIRMACIÓN */}
+                    <div style={styles.inputGroupFull}>
+                        <label style={styles.label}>
+                            Folio Fiscal {tipoDocumento === 'factura' ? '*' : ''}
+                        </label>
+                        <div style={styles.inputWithButton}>
+                            <input 
+                                type="text" 
+                                value={tipoDocumento === 'factura' ? folio : 'N/A'} 
+                                onChange={(e) => {
+                                    setFolio(e.target.value);
+                                    setFolioValidado(false); // Resetea el estatus si el usuario edita el folio
+                                }} 
+                                placeholder="Ej. 12345678-ABCD-1234-ABCD-1234567890AB"
+                                style={{
+                                    ...styles.input,
+                                    flex: 1, // Toma todo el espacio disponible
+                                    borderColor: folioValidado ? '#22c55e' : 'var(--border)'
+                                }} 
+                            />
+                            {tipoDocumento === 'factura' && (
+                                <button 
+                                    type="button" 
+                                    onClick={handleValidarFolio}
+                                    style={{
+                                        ...styles.btnValidar,
+                                        backgroundColor: folioValidado ? '#22c55e' : 'var(--sb-sendBtnBg)'
+                                    }}
+                                >
+                                    {folioValidado ? '✓ Confirmado' : 'Confirmar'}
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* SECCIÓN DE CARGA DE ARCHIVOS */}
-            <div style={styles.fileUploadContainer}>
-                <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar Factura</span>
-                <div style={styles.fileRow}>
-                    <span style={styles.fileName}>{facturaFile ? facturaFile.name : "Ningún archivo seleccionado"}</span>
-                    <label style={styles.fileButtonLabel}>
-                    Seleccionar archivo...
-                    <input type="file" accept=".xml,application/xml,text/xml" style={{ display: 'none' }} onChange={(e) => setFacturaFile(e.target.files?.[0] || null)} />
-                    </label>
-                </div>
-                </div>
+            
 
-                <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar Vale</span>
-                <div style={styles.fileRow}>
-                    <span style={styles.fileName}>{valeFile ? valeFile.name : "Ningún archivo seleccionado"}</span>
-                    <label style={styles.fileButtonLabel}>
-                    Seleccionar archivo...
-                    <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setValeFile(e.target.files[0])} />
-                    </label>
-                </div>
-                </div>
+            {/* SECCIÓN DE SELECCIÓN Y CARGA DE ARCHIVOS */}
+                    <div style={styles.fileUploadContainer}>
+                        {/* OP Cargar Factura */}
+                        <div style={styles.fileBox}>
+                            <label style={styles.radioLabel}>
+                                <input 
+                                    type="radio" 
+                                    name="tipoDocumento" 
+                                    value="factura" 
+                                    checked={tipoDocumento === 'factura'} 
+                                    onChange={() => handleTipoDocumentoChange('factura')}
+                                    //style={styles.radioInput}
+                                    style={{
+                                        ...styles.radioInput,
+                                        backgroundColor: tipoDocumento === 'factura' ? 'var(--border)' : 'transparent',
+                                        boxShadow: tipoDocumento === 'factura' ? 'inset 0 0 0 2px #ffffff' : 'none',
+                                    }}
+                                />
+                                Cargar Factura
+                            </label>
+                            <div style={styles.fileRow}>
+                                <span style={styles.fileName}>
+                                    {facturaFile ? facturaFile.name : "Ningún archivo seleccionado"}
+                                </span>
+                                <label style={{
+                                    ...styles.fileButtonLabel,
+                                    opacity: tipoDocumento === 'factura' ? 1 : 0.35,
+                                    cursor: tipoDocumento === 'factura' ? 'pointer' : 'not-allowed'
+                                }}>
+                                    Seleccionar archivo...
+                                    <input 
+                                        type="file" 
+                                        accept=".xml,application/xml,text/xml" 
+                                        disabled={tipoDocumento !== 'factura'}
+                                        style={{ display: 'none' }} 
+                                        onChange={(e) => setFacturaFile(e.target.files?.[0] || null)} 
+                                    />
+                                </label>
+                            </div>
+                        </div>
 
-                <div style={styles.fileBox}>
-                <span style={styles.fileLabel}>Cargar Recibo</span>
-                <div style={styles.fileRow}>
-                    <span style={styles.fileName}>{reciboFile ? reciboFile.name : "Ningún archivo seleccionado"}</span>
-                    <label style={styles.fileButtonLabel}>
-                    Seleccionar archivo...
-                    <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setReciboFile(e.target.files[0])} />
-                    </label>
-                </div>
-                </div>
-            </div>
+                        {/* OP Cargar Vale */}
+                        <div style={styles.fileBox}>
+                            <label style={styles.radioLabel}>
+                                <input 
+                                    type="radio" 
+                                    name="tipoDocumento" 
+                                    value="vale" 
+                                    checked={tipoDocumento === 'vale'} 
+                                    onChange={() => handleTipoDocumentoChange('vale')}
+                                    style={{
+                                        ...styles.radioInput,
+                                        backgroundColor: tipoDocumento === 'vale' ? 'var(--border)' : 'transparent',
+                                        boxShadow: tipoDocumento === 'vale' ? 'inset 0 0 0 2px #ffffff' : 'none',
+                                    }}
+                                />
+                                Cargar Vale
+                            </label>
+                            <div style={styles.fileRow}>
+                                <span style={styles.fileName}>
+                                    {valeFile ? valeFile.name : "Ningún archivo seleccionado"}
+                                </span>
+                                <label style={{
+                                    ...styles.fileButtonLabel,
+                                    opacity: tipoDocumento === 'vale' ? 1 : 0.35,
+                                    cursor: tipoDocumento === 'vale' ? 'pointer' : 'not-allowed'
+                                }}>
+                                    Seleccionar archivo...
+                                    <input 
+                                        type="file" 
+                                        accept=".pdf,image/*" 
+                                        disabled={tipoDocumento !== 'vale'}
+                                        style={{ display: 'none' }} 
+                                        onChange={(e) => setValeFile(e.target.files?.[0] || null)} 
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* OP Cargar Recibo */}
+                        <div style={styles.fileBox}>
+                            <label style={styles.radioLabel}>
+                                <input 
+                                    type="radio" 
+                                    name="tipoDocumento" 
+                                    value="recibo" 
+                                    checked={tipoDocumento === 'recibo'} 
+                                    onChange={() => handleTipoDocumentoChange('recibo')}
+                                    style={{
+                                        ...styles.radioInput,
+                                        backgroundColor: tipoDocumento === 'recibo' ? 'var(--border)' : 'transparent',
+                                        boxShadow: tipoDocumento === 'recibo' ? 'inset 0 0 0 2px #ffffff' : 'none',
+                                    }}
+                                />
+                                Cargar Recibo
+                            </label>
+                            <div style={styles.fileRow}>
+                                <span style={styles.fileName}>
+                                    {reciboFile ? reciboFile.name : "Ningún archivo seleccionado"}
+                                </span>
+                                <label style={{
+                                    ...styles.fileButtonLabel,
+                                    opacity: tipoDocumento === 'recibo' ? 1 : 0.35,
+                                    cursor: tipoDocumento === 'recibo' ? 'pointer' : 'not-allowed'
+                                }}>
+                                    Seleccionar archivo...
+                                    <input 
+                                        type="file" 
+                                        accept=".pdf,image/*" 
+                                        disabled={tipoDocumento !== 'recibo'}
+                                        style={{ display: 'none' }} 
+                                        onChange={(e) => setReciboFile(e.target.files?.[0] || null)} 
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+
 
             {/* CAJA DE OBSERVACIONES */}
             <div style={styles.obsContainer}>
@@ -440,18 +555,51 @@ function AnadirGasto() {
         color: 'var(--text)',
     },
     fileUploadContainer: {
-        display: 'flex',
-        gap: '16px',
+        //display: 'flex',
+        //gap: '16px',
+        //marginTop: '10px',
+        //flexWrap: 'wrap',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: '20px',
+        alignItems: 'start',
         marginTop: '10px',
-        flexWrap: 'wrap',
     },
     fileBox: {
         flex: '1 1 0',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
-        minWidth: '150px',
+        //minWidth: '150px',
     },
+
+
+
+    radioLabel: {
+        fontSize: '14px',
+        fontWeight: 'bold',
+        color: '#000000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '6px',
+        cursor: 'pointer',
+    },
+    radioInput: {
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        border: '2px solid var(--border)',
+        borderRadius: '50%',
+        outline: 'none',
+        placeContent: 'center',
+        accentColor: 'var(--sb-sendBtnBg)',
+        width: '16px',
+        height: '16px',
+        cursor: 'pointer',
+    },
+
+
+    
     fileLabel: {
         fontSize: '14px',
         fontWeight: 'bold',
