@@ -91,7 +91,6 @@ STORE_MONITORING_STATUSES = {
     ReimbursementRequestStatus.direction_review,
     ReimbursementRequestStatus.direction_approved,
     ReimbursementRequestStatus.approved_for_payment,
-    ReimbursementRequestStatus.paid,
 }
 
 HISTORICAL_STATUSES = {

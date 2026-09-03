@@ -372,6 +372,8 @@ def test_frontend_historico_lists_paid_requests(
     _attach_valid_cfdi(client, expense["id"], "1500.00")
 
     admin_user_id = _create_user(client, "admin", "frontend.historico.admin@example.com")
+    store_user_id = _create_user(client, "store", "frontend.historico.store@example.com")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
     assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
     assert (
         _transition(
@@ -425,6 +427,17 @@ def test_frontend_historico_lists_paid_requests(
     assert [item["backendId"] for item in historico.json()] == [base_records["request_id"]]
     assert historico.json()[0]["status"] == "Pagada"
     assert historico.json()[0]["backendStatus"] == "paid"
+
+    store_headers = _auth_headers(client, "frontend.historico.store@example.com")
+    store_bandeja = client.get("/api/v1/frontend/bandeja/me", headers=store_headers)
+    assert store_bandeja.status_code == 200, store_bandeja.text
+    assert [item["backendId"] for item in store_bandeja.json()] == []
+
+    store_historico = client.get("/api/v1/frontend/historico/me", headers=store_headers)
+    assert store_historico.status_code == 200, store_historico.text
+    assert [item["backendId"] for item in store_historico.json()] == [base_records["request_id"]]
+    assert store_historico.json()[0]["status"] == "Pagada"
+    assert store_historico.json()[0]["backendStatus"] == "paid"
 
 
 def test_frontend_historico_lists_rejected_requests(
