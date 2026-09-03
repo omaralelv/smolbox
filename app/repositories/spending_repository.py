@@ -25,17 +25,16 @@ def obtener_baseline(
     return db.scalar(stmt)
 
 
-def obtener_gasto_aprobado_posterior_al_baseline(
+def obtener_gasto_aprobado_del_anio(
     db: Session,
     store_id: UUID,
     fiscal_year: int,
-    baseline_as_of,
 ) -> Decimal:
     stmt = (
         select(
             func.coalesce(
                 func.sum(Expense.amount),
-                0,
+                Decimal("0.00"),
             )
         )
         .join(
@@ -45,11 +44,14 @@ def obtener_gasto_aprobado_posterior_al_baseline(
         )
         .where(
             ReimbursementRequest.store_id == store_id,
-            ReimbursementRequest.status == "approved",
+            ReimbursementRequest.status.in_(
+                ["paid", "direction_approved"]
+            ),
             Expense.removed_at.is_(None),
-            Expense.spent_on > baseline_as_of,
-            func.extract("year", Expense.spent_on)
-            == fiscal_year,
+            func.extract(
+                "year",
+                Expense.spent_on,
+            ) == fiscal_year,
         )
     )
 

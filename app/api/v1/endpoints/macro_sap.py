@@ -19,6 +19,15 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 
+from app.services.tax_rules import (
+    normalizar_texto,
+    cargar_tipo_gastos,
+    crear_indice_categorias,
+    cargar_tiendas_iva_w6,
+    determinar_iva_e_indice
+)
+
+from app.services.spending_summary import obtener_resumen_gasto_tienda
 # 1. Definir el Router en lugar de la App
 router = APIRouter()
 
@@ -50,125 +59,6 @@ def cargar_base_tiendas(ruta_archivo):
     except Exception as e:  # noqa: BLE001
         print(f"❌ Error tiendas: {e}")
         return {}
-
-
-def cargar_tipo_gastos(ruta_archivo):
-    try:
-        df = pd.read_excel(ruta_archivo, dtype=str).fillna("")
-
-        df["CODIGO"] = df["CODIGO"].str.strip()
-        df["TIPO_GASTO"] = df["TIPO_GASTO"].str.strip()
-
-        if df["CODIGO"].duplicated().any():
-            duplicados = df.loc[
-                df["CODIGO"].duplicated(keep=False), "CODIGO"
-            ].tolist()
-
-            raise ValueError(
-                f"Códigos contables duplicados en el catálogo: {duplicados}"
-            )
-
-        return df.set_index("CODIGO").to_dict("index")
-
-    except Exception as e:  # noqa: BLE001
-        print(f"❌ Error gastos: {e}")
-        return {}
-
-
-def normalizar_texto(valor):
-    return " ".join(str(valor or "").strip().casefold().split())
-
-
-def crear_indice_categorias(diccionario_gastos):
-    """
-    Convierte:
-
-    {
-        "601001": {"TIPO_GASTO": "Papelería"}
-    }
-
-    en:
-
-    {
-        "papelería": {
-            "codigo": "601001",
-            "descripcion": "Papelería"
-        }
-    }
-    """
-    indice = {}
-
-    for codigo, datos in diccionario_gastos.items():
-        descripcion = datos.get("TIPO_GASTO", "").strip()
-
-        if not descripcion:
-            continue
-
-        clave = normalizar_texto(descripcion)
-
-        if clave in indice:
-            raise ValueError(
-                f"TIPO_GASTO duplicado en TiposGastos.xlsx: {descripcion}"
-            )
-
-        indice[clave] = {
-            "codigo": codigo,
-            "descripcion": descripcion,
-        }
-
-    return indice
-
-
-## Para cargar tiendas del 8% de IVA
-def cargar_tiendas_iva_w6(ruta_archivo):
-    try:
-        df = pd.read_excel(
-            ruta_archivo,
-            dtype=str,
-            usecols=["TIENDA"],
-        ).fillna("")
-
-        df["TIENDA"] = df["TIENDA"].str.strip()
-
-        return {
-            normalizar_texto(tienda)
-            for tienda in df["TIENDA"]
-            if tienda
-        }
-
-    except Exception as e:  # noqa: BLE001
-        print(f"❌ Error al cargar tiendas con IVA W6: {e}")
-        return set()
-
-
-def determinar_iva_e_indice(
-    descripcion: str,
-    numero_tienda: str,
-    porcentaje_iva: Decimal,
-) -> tuple[Decimal, str]:
-    descripcion_normalizada = normalizar_texto(descripcion)
-
-    # Tiendas incluidas en el archivo W6
-    # if normalizar_texto(numero_tienda) in tiendas_iva_w6:
-    #    return Decimal("8"), "W6"
-
-    # Pasajes y taxis siempre usa 0% y W2
-    if descripcion_normalizada == normalizar_texto("Pasajes y taxis"):
-        return Decimal(0), "W2"
-
-    # Forzar No Deducibles a 0%: W0
-    if descripcion_normalizada == normalizar_texto("No Deducibles"):
-        return Decimal(0), "W0"
-
-    # Cualquier gasto que tenga 0% usa W0
-    if porcentaje_iva == Decimal(0):
-        return Decimal(0), "W0"
-
-    if porcentaje_iva == Decimal(16):
-        return Decimal(16), "W1"
-
-    # Regla 4: Regla general
-    return porcentaje_iva, "W1"
 
 
 def convertir_decimal(valor):
@@ -632,19 +522,17 @@ def generar_polizas(
     wb_solicitud = load_workbook(ruta_plantilla)
     ws_solicitud = wb_solicitud.active
 
-    saldo_tienda = diccionario_saldos.get(numero_tienda)
-
-    if saldo_tienda is None:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"La tienda '{numero_tienda}' no existe "
-                "en SALDO DE TDAS ANOS 24 25 Y 26.xlsx."
-            ),
+    resumen_2025 = obtener_resumen_gasto_tienda(
+        db=db,
+        store_id=store_id,
+        fiscal_year=2025,
     )
 
-    gasto_2025 = saldo_tienda["GASTO_2025"]
-    gasto_2026 = saldo_tienda["GASTO_2026"]
+    resumen_2026 = obtener_resumen_gasto_tienda(
+        db=db,
+        store_id=store_id,
+        fiscal_year=2026,
+    )
     
     try:
         logo = Image(ruta_logo)
@@ -673,10 +561,10 @@ def generar_polizas(
     ws_solicitud['I68'] = float(total_gran_factura)
     ws_solicitud['G63'] = float(suma_ivas)
 
-    ws_solicitud["E22"] = gasto_2025
-    ws_solicitud["E24"] = gasto_2026
-
+    ws_solicitud["E22"] = float(resumen_2025["current_accumulated"])
+    ws_solicitud["E24"] = float(resumen_2026["current_accumulated"])
     fila_actual = 41
+    
     for mov in poliza_agrupada:
         if mov['Identificador'] == 'S':
             ws_solicitud[f'C{fila_actual}'] = mov['Cuenta']
