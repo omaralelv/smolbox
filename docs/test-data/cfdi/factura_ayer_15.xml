@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-27T08:38:00"
+  Moneda="MXN"
+  Total="378.94"
+  MetodoPago="PUE">
+  <cfdi:Emisor Rfc="RST050505AAA" Nombre="PROVEEDORA DE INSUMOS DE OFICINA SRL"/>
+  <cfdi:Receptor Rfc="FFF050505FFF" Nombre="DESARROLLO Y SISTEMAS MX"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="A3D8D435-983C-4BB4-8CF7-77F4DC786024"/>
+  </cfdi:Complemento></cfdi:Comprobante>
