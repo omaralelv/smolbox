@@ -1,14 +1,12 @@
 import io
 import os
-import re
 import uuid
 import zipfile
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Annotated
 from zoneinfo import ZoneInfo 
 
-import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
@@ -16,6 +14,11 @@ from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.utils.filenames import limpiar_nombre_archivo
+from app.services.spending_baselines import convertir_decimal
+from app.services.spending_summary import obtener_resumen_gasto_tienda
+from app.services.store_catalog import cargar_base_tiendas
 
 from app.db.session import get_db
 
@@ -27,8 +30,7 @@ from app.services.tax_rules import (
     determinar_iva_e_indice
 )
 
-from app.services.spending_summary import obtener_resumen_gasto_tienda
-# 1. Definir el Router en lugar de la App
+
 router = APIRouter()
 
 # 2. Configurar las rutas absolutas para leer tus archivos (para que no falle al ejecutarlo)
@@ -41,123 +43,15 @@ ruta_gastos = os.path.join(ASSETS_DIR, "TiposGastos.xlsx")
 ruta_plantilla = os.path.join(ASSETS_DIR, "COPIA FORMATO REEMBOLSO.xlsx")
 ruta_logo = os.path.join(ASSETS_DIR, "logoV.png")
 ruta_W6 = os.path.join(ASSETS_DIR, "TDAS IVA W6.xlsx")
-ruta_saldos = os.path.join(ASSETS_DIR, "COPIA SALDO DE TDAS ANOS 24 25 Y 26.xlsx")
+# ruta_saldos = os.path.join(ASSETS_DIR, "COPIA SALDO DE TDAS ANOS 24 25 Y 26.xlsx")
 
-
-def limpiar_nombre_archivo(valor: str) -> str:
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", valor).strip()
-
-
-def cargar_base_tiendas(ruta_archivo):
-    try:
-        df = pd.read_excel(ruta_archivo, dtype=str).fillna("")
-
-        df["TDA"] = df["TDA"].str.strip()
-
-        return df.set_index("TDA").to_dict("index")
-
-    except Exception as e:  # noqa: BLE001
-        print(f"❌ Error tiendas: {e}")
-        return {}
-
-
-def convertir_decimal(valor):
-    try:
-        texto = str(valor).strip()
-
-        if not texto or texto.lower() == "nan":
-            return Decimal("0.00")
-
-        texto = texto.replace("\u00A0", "")
-        texto = texto.replace("$", "")
-        texto = texto.replace(",", "")
-
-        if texto.startswith("(") and texto.endswith(")"):
-            texto = f"-{texto[1:-1]}"
-
-        return Decimal(texto).quantize(
-            Decimal("0.01")
-        )
-
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError(
-            f"Saldo no numérico encontrado: {valor!r}"
-        ) from exc
-
-
-def cargar_saldos_tiendas(ruta_archivo):
-    try:
-        df = pd.read_excel(
-            ruta_archivo,
-            sheet_name="PRESUPUESTO 2024-2026",
-            usecols="A,D,E",
-            header=None,
-            dtype=str,
-        ).fillna("")
-
-        # Asignamos nombres internos sin depender de los encabezados visuales
-        df.columns = [
-            "TDA",
-            "GASTO_2025",
-            "GASTO_2026",
-        ]
-
-        # Limpiar texto en la columna de tienda
-        df["TDA"] = df["TDA"].astype(str).str.strip()
-
-        # Solo aceptamos códigos reales de tienda:
-        # V001, V042, V999, etc.
-        patron_tienda = patron_tienda = r"^[A-Z]+\d+$"
-
-        df = df[
-            df["TDA"].str.fullmatch(
-                patron_tienda,
-                case=False,
-                na=False,
-            )
-        ].copy()
-
-        # Normalizar el código final como mayúsculas
-        df["TDA"] = df["TDA"].str.upper()
-
-        if df.empty:
-            raise ValueError(
-                "No se encontraron tiendas con formato V###. "
-                "Revisa la columna A y el patrón de los códigos."
-            )
-
-        # Convertir únicamente datos de filas reales de tienda
-        df["GASTO_2025"] = df["GASTO_2025"].apply(
-            convertir_decimal
-        )
-
-        df["GASTO_2026"] = df["GASTO_2026"].apply(
-            convertir_decimal
-        )
-
-        # Validar códigos duplicados
-        if df["TDA"].duplicated().any():
-            duplicados = df.loc[
-                df["TDA"].duplicated(keep=False),
-                "TDA",
-            ].tolist()
-
-            raise ValueError(
-                f"Hay tiendas duplicadas en el archivo: {duplicados}"
-            )
-
-        return df.set_index("TDA").to_dict("index")
-
-    except Exception as e:
-        print(f"❌ Error al cargar saldos de tiendas: {e}")
-        return {}
 
 
 # Cargamos en memoria RAM del servidor al iniciar
 diccionario_tiendas = cargar_base_tiendas(ruta_tiendas)
 diccionario_gastos = cargar_tipo_gastos(ruta_gastos)
 indice_categorias = crear_indice_categorias(diccionario_gastos)
-diccionario_saldos = cargar_saldos_tiendas(ruta_saldos)
+#diccionario_saldos = cargar_saldos_tiendas(ruta_saldos)
 tiendas_iva_w6 = cargar_tiendas_iva_w6(ruta_W6)
 
 # =========================================================

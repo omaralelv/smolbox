@@ -35,3 +35,16 @@ def obtener_datos_excel_por_codigo(code: str) -> dict | None:
     codigo_sin_prefijo_hud = codigo_normalizado.removeprefix("HUD-")
 
     return CATALOGO_TIENDAS.get(codigo_sin_prefijo_hud)
+
+
+def cargar_base_tiendas(ruta_archivo):
+    try:
+        df = pd.read_excel(ruta_archivo, dtype=str).fillna("")
+
+        df["TDA"] = df["TDA"].str.strip()
+
+        return df.set_index("TDA").to_dict("index")
+
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ Error tiendas: {e}")
+        return {}
