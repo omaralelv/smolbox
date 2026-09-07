@@ -284,6 +284,11 @@ function AutorizacionBandeja( { currentRole } ) {
             setGastoSeleccionado(gasto);
             setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
         };
+
+        const handleVerRecibo = (gasto) => {
+            setGastoSeleccionado(gasto);
+            setDocumentoActivo('recibo'); // nuevo tipo de documento
+        };
     
         const handleToggleObservaciones = (gasto) => {
             setGastoSeleccionado(gasto);
@@ -404,13 +409,17 @@ function AutorizacionBandeja( { currentRole } ) {
                                     )}
 
                                 {/* ICONO DE DOCUMENTO / COMPROBANTE */}
+                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
+                                    <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                                </button>
+                                
                                 <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
                                     <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                                 </button>
 
-                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
-                                    <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
-                                </button>
+                                <button style={styles.iconBtn} title="Ver Recibo" onClick={() => handleVerRecibo(gasto)}>
+                                        <img src="/Recibo.png" alt="Recibo" style={styles.iconImg} />
+                                    </button>
 
                                 <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
                                     <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
@@ -581,7 +590,7 @@ const styles = {
         color: 'var(--text-CBtn)',
         border: 'none',
         borderRadius: '6px',
-        padding: '6px 14px',
+        padding: '6px 8px',
         fontSize: '11px',
         fontWeight: 'bold',
         cursor: 'pointer',

@@ -498,7 +498,7 @@ function SolicitudForm({ currentRole }) {
 
             {/* BARRA FIJA INFERIOR (Solo para esta pantalla) */}
             <div style={{...styles.fixedStickyFooter, 
-                right: (documentoActivo && observacionesAbiertas) ? '795px' 
+                right: (documentoActivo && observacionesAbiertas) ? '850px' 
                     : (documentoActivo || observacionesAbiertas) ? '350px' 
                     : 0
             }}>
