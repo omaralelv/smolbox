@@ -39,14 +39,61 @@ from app.services.workflow import transition_reimbursement_request
 router = APIRouter()
 
 OBSERVATION_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
+    ReimbursementRequestStatus.submitted: {
+        UserRole.authorizer,
+        UserRole.accountant,
+        UserRole.admin,
+    },
     ReimbursementRequestStatus.authorization_review: {UserRole.authorizer, UserRole.admin},
+    ReimbursementRequestStatus.authorized: {
+        UserRole.authorizer,
+        UserRole.accountant,
+        UserRole.admin,
+    },
     ReimbursementRequestStatus.under_accounting_review: {UserRole.accountant, UserRole.admin},
+    ReimbursementRequestStatus.accounting_reviewed: {
+        UserRole.accountant,
+        UserRole.accounting_manager,
+        UserRole.admin,
+    },
+    ReimbursementRequestStatus.accounting_approved: {
+        UserRole.accountant,
+        UserRole.accounting_manager,
+        UserRole.treasury,
+        UserRole.admin,
+    },
     ReimbursementRequestStatus.accounting_manager_review: {
         UserRole.accounting_manager,
         UserRole.admin,
     },
+    ReimbursementRequestStatus.accounting_manager_approved: {
+        UserRole.accounting_manager,
+        UserRole.treasury,
+        UserRole.admin,
+    },
     ReimbursementRequestStatus.treasury_review: {UserRole.treasury, UserRole.admin},
-    ReimbursementRequestStatus.direction_review: {UserRole.director, UserRole.admin},
+    ReimbursementRequestStatus.direction_review: {
+        UserRole.treasury,
+        UserRole.director,
+        UserRole.admin,
+    },
+    ReimbursementRequestStatus.direction_approved: {
+        UserRole.accounting_manager,
+        UserRole.treasury,
+        UserRole.director,
+        UserRole.admin,
+    },
+    ReimbursementRequestStatus.approved_for_payment: {
+        UserRole.accounting_manager,
+        UserRole.treasury,
+        UserRole.director,
+        UserRole.admin,
+    },
+}
+
+OBSERVATION_LOCKED_STATUSES = {
+    ReimbursementRequestStatus.paid,
+    ReimbursementRequestStatus.closed,
 }
 
 REVIEW_EDIT_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
@@ -494,6 +541,7 @@ def _add_observation_with_actor(
     db: Session,
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
+    _ensure_request_accepts_observations(reimbursement_request)
     _ensure_actor_can(actor, OBSERVATION_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
     _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
     _ensure_expense_not_excluded(expense)
@@ -517,6 +565,17 @@ def _add_observation_with_actor(
     db.commit()
     db.refresh(expense)
     return expense
+
+
+def _ensure_request_accepts_observations(reimbursement_request: ReimbursementRequest) -> None:
+    if reimbursement_request.status in OBSERVATION_LOCKED_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_OBSERVATIONS_LOCKED",
+                "message": "Paid requests cannot receive new observations.",
+            },
+        )
 
 
 def _review_update_expense_with_actor(

@@ -255,6 +255,87 @@ def test_required_expense_authorization_blocks_request(
     assert authorized.json()["status"] == "authorized"
 
 
+def test_authorizer_can_observe_authorized_expense_before_accounting(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Taxi con autorizacion",
+            "amount": "1500.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "Pasajes y Taxis",
+            "requires_authorization": True,
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    expense_id = expense.json()["id"]
+    _attach_valid_cfdi(client, expense_id, "1500.00")
+
+    store_user_id = _create_user(client, "store")
+    authorizer_user_id = _create_user(client, "authorizer")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
+
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            target_status="submitted",
+            actor_user_id=store_user_id,
+        ).status_code
+        == 200
+    )
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            target_status="authorization_review",
+            actor_user_id=authorizer_user_id,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/v1/expenses/{expense_id}/authorize/me",
+            headers=_auth_headers(client, "authorizer@example.com"),
+            json={"note": "Supervisor autoriza el gasto."},
+        ).status_code
+        == 200
+    )
+
+    observation_during_review = client.post(
+        f"/api/v1/expenses/{expense_id}/observation/me",
+        headers=_auth_headers(client, "authorizer@example.com"),
+        json={"note": "Observacion de supervisor durante autorizacion."},
+    )
+    assert observation_during_review.status_code == 200, observation_during_review.text
+
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            target_status="authorized",
+            actor_user_id=authorizer_user_id,
+        ).status_code
+        == 200
+    )
+
+    observation_after_authorized = client.post(
+        f"/api/v1/expenses/{expense_id}/observation/me",
+        headers=_auth_headers(client, "authorizer@example.com"),
+        json={"note": "Observacion de supervisor posterior a aprobado."},
+    )
+    assert observation_after_authorized.status_code == 200, observation_after_authorized.text
+    assert (
+        observation_after_authorized.json()["review_note"]
+        == "Observacion de supervisor posterior a aprobado."
+    )
+
+
 def test_authorization_rejects_only_the_expense_and_request_can_continue(
     client: TestClient,
     base_records: dict[str, str],
@@ -1178,6 +1259,136 @@ def test_frontend_payment_flow_returns_to_manager_for_confirmation(
     assert base_records["request_id"] in {
         item["backendId"] for item in treasury_historico.json()
     }
+
+
+def test_treasury_and_director_observations_are_allowed_until_request_is_paid(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    store_user_id = _create_user(client, "store")
+    accountant_user_id = _create_user(client, "accountant")
+    manager_user_id = _create_user(client, "accounting_manager")
+    treasury_user_id = _create_user(client, "treasury")
+    director_user_id = _create_user(client, "director")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        manager_user_id,
+        "accounting_manager",
+    )
+    _assign_user_to_store(client, base_records["store_id"], treasury_user_id, "treasury")
+    _assign_user_to_store(client, base_records["store_id"], director_user_id, "director")
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="under_accounting_review",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_reviewed",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare",
+        json={
+            "actor_user_id": accountant_user_id,
+            "reference": "SAP-OBSERVATION-FLOW",
+            "note": "Preparado para prueba de observaciones.",
+        },
+    )
+    assert sap_policy.status_code == 200, sap_policy.text
+
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_review",
+        actor_user_id=accountant_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="accounting_manager_approved",
+        actor_user_id=manager_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="treasury_review",
+        actor_user_id=treasury_user_id,
+    ).status_code == 200
+    assert _transition(
+        client,
+        base_records["request_id"],
+        target_status="direction_approved",
+        actor_user_id=treasury_user_id,
+    ).status_code == 200
+
+    treasury_headers = _auth_headers(client, "treasury@example.com")
+    director_headers = _auth_headers(client, "director@example.com")
+    manager_headers = _auth_headers(client, "accounting_manager@example.com")
+
+    treasury_observation = client.post(
+        f"/api/v1/expenses/{expense['id']}/observation/me",
+        headers=treasury_headers,
+        json={"note": "Observacion de tesoreria antes de pago."},
+    )
+    assert treasury_observation.status_code == 200, treasury_observation.text
+
+    director_observation = client.post(
+        f"/api/v1/expenses/{expense['id']}/observation/me",
+        headers=director_headers,
+        json={"note": "Observacion de direccion antes de pago."},
+    )
+    assert director_observation.status_code == 200, director_observation.text
+
+    approved_for_payment = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=manager_headers,
+        json={
+            "target_status": "approved_for_payment",
+            "note": "Gerencia habilita confirmacion de pago.",
+        },
+    )
+    assert approved_for_payment.status_code == 200, approved_for_payment.text
+
+    director_observation_after_payment_approval = client.post(
+        f"/api/v1/expenses/{expense['id']}/observation/me",
+        headers=director_headers,
+        json={"note": "Observacion de direccion con pago aprobado."},
+    )
+    assert (
+        director_observation_after_payment_approval.status_code == 200
+    ), director_observation_after_payment_approval.text
+
+    payment = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/payments/me",
+        headers=manager_headers,
+        json={"reference": "PAGO-OBS-001", "note": "Pago confirmado."},
+    )
+    assert payment.status_code == 201, payment.text
+
+    blocked_after_paid = client.post(
+        f"/api/v1/expenses/{expense['id']}/observation/me",
+        headers=treasury_headers,
+        json={"note": "Observacion despues de pago."},
+    )
+    assert blocked_after_paid.status_code == 409
+    assert blocked_after_paid.json()["detail"]["code"] == "REQUEST_OBSERVATIONS_LOCKED"
 
 
 def test_later_reviews_return_to_previous_step(
