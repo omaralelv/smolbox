@@ -73,6 +73,20 @@ class ReimbursementRequest(Base):
         nullable=False,
         index=True,
     )
+
+    reimbursement_starts_on: Mapped[date | None] = mapped_column(Date, nullable=True,)
+    reimbursement_ends_on: Mapped[date | None] = mapped_column(Date,nullable=True,)
+
+    previous_reimbursement_request_id: Mapped[
+        uuid.UUID | None
+    ] = mapped_column(
+        ForeignKey(
+            "reimbursement_requests.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
     reported_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     previous_reimbursement_starts_on: Mapped[date | None] = mapped_column(Date)
     previous_reimbursement_ends_on: Mapped[date | None] = mapped_column(Date)
@@ -128,6 +142,15 @@ class ReimbursementRequest(Base):
     )
 
     store: Mapped[Store] = relationship(back_populates="reimbursement_requests")
+
+    previous_reimbursement_request: Mapped[ReimbursementRequest | None] = relationship(
+        "ReimbursementRequest",
+        remote_side="ReimbursementRequest.id",
+        foreign_keys=[
+            previous_reimbursement_request_id
+        ],
+    )
+
     period: Mapped[Period] = relationship(back_populates="reimbursement_requests")
     expenses: Mapped[list[Expense]] = relationship(back_populates="reimbursement_request")
     attachments: Mapped[list[Attachment]] = relationship(

@@ -14,6 +14,7 @@ from app.models import (  # noqa: F401
     payment,
     period,
     reimbursement_request,
+    store_reimbursement_opening_cutoff,
     store,
     store_spending_baseline,
     user,
