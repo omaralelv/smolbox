@@ -22,6 +22,12 @@ class Settings(BaseSettings):
         "text/csv",
     ]
     cfdi_receiver_rfc: str | None = None
+    textract_enabled: bool = False
+    textract_store_raw_response: bool = False
+    aws_region: str = "us-east-1"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
     auto_create_schema: bool = False
     auth_token_secret: str = "local-dev-secret-change-me"
     auth_token_ttl_minutes: int = 8 * 60

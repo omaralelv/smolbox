@@ -13,6 +13,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.cfdi_validation import CfdiValidation
     from app.models.expense import Expense
+    from app.models.ocr_extraction import OcrExtraction
     from app.models.reimbursement_request import ReimbursementRequest
 
 
@@ -67,4 +68,9 @@ class Attachment(Base):
     cfdi_validation: Mapped[CfdiValidation | None] = relationship(
         back_populates="attachment",
         uselist=False,
+    )
+    ocr_extraction: Mapped[OcrExtraction | None] = relationship(
+        back_populates="attachment",
+        uselist=False,
+        cascade="all, delete-orphan",
     )

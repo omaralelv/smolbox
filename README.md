@@ -50,6 +50,8 @@ La segunda etapa agrega la base operativa del flujo interno sin conectores empre
   contable.
 - Revision automatica de solicitud para CFDI, comprobantes, total, periodo, OCR pendiente,
   alertas y datos base de poliza SAP sin aprobar decisiones humanas.
+- Punto de extension para OCR con AWS Textract en comprobantes PDF/JPG/PNG. Esta apagado por
+  default y guarda resultados en `ocr_extractions` cuando se activa.
 - Descarga de adjuntos por ID y descarga protegida con token en `/download/me`.
 - Edicion parcial de tiendas, periodos, solicitudes, gastos y usuarios; las solicitudes,
   gastos, adjuntos y CFDI quedan bloqueados despues de enviar. Los ajustes posteriores se
@@ -87,6 +89,20 @@ Fuera de esta etapa:
    ```bash
    cp .env.example .env
    ```
+
+   OCR con AWS Textract es opcional. Para activarlo en una instalacion con credenciales AWS,
+   ajusta estas variables:
+
+   ```env
+   TEXTRACT_ENABLED=true
+   AWS_REGION=us-east-1
+   AWS_ACCESS_KEY_ID=tu_access_key
+   AWS_SECRET_ACCESS_KEY=tu_secret_key
+   AWS_SESSION_TOKEN=
+   TEXTRACT_STORE_RAW_RESPONSE=false
+   ```
+
+   La llamada a Textract esta aislada en `app/services/textract_ocr.py`.
 
 2. Levanta la API y PostgreSQL:
 

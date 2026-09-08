@@ -13,6 +13,7 @@ from app.models import (  # noqa: F401
     business_rule,
     cfdi_validation,
     expense,
+    ocr_extraction,
     payment,
     period,
     reimbursement_request,
