@@ -1,7 +1,7 @@
 """Add store reimbursement opening cutoffs
 
 Revision ID: 20260908_0014
-Revises: 20260908_0013
+Revises: bb529e163539
 Create Date: 2026-09-08 00:00:00
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "20260908_0014"
-down_revision: str | None = "20260908_0013"
+down_revision: str | None = "bb529e163539"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
