@@ -85,6 +85,34 @@ La migracion `20260813_0005_queues_payments_rules` agrega:
 - tabla `business_rules` para reglas configurables;
 - enum `payment_status` para distinguir pagos pagados o cancelados.
 
+### Cortes iniciales de reembolso
+
+La tabla `store_reimbursement_opening_cutoffs` guarda el corte anterior al primer
+reembolso capturado en Smolbox. Ese corte permite que el backend calcule el inicio
+del periodo actual de una tienda.
+
+Para crear el corte inicial de una tienda especifica:
+
+```bash
+docker compose exec api python -m app.scripts.import_store_reimbursement_opening_cutoffs \
+  --store-code A001 \
+  --starts-on 2026-07-01 \
+  --ends-on 2026-07-31 \
+  --amount 0.00
+```
+
+Para crear cortes iniciales para todas las tiendas que existan en SQL:
+
+```bash
+docker compose exec api python -m app.scripts.import_store_reimbursement_opening_cutoffs \
+  --starts-on 2026-07-01 \
+  --ends-on 2026-07-31 \
+  --amount 0.00
+```
+
+Si una tienda ya tiene corte inicial, el comando no lo cambia. Para reemplazarlo,
+agrega `--update-existing`.
+
 ## Reglas de flujo
 
 Las transiciones se hacen con:
