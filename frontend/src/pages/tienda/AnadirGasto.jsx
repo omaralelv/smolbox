@@ -39,6 +39,43 @@ function AnadirGasto() {
         setFolioValidado(true);
     };
 
+    const handleFacturaFileChange = async (file) => {
+        setFacturaFile(file || null);
+        setEstadoValidacion(null);
+
+        if (!file) {
+            setFolio('');
+            setFolioValidado(false);
+            return;
+        }
+
+        if (!esXml(file)) {
+            setFolio('');
+            setFolioValidado(false);
+            alert('El archivo de CFDI debe ser XML.');
+            return;
+        }
+
+        try {
+            const parsed = await parseCfdi(file);
+            const uuid = normalizarUuidLocal(parsed.uuid);
+
+            if (!uuid) {
+                setFolio('');
+                setFolioValidado(false);
+                alert('El XML no trae folio fiscal.');
+                return;
+            }
+
+            setFolio(uuid);
+            setFolioValidado(true);
+        } catch (error) {
+            setFolio('');
+            setFolioValidado(false);
+            alert(apiErrorMessage(error));
+        }
+    };
+
     
     // Estados para simular la IA de Validación Automática
     const [estadoValidacion, setEstadoValidacion] = useState(null); // 'listo', 'error', 'legibilidad'
@@ -65,7 +102,7 @@ function AnadirGasto() {
         setCargandoValidacion(true);
 
         try {
-            const cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, `Gasto - ${categoria}`);
+            const cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
             validarSolicitudDespuesDeAnadir([
                 ...loadDraftGastos(),
                 crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
@@ -93,7 +130,7 @@ function AnadirGasto() {
 
         let cfdiParsed;
         try {
-            cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, `Gasto - ${categoria}`);
+            cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
         } catch (error) {
             setEstadoValidacion('error');
             alert(apiErrorMessage(error));
@@ -260,7 +297,7 @@ function AnadirGasto() {
                                         accept=".xml,application/xml,text/xml" 
                                         disabled={tipoDocumento !== 'factura'}
                                         style={{ display: 'none' }} 
-                                        onChange={(e) => setFacturaFile(e.target.files?.[0] || null)} 
+                                        onChange={(e) => handleFacturaFileChange(e.target.files?.[0] || null)} 
                                     />
                                 </label>
                             </div>
@@ -735,11 +772,13 @@ function esXml(file) {
     return nombre.endsWith('.xml') || tipo.includes('xml');
 }
 
-async function validarCfdiAntesDeAnadir(file, monto, nombreGasto) {
+async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto) {
     const parsed = await parseCfdi(file);
     const errores = [];
     const montoGasto = Number(monto);
     const totalCfdi = parsed.total === null || parsed.total === undefined ? null : Number(parsed.total);
+    const fechaGasto = normalizarFechaCapturada(fecha);
+    const fechaCfdi = normalizarFechaCfdi(parsed.issued_at);
 
     if (!parsed.uuid) {
         errores.push('El XML no trae UUID fiscal.');
@@ -753,6 +792,14 @@ async function validarCfdiAntesDeAnadir(file, monto, nombreGasto) {
 
     if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
         errores.push(`La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
+    }
+
+    if (!fechaGasto) {
+        errores.push('Captura la fecha de la factura en formato DD/MM/AAAA.');
+    } else if (!fechaCfdi) {
+        errores.push('El XML no trae fecha fiscal.');
+    } else if (fechaCfdi !== fechaGasto) {
+        errores.push(`La fecha del XML (${formatoFecha(fechaCfdi)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
     }
 
     if (parsed.uuid) {
@@ -882,6 +929,56 @@ function cfdiTotalDesdeGasto(gasto) {
 
 function normalizarUuidLocal(value) {
     return value ? String(value).trim().toUpperCase() : null;
+}
+
+function normalizarFechaCapturada(value) {
+    const texto = String(value || '').trim();
+    const fechaConDiaPrimero = texto.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (fechaConDiaPrimero) {
+        const [, day, month, year] = fechaConDiaPrimero;
+        return fechaIsoValida(year, month, day);
+    }
+
+    const fechaIso = texto.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (fechaIso) {
+        const [, year, month, day] = fechaIso;
+        return fechaIsoValida(year, month, day);
+    }
+
+    return null;
+}
+
+function normalizarFechaCfdi(value) {
+    const texto = String(value || '').trim();
+    const fechaIso = texto.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (!fechaIso) return null;
+
+    const [, year, month, day] = fechaIso;
+    return fechaIsoValida(year, month, day);
+}
+
+function fechaIsoValida(year, month, day) {
+    const yyyy = Number(year);
+    const mm = Number(month);
+    const dd = Number(day);
+
+    if (!yyyy || !mm || !dd) return null;
+
+    const fecha = new Date(Date.UTC(yyyy, mm - 1, dd));
+    if (
+        fecha.getUTCFullYear() !== yyyy ||
+        fecha.getUTCMonth() !== mm - 1 ||
+        fecha.getUTCDate() !== dd
+    ) {
+        return null;
+    }
+
+    return `${String(yyyy).padStart(4, '0')}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+}
+
+function formatoFecha(value) {
+    const [year, month, day] = String(value || '').split('-');
+    return [day, month, year].filter(Boolean).join('/');
 }
 
 function numeroOculto(value) {
