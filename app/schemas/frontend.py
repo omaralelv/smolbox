@@ -1,7 +1,6 @@
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
-
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
@@ -169,10 +168,26 @@ class FrontendSolicitudCreate(BaseModel):
     store_id: UUID | None = None
     period_id: UUID | None = None
     tienda: str | None = None
+
+    reimbursement_ends_on: date = Field(
+        validation_alias=AliasChoices(
+            "reimbursement_ends_on",
+            "reimbursementEndsOn",
+        ),
+    )
+
     reported_total: Decimal | None = Field(
         default=None,
         ge=0,
-        validation_alias=AliasChoices("reported_total", "reportedTotal", "montoTotal"),
+        validation_alias=AliasChoices(
+            "reported_total",
+            "reportedTotal",
+            "montoTotal",
+        ),
     )
+
     notes: str | None = None
-    gastos: list[FrontendGastoCreate] = Field(default_factory=list)
+
+    gastos: list[FrontendGastoCreate] = Field(
+        default_factory=list
+    )

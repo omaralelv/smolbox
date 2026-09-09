@@ -16,9 +16,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.utils.filenames import limpiar_nombre_archivo
-from app.services.spending_baselines import convertir_decimal
 from app.services.spending_summary import obtener_resumen_gasto_tienda
 from app.services.store_catalog import cargar_base_tiendas
+
 
 from app.db.session import get_db
 
@@ -118,22 +118,29 @@ def generar_polizas(
         )
 
     # Cambia estos nombres si periods usa nombres distintos.
-    inicio_caja = periodo["starts_on"]
-    fin_caja = periodo["ends_on"]
+    inicio_caja = solicitud["reimbursement_starts_on"]
+
+    fin_caja = solicitud["reimbursement_ends_on"]
 
     inicio_ant = solicitud["previous_reimbursement_starts_on"]
+
     fin_ant = solicitud["previous_reimbursement_ends_on"]
+
     cantidad_reembolsada = Decimal(
-        str(solicitud["previous_reimbursement_amount"] or "0")
+        str(
+            solicitud[
+                "previous_reimbursement_amount"
+            ] or "0"
+        )
     )
 
     # Fechas del periodo actual de caja
-    inicio_caja = periodo["starts_on"]
-    fin_caja = periodo["ends_on"]
+    #inicio_caja = periodo["starts_on"]
+    #fin_caja = periodo["ends_on"]
 
     # Fechas del periodo anterior
-    inicio_ant = solicitud["previous_reimbursement_starts_on"]
-    fin_ant = solicitud["previous_reimbursement_ends_on"]
+    #inicio_ant = solicitud["previous_reimbursement_starts_on"]
+    #fin_ant = solicitud["previous_reimbursement_ends_on"]
 
     # Fecha de creación de la solicitud
     created_at = solicitud["created_at"]

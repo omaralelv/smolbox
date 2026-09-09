@@ -80,11 +80,13 @@ class ReimbursementRequest(Base):
     previous_reimbursement_request_id: Mapped[
         uuid.UUID | None
     ] = mapped_column(
+        Uuid(as_uuid=True),
         ForeignKey(
             "reimbursement_requests.id",
             ondelete="SET NULL",
         ),
         nullable=True,
+        index=True,
     )
 
     reported_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

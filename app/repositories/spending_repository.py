@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.models.expense import Expense
-from app.models.reimbursement_request import ReimbursementRequest
+from app.models.reimbursement_request import (ReimbursementRequest, ReimbursementRequestStatus)
 from app.models.store_spending_baseline import StoreSpendingBaseline
 
 

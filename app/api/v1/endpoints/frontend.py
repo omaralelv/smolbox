@@ -32,6 +32,7 @@ from app.services.expense_authorization_rules import expense_requires_authorizat
 from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.reimbursement_periods import (obtener_contexto_periodo_reembolso,)
 
 router = APIRouter()
 
@@ -271,6 +272,25 @@ def create_frontend_request(
 
     store = _resolve_store_for_create(request_in, current_user, db)
     period = _resolve_period_for_create(request_in, db)
+    try:
+        contexto_periodo = (
+            obtener_contexto_periodo_reembolso(
+                db=db,
+                store_id=store.id,
+                fecha_fin_actual=(
+                    request_in.reimbursement_ends_on
+                ),
+            )
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INVALID_REIMBURSEMENT_PERIOD",
+                "message": str(exc),
+            },
+        ) from exc
     reported_total = request_in.reported_total
     if reported_total is None:
         reported_total = sum((expense.monto for expense in request_in.gastos), Decimal("0.00"))
@@ -281,6 +301,30 @@ def create_frontend_request(
         reported_total=_money(reported_total),
         notes=request_in.notes,
         folio=_generate_request_folio(store, db),
+
+        reimbursement_starts_on=(
+            contexto_periodo.current_starts_on
+        ),
+
+        reimbursement_ends_on=(
+            request_in.reimbursement_ends_on
+        ),
+
+        previous_reimbursement_request_id=(
+            contexto_periodo.previous_request_id
+        ),
+
+        previous_reimbursement_starts_on=(
+            contexto_periodo.previous_starts_on
+        ),
+
+        previous_reimbursement_ends_on=(
+            contexto_periodo.previous_ends_on
+        ),
+
+        previous_reimbursement_amount=(
+            contexto_periodo.previous_amount
+        ),
     )
     db.add(request)
     db.flush()
