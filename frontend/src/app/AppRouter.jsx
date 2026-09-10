@@ -9,6 +9,7 @@ import Dashboard from '../pages/Dashboard';
 import Login from '../pages/Login';
 import Historico from '../pages/Historico';
 import AutorizacionBandeja from '../pages/autorizacion/AutorizacionBandeja';
+import Usuarios from '../pages/admin/Usuarios';
 
 /*<Routes>
     <Route path="/solicitud/nueva" element={<ProtectedRoute roles={['tienda','admin']}><SolicitudForm/></ProtectedRoute>} />
@@ -36,6 +37,7 @@ function AppRouter({ currentRole }) {
         <Route path="/detalle" element={<Detalle currentRole={currentRole} />}/>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/historico" element={<Historico currentRole={currentRole} />}/>
+        <Route path="/usuarios" element={<Usuarios />} />
         
         </Routes>
     );

@@ -1,4 +1,8 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+const API_BASE_URL = (
+    import.meta.env.DEV
+        ? '/api/v1'
+        : import.meta.env.VITE_API_BASE_URL || '/api/v1'
+).replace(/\/$/, '');
 const TOKEN_KEY = 'smolboxApiToken';
 const ROLE_KEY = 'smolboxFrontendRole';
 
@@ -64,6 +68,52 @@ export async function getFrontendSolicitud(requestIdOrFolio) {
 
 export async function getRequestAuditEvents(requestId) {
     return request(`/reimbursement-requests/${requestId}/audit-events`);
+}
+
+export async function listUsers() {
+    return request('/users/');
+}
+
+export async function createUser(payload) {
+    return request('/users/', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
+export async function listStores() {
+    return request('/stores/');
+}
+
+export async function listStoreUserAssignments(storeId) {
+    return request(`/stores/${encodeURIComponent(storeId)}/users`);
+}
+
+export async function assignUserToStore(storeId, userId, role) {
+    return request(`/stores/${encodeURIComponent(storeId)}/users`, {
+        method: 'POST',
+        body: {
+            user_id: userId,
+            role,
+        },
+    });
+}
+
+export async function listAuthorizationAreas() {
+    return request('/authorization-areas/');
+}
+
+export async function listAuthorizationAreasForUser(userId) {
+    return request(`/authorization-areas/users/${encodeURIComponent(userId)}`);
+}
+
+export async function assignAuthorizationAreaToUser(userId, areaName) {
+    return request(`/authorization-areas/users/${encodeURIComponent(userId)}`, {
+        method: 'POST',
+        body: {
+            areaName,
+        },
+    });
 }
 
 export async function createFrontendSolicitud(payload) {

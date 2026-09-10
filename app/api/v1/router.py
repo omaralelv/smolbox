@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     attachment_files,
     attachments,
     auth,
+    authorization_areas,
     business_rules,
     cfdi,
     dev_hud,
@@ -21,6 +22,11 @@ from app.api.v1.endpoints import (
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(
+    authorization_areas.router,
+    prefix="/authorization-areas",
+    tags=["authorization-areas"],
+)
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(stores.router, prefix="/stores", tags=["stores"])
 api_router.include_router(business_rules.router, prefix="/business-rules", tags=["business-rules"])

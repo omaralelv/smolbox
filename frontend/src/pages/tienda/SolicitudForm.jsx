@@ -241,6 +241,12 @@ function SolicitudForm({ currentRole }) {
                     observaciones: gasto.observaciones || null,
                     observacionesHistorial: observacionesHistorialParaBackend(gasto),
                     requiresAuthorization: Boolean(gasto.requiresAuthorization),
+                    authorizationArea: (
+                        gasto.areaAutoriza
+                        || gasto.authorizationArea
+                        || gasto.authorization_area
+                        || null
+                    ),
                 })),
             });
 

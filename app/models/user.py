@@ -12,6 +12,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.audit_log import AuditLog
+    from app.models.authorization_area import UserAuthorizationArea
     from app.models.store import StoreUserAssignment
 
 
@@ -46,3 +47,7 @@ class User(Base):
 
     audit_events: Mapped[list[AuditLog]] = relationship(back_populates="actor_user")
     store_assignments: Mapped[list[StoreUserAssignment]] = relationship(back_populates="user")
+    authorization_area_assignments: Mapped[list[UserAuthorizationArea]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )

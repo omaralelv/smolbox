@@ -2,12 +2,12 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from zoneinfo import ZoneInfo
 
 from app.api.dependencies.auth import get_current_user
 from app.db.session import get_db
@@ -29,12 +29,22 @@ from app.schemas.frontend import (
     FrontendUserRead,
 )
 from app.services.accounting_queue import mark_accounting_request_taken_on_open
+from app.services.authorization_areas import (
+    expense_is_visible_to_authorizer,
+    get_or_create_authorization_area,
+    request_has_authorization_area_for_user,
+    request_has_authorization_visible_to_user,
+)
 from app.services.expense_authorization_rules import expense_requires_authorization
 from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
+from app.services.reimbursement_periods import (
+    obtener_contexto_periodo_reembolso,
+)
 from app.services.reimbursement_validation import summarize_reimbursement_request
-from app.services.reimbursement_periods import (obtener_contexto_periodo_reembolso,)
-from app.utils.folio_dates import (obtener_fecha_desde_folio,)
+from app.utils.folio_dates import (
+    obtener_fecha_desde_folio,
+)
 
 router = APIRouter()
 MEXICO_CITY_TZ = ZoneInfo(
@@ -180,7 +190,7 @@ def list_frontend_work_queue(
             )
         )
         requests = list(db.scalars(statement.limit(200)))
-        return [_request_payload(request, current_user) for request in requests]
+        return [_request_payload(request, current_user, db) for request in requests]
 
     if current_user.role == UserRole.admin:
         statement = statement.where(
@@ -192,7 +202,7 @@ def list_frontend_work_queue(
             )
         )
         requests = list(db.scalars(statement.limit(200)))
-        return [_request_payload(request, current_user) for request in requests]
+        return [_request_payload(request, current_user, db) for request in requests]
 
     statuses = ROLE_QUEUE_STATUSES.get(current_user.role, set())
     if not statuses:
@@ -213,9 +223,9 @@ def list_frontend_work_queue(
     requests = [
         request
         for request in db.scalars(statement.limit(200))
-        if _request_is_visible_for_role(request, current_user.role)
+        if _request_is_visible_for_role(request, current_user, db)
     ]
-    return [_request_payload(request, current_user) for request in requests]
+    return [_request_payload(request, current_user, db) for request in requests]
 
 
 @router.get("/historico/me", response_model=list[FrontendSolicitudRead])
@@ -240,7 +250,7 @@ def list_frontend_historical_requests(
         )
 
     requests = list(db.scalars(statement.limit(200)))
-    return [_request_payload(request, current_user) for request in requests]
+    return [_request_payload(request, current_user, db) for request in requests]
 
 
 @router.get("/solicitudes/{request_identifier}/me", response_model=FrontendSolicitudRead)
@@ -252,7 +262,7 @@ def get_frontend_request_detail(
     request = _get_request_by_frontend_identifier(request_identifier, db)
     _ensure_request_visible(request, current_user, db)
     request = _mark_accounting_request_taken_if_needed(request, current_user, db)
-    return _request_payload(request, current_user)
+    return _request_payload(request, current_user, db)
 
 
 @router.post(
@@ -375,7 +385,7 @@ def create_frontend_request(
     )
 
     for expense_in in request_in.gastos:
-        expense = _expense_from_frontend(expense_in, request=request, period=period)
+        expense = _expense_from_frontend(expense_in, request=request, period=period, db=db)
         db.add(expense)
         db.flush()
         _add_frontend_observation_events(
@@ -399,7 +409,7 @@ def create_frontend_request(
         ) from exc
 
     request = _get_request_by_id(request.id, db)
-    return _request_payload(request, current_user)
+    return _request_payload(request, current_user, db)
 
 
 @router.post(
@@ -435,7 +445,7 @@ def add_frontend_expense(
             },
         )
 
-    expense = _expense_from_frontend(expense_in, request=request, period=request.period)
+    expense = _expense_from_frontend(expense_in, request=request, period=request.period, db=db)
     db.add(expense)
     db.flush()
     _add_frontend_observation_events(
@@ -457,7 +467,7 @@ def add_frontend_expense(
     )
     db.commit()
     request = _get_request_by_id(request.id, db)
-    return _request_payload(request, current_user)
+    return _request_payload(request, current_user, db)
 
 
 def _request_detail_statement():
@@ -467,6 +477,7 @@ def _request_detail_statement():
         selectinload(ReimbursementRequest.attachments),
         selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
         selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+        selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
         selectinload(ReimbursementRequest.payments),
         selectinload(ReimbursementRequest.audit_events),
     )
@@ -503,6 +514,7 @@ def _store_payload(store: Store) -> FrontendStoreRead:
 def _request_payload(
     request: ReimbursementRequest,
     current_user: User,
+    db: Session,
 ) -> FrontendSolicitudRead:
     summary = summarize_reimbursement_request(request)
     actions = available_actions_for_request(request, actor=current_user, summary=summary)
@@ -527,7 +539,10 @@ def _request_payload(
         estado_region=request.store.state_region,
         gastos=[
             _expense_payload(expense)
-            for expense in sorted(_frontend_visible_expenses(request.expenses), key=_expense_sort_key)
+            for expense in sorted(
+                _frontend_visible_expenses(request.expenses, current_user, db),
+                key=_expense_sort_key,
+            )
         ],
         monto_total=float(calculated_total),
         reported_total=float(reported_total) if reported_total is not None else None,
@@ -538,8 +553,16 @@ def _request_payload(
     )
 
 
-def _frontend_visible_expenses(expenses: list[Expense]) -> list[Expense]:
-    return list(expenses)
+def _frontend_visible_expenses(
+    expenses: list[Expense],
+    current_user: User,
+    db: Session,
+) -> list[Expense]:
+    return [
+        expense
+        for expense in expenses
+        if expense_is_visible_to_authorizer(db, current_user, expense)
+    ]
 
 
 def _expense_payload(expense: Expense) -> FrontendGastoRead:
@@ -565,6 +588,10 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         status=_frontend_expense_status(expense.status),
         backend_status=expense.status.value,
         requires_authorization=expense.requires_authorization,
+        authorization_area_id=expense.authorization_area_id,
+        authorization_area_name=(
+            expense.authorization_area.name if expense.authorization_area else None
+        ),
         download_url=_first_receipt_download_url(expense),
     )
 
@@ -628,6 +655,7 @@ def _expense_from_frontend(
     *,
     request: ReimbursementRequest,
     period: Period,
+    db: Session,
 ) -> Expense:
     spent_on = _parse_frontend_date(expense_in.fecha, period)
 
@@ -675,6 +703,22 @@ def _expense_from_frontend(
         )
     category = expense_in.categoria or "Gasto General"
     merchant = expense_in.merchant or expense_in.proveedor or f"Gasto - {category}"
+    authorization_area = None
+    if expense_in.authorization_area_name:
+        try:
+            authorization_area = get_or_create_authorization_area(
+                db,
+                expense_in.authorization_area_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "AUTHORIZATION_AREA_NAME_INVALID",
+                    "message": str(exc),
+                },
+            ) from exc
+
     return Expense(
         reimbursement_request_id=request.id,
         period_id=period.id,
@@ -690,6 +734,7 @@ def _expense_from_frontend(
         cfdi_currency=(expense_in.cfdi_currency or expense_in.moneda).upper(),
         cfdi_tax_amount=_money_or_none(expense_in.cfdi_tax_amount),
         cfdi_tax_rate=_rate_or_none(expense_in.cfdi_tax_rate),
+        authorization_area_id=authorization_area.id if authorization_area else None,
         requires_authorization=expense_requires_authorization(
             explicit=expense_in.requiere_autorizacion,
             category=category,
@@ -912,15 +957,44 @@ def _frontend_store_code(store: Store) -> str:
     return store.code
 
 
-def _request_is_visible_for_role(request: ReimbursementRequest, role: UserRole) -> bool:
+def _request_is_visible_for_role(
+    request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> bool:
+    summary = summarize_reimbursement_request(request)
+    pending_authorization_ids = set(summary.missing_authorization_expense_ids)
+    has_pending_authorization = bool(pending_authorization_ids)
+
+    if (
+        current_user.role == UserRole.authorizer
+        and request.status
+        == ReimbursementRequestStatus.submitted
+    ):
+        return request_has_authorization_visible_to_user(
+            request,
+            current_user,
+            db,
+            pending_expense_ids=pending_authorization_ids,
+        )
+
+    if (
+        current_user.role == UserRole.authorizer
+        and request.status == ReimbursementRequestStatus.authorization_review
+    ):
+        if has_pending_authorization:
+            return request_has_authorization_visible_to_user(
+                request,
+                current_user,
+                db,
+                pending_expense_ids=pending_authorization_ids,
+            )
+        return request_has_authorization_area_for_user(request, current_user, db)
+
     if request.status != ReimbursementRequestStatus.submitted:
         return True
 
-    summary = summarize_reimbursement_request(request)
-    has_pending_authorization = bool(summary.missing_authorization_expense_ids)
-    if role == UserRole.authorizer:
-        return has_pending_authorization
-    if role == UserRole.accountant:
+    if current_user.role == UserRole.accountant:
         return not has_pending_authorization
     return True
 
