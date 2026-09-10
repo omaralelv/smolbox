@@ -233,6 +233,7 @@ def generar_polizas(
         FROM expenses
         WHERE reimbursement_request_id = :request_id
           AND removed_at IS NULL
+          AND status = 'approved'
         ORDER BY spent_on, created_at, id
     """)
 
@@ -247,17 +248,6 @@ def generar_polizas(
             detail="La solicitud no tiene gastos activos asociados.",
         )
 
-    gastos_invalidos = [
-        str(gasto["id"])
-        for gasto in gastos_db
-        if gasto["status"] in {"removed", "rejected"}
-    ]
-
-    if gastos_invalidos:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Hay gastos no procesables: {gastos_invalidos}",
-        )
 
     # ========================================================
     # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from zoneinfo import ZoneInfo
 
 from app.api.dependencies.auth import get_current_user
 from app.db.session import get_db
@@ -33,9 +34,12 @@ from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.reimbursement_periods import (obtener_contexto_periodo_reembolso,)
+from app.utils.folio_dates import (obtener_fecha_desde_folio,)
 
 router = APIRouter()
-
+MEXICO_CITY_TZ = ZoneInfo(
+    "America/Mexico_City"
+)
 ROLE_TO_FRONTEND = {
     UserRole.store: "tienda",
     UserRole.authorizer: "supervisor",
@@ -270,16 +274,48 @@ def create_frontend_request(
             },
         )
 
-    store = _resolve_store_for_create(request_in, current_user, db)
-    period = _resolve_period_for_create(request_in, db)
+    store = _resolve_store_for_create(
+        request_in,
+        current_user,
+        db,
+    )
+
+    period = _resolve_period_for_create(
+        request_in,
+        db,
+    )
+
+    folio = _generate_request_folio(
+        store,
+        db,
+    )
+    fecha_fin_reembolso = obtener_fecha_desde_folio(
+        folio
+    )
+
+    try:
+        fecha_fin_reembolso = (
+            obtener_fecha_desde_folio(folio)
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "INVALID_GENERATED_FOLIO",
+                "message": (
+                    "No se pudo obtener la fecha "
+                    "del folio generado."
+                ),
+            },
+        ) from exc
+
     try:
         contexto_periodo = (
             obtener_contexto_periodo_reembolso(
                 db=db,
                 store_id=store.id,
-                fecha_fin_actual=(
-                    request_in.reimbursement_ends_on
-                ),
+                fecha_fin_actual=fecha_fin_reembolso,
             )
         )
 
@@ -300,15 +336,14 @@ def create_frontend_request(
         period_id=period.id,
         reported_total=_money(reported_total),
         notes=request_in.notes,
-        folio=_generate_request_folio(store, db),
+
+        folio=folio,
 
         reimbursement_starts_on=(
             contexto_periodo.current_starts_on
         ),
 
-        reimbursement_ends_on=(
-            request_in.reimbursement_ends_on
-        ),
+        reimbursement_ends_on=fecha_fin_reembolso,
 
         previous_reimbursement_request_id=(
             contexto_periodo.previous_request_id
@@ -595,15 +630,47 @@ def _expense_from_frontend(
     period: Period,
 ) -> Expense:
     spent_on = _parse_frontend_date(expense_in.fecha, period)
-    if not period.starts_on <= spent_on <= period.ends_on:
+
+    reimbursement_starts_on = (request.reimbursement_starts_on)
+    reimbursement_ends_on = (request.reimbursement_ends_on)
+
+    if (
+        reimbursement_starts_on is None
+        or reimbursement_ends_on is None
+    ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "code": "EXPENSE_OUTSIDE_PERIOD",
-                "message": "The expense date is outside the reimbursement period",
+                "code": "REIMBURSEMENT_COVERAGE_MISSING",
+                "message": (
+                    "La solicitud no tiene un periodo "
+                    "de reembolso calculado."
+                ),
+            },
+        )
+
+    if not (
+        reimbursement_starts_on
+        <= spent_on
+        <= reimbursement_ends_on
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": (
+                    "EXPENSE_OUTSIDE_REIMBURSEMENT_COVERAGE"
+                ),
+                "message": (
+                    "La fecha del gasto está fuera del "
+                    "periodo de reembolso de la solicitud."
+                ),
                 "spent_on": spent_on.isoformat(),
-                "period_starts_on": period.starts_on.isoformat(),
-                "period_ends_on": period.ends_on.isoformat(),
+                "reimbursement_starts_on": (
+                    reimbursement_starts_on.isoformat()
+                ),
+                "reimbursement_ends_on": (
+                    reimbursement_ends_on.isoformat()
+                ),
             },
         )
     category = expense_in.categoria or "Gasto General"
@@ -794,21 +861,47 @@ def _current_open_period(db: Session) -> Period | None:
     )
 
 
-def _generate_request_folio(store: Store, db: Session) -> str:
-    prefix = f"{_frontend_store_code(store)}-{datetime.now(UTC).date():%d%m%Y}"
+def _generate_request_folio(
+    store: Store,
+    db: Session,
+) -> str:
+    fecha_local = datetime.now(
+        MEXICO_CITY_TZ
+    ).date()
+
+    prefix = (
+        f"{_frontend_store_code(store)}-"
+        f"{fecha_local:%d%m%Y}"
+    )
+
     existing_folios = db.scalars(
         select(ReimbursementRequest.folio).where(
             ReimbursementRequest.folio.is_not(None),
-            ReimbursementRequest.folio.like(f"{prefix}%"),
+            ReimbursementRequest.folio.like(
+                f"{prefix}%"
+            ),
         )
     )
+
     highest_sequence = 0
-    for folio in existing_folios:
-        if folio is None or not folio.startswith(prefix):
+
+    for existing_folio in existing_folios:
+        if (
+            existing_folio is None
+            or not existing_folio.startswith(prefix)
+        ):
             continue
-        suffix = folio.removeprefix(prefix)
+
+        suffix = existing_folio.removeprefix(
+            prefix
+        )
+
         if suffix.isdecimal():
-            highest_sequence = max(highest_sequence, int(suffix))
+            highest_sequence = max(
+                highest_sequence,
+                int(suffix),
+            )
+
     return f"{prefix}{highest_sequence + 1}"
 
 

@@ -169,12 +169,6 @@ class FrontendSolicitudCreate(BaseModel):
     period_id: UUID | None = None
     tienda: str | None = None
 
-    reimbursement_ends_on: date = Field(
-        validation_alias=AliasChoices(
-            "reimbursement_ends_on",
-            "reimbursementEndsOn",
-        ),
-    )
 
     reported_total: Decimal | None = Field(
         default=None,
