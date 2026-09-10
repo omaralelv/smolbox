@@ -149,13 +149,17 @@ function Bandeja({currentRole}) {
 
 
         // Asignación de pesos para priorizar el renderizado
-        // 1: Devueltas/Resueltas o Asignadas a mí (taken)
-        // 2: Estado base (single)
-        // 3: Tomadas por alguien más (taken_other)
+        // 1: Devueltas/Resueltas
+        // 2: Asignadas a mí (taken)
+        // 3: Estado base (single)
+        // 4: Tomadas por alguien más (taken_other)
         const getPeso = (alerta) => {
-            if (alerta.queueStatus === 'taken_other') return 3;
-            if (alerta.esDevuelto || alerta.esResuelto || alerta.queueStatus === 'taken') return 1;
-            return 2;
+            if (alerta.esDevuelto || alerta.esResuelto) return 1;
+            if (alerta.queueStatus === 'taken') return 2;
+            if (alerta.queueStatus === 'taken_other') return 4;
+
+            //if (alerta.esDevuelto || alerta.esResuelto || alerta.queueStatus === 'taken') return 1;
+            return 3;
         };
         //const pesoA = (alertaA.esDevuelto || alertaA.esResuelto) ? 1 : 2;
         //const pesoB = (alertaB.esDevuelto || alertaB.esResuelto) ? 1 : 2;

@@ -13,6 +13,9 @@ function AnadirGasto() {
     const [monto, setMonto] = useState('');
     const [folio, setFolio] = useState('');
     const [tipoDocumento, setTipoDocumento] = useState('factura'); // 'factura' | 'vale' | 'recibo'
+    // Agrega el nuevo estado para el área
+    const [areaAutoriza, setAreaAutoriza] = useState('');
+
 
     const [facturaFile, setFacturaFile] = useState(null);
     const [valeFile, setValeFile] = useState(null);
@@ -68,8 +71,10 @@ function AnadirGasto() {
             }
 
             setFolio(uuid);
-            setFolioValidado(true);
-        } catch (error) {
+            setFolioValidado(false);
+        } 
+        
+        catch (error) {
             setFolio('');
             setFolioValidado(false);
             alert(apiErrorMessage(error));
@@ -85,6 +90,14 @@ function AnadirGasto() {
     const categoriasGasto = ["Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil", 
         "Hospedaje", "Impuesto Hospedaje", "Licencias y Permisos", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad", 
         "Recolección de Basura", "Servicio de Agua", "Trámites", "Trasportación", "Vigilancia", "Otros"];
+
+    // Lista de áreas que autorizan
+    const areasAutorizan = ["Auditoría Interna", "Gestoría", "Insumos", "Mantenimiento",  "Operaciones", "Pago de Luz", "Recursos Humanos", "Servicio de Agua", "Sistemas", "Supervisores", "Tráfico"];
+
+
+    // Condición para saber si la categoría seleccionada requiere habilitar el select
+    const esTransporte = categoria === 'Pasajes y Taxis' || categoria === 'Trasportación';
+
 
     // 2. LÓGICA DE SIMULACIÓN DE IA
     const handleValidarGasto = async () => {
@@ -150,6 +163,7 @@ function AnadirGasto() {
             tipoDocumento: tipoDocumento,
             folio: tipoDocumento === 'factura' ? folio : 'N/A',
             fecha: fecha,
+            areaAutoriza: esTransporte ? areaAutoriza : null, // Guardamos la selección si aplica
 
             observaciones: observaciones,
             
@@ -257,6 +271,32 @@ function AnadirGasto() {
                                 </button>
                             )}
                         </div>
+                    </div>
+
+                    {/* SELECTOR DESPLEGABLE CON HABILITACIÓN CONDICIONAL */}
+                    <div style={styles.inputGroupArea}>
+                        <label style={{
+                            ...styles.label,
+                            opacity: esTransporte ? 1 : 0.4
+                        }}>
+                            Área que autoriza {esTransporte ? '*' : ''}
+                        </label>
+                        <select 
+                            value={areaAutoriza} 
+                            onChange={(e) => setAreaAutoriza(e.target.value)} 
+                            disabled={!esTransporte}
+                            style={{
+                                ...styles.select,
+                                opacity: esTransporte ? 1 : 0.4,
+                                cursor: esTransporte ? 'pointer' : 'not-allowed',
+                                backgroundColor: esTransporte ? 'var(--bg)' : '#f3f4f6'
+                            }}
+                        >
+                            <option value="">Seleccionar área...</option>
+                            {areasAutorizan.map(area => (
+                                <option key={area} value={area}>{area}</option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
@@ -552,6 +592,13 @@ function AnadirGasto() {
         display: 'flex',
         gap: '10px',
         alignItems: 'center',
+    },
+
+    inputGroupArea: {
+        gridColumn: 'span 1', // Área que autoriza ocupa el 33% del ancho (2 de 6 columnas)
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
     },
 
 
