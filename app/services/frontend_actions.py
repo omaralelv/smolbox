@@ -47,10 +47,11 @@ def available_actions_for_request(
                 "authorize_expense",
                 "reject_expense",
                 "remove_authorization_expense",
-                "approve_authorization",
                 "reject_request",
             ]
         )
+        if summary.ready_for_authorization_approval:
+            actions.append("approve_authorization")
 
     if status == ReimbursementRequestStatus.authorized and role in {
         UserRole.accountant,

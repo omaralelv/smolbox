@@ -8,14 +8,15 @@ from app.db.base import Base
 from app.models import (  # noqa: F401
     attachment,
     audit_log,
+    authorization_area,
     business_rule,
     cfdi_validation,
     expense,
     payment,
     period,
     reimbursement_request,
-    store_reimbursement_opening_cutoff,
     store,
+    store_reimbursement_opening_cutoff,
     store_spending_baseline,
     user,
 )

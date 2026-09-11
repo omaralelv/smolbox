@@ -39,6 +39,11 @@ from app.schemas.reimbursement_request import (
     SapPolicyRead,
 )
 from app.services.accounting_queue import mark_accounting_request_taken_on_open
+from app.services.authorization_areas import (
+    expense_is_visible_to_authorizer,
+    request_has_authorization_area_for_user,
+    request_has_authorization_visible_to_user,
+)
 from app.services.automation_review import build_automated_review
 from app.services.expense_authorization_rules import expense_requires_authorization
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
@@ -158,7 +163,7 @@ def get_reimbursement_request_detail_as_current_user(
         current_user,
         db,
     )
-    return _build_request_detail(reimbursement_request, current_user)
+    return _build_request_detail(reimbursement_request, current_user, db)
 
 
 @router.patch("/{request_id}", response_model=ReimbursementRequestRead)
@@ -870,6 +875,13 @@ def _transition_request_with_actor(
         )
 
     summary = summarize_reimbursement_request(reimbursement_request)
+    _ensure_authorization_transition_area_allowed(
+        reimbursement_request,
+        actor=actor,
+        target_status=target_status,
+        summary=summary,
+        db=db,
+    )
     try:
         from_status, to_status = transition_reimbursement_request(
             reimbursement_request,
@@ -916,6 +928,55 @@ def _transition_request_with_actor(
     return reimbursement_request
 
 
+def _ensure_authorization_transition_area_allowed(
+    reimbursement_request: ReimbursementRequest,
+    *,
+    actor: User,
+    target_status: ReimbursementRequestStatus,
+    summary: ReimbursementValidationSummary,
+    db: Session,
+) -> None:
+    if actor.role != UserRole.authorizer:
+        return
+
+    if target_status == ReimbursementRequestStatus.authorization_review:
+        pending_authorization_ids = set(summary.missing_authorization_expense_ids)
+        if not pending_authorization_ids:
+            return
+        has_area_access = request_has_authorization_visible_to_user(
+            reimbursement_request,
+            actor,
+            db,
+            pending_expense_ids=pending_authorization_ids,
+        )
+    elif (
+        reimbursement_request.status == ReimbursementRequestStatus.authorization_review
+        and target_status
+        in {
+            ReimbursementRequestStatus.authorized,
+            ReimbursementRequestStatus.rejected,
+        }
+    ):
+        has_area_access = request_has_authorization_area_for_user(
+            reimbursement_request,
+            actor,
+            db,
+        )
+    else:
+        return
+
+    if has_area_access:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "AUTHORIZATION_AREA_FORBIDDEN",
+            "message": "Actor cannot transition this authorization area.",
+        },
+    )
+
+
 def _generate_request_folio(store: Store, db: Session) -> str:
     prefix = f"{store.code}-{datetime.now(UTC).date():%d%m%Y}"
     existing_folios = db.scalars(
@@ -943,6 +1004,7 @@ def _get_request_detail_or_404(request_id: UUID, db: Session) -> ReimbursementRe
             selectinload(ReimbursementRequest.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
             selectinload(ReimbursementRequest.payments),
             selectinload(ReimbursementRequest.audit_events),
         )
@@ -970,6 +1032,42 @@ def _ensure_request_visible_to_user(
                 "message": "Actor must be assigned to the request store",
             },
         )
+    if (
+        current_user.role != UserRole.authorizer
+        or reimbursement_request.status
+        not in {
+            ReimbursementRequestStatus.submitted,
+            ReimbursementRequestStatus.authorization_review,
+        }
+    ):
+        return
+
+    summary = summarize_reimbursement_request(reimbursement_request)
+    pending_authorization_ids = set(summary.missing_authorization_expense_ids)
+    if pending_authorization_ids:
+        has_area_access = request_has_authorization_visible_to_user(
+            reimbursement_request,
+            current_user,
+            db,
+            pending_expense_ids=pending_authorization_ids,
+        )
+    else:
+        has_area_access = request_has_authorization_area_for_user(
+            reimbursement_request,
+            current_user,
+            db,
+        )
+
+    if has_area_access:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "AUTHORIZATION_AREA_FORBIDDEN",
+            "message": "Actor cannot access this authorization area.",
+        },
+    )
 
 
 def _mark_accounting_request_taken_if_needed(
@@ -1003,8 +1101,14 @@ def _mark_accounting_request_taken_if_needed(
 def _build_request_detail(
     reimbursement_request: ReimbursementRequest,
     current_user: User,
+    db: Session,
 ) -> ReimbursementRequestDetailRead:
     summary = summarize_reimbursement_request(reimbursement_request)
+    visible_expenses = [
+        expense
+        for expense in reimbursement_request.expenses
+        if expense_is_visible_to_authorizer(db, current_user, expense)
+    ]
     return ReimbursementRequestDetailRead(
         **ReimbursementRequestRead.model_validate(reimbursement_request).model_dump(),
         store=reimbursement_request.store,
@@ -1012,7 +1116,7 @@ def _build_request_detail(
         expenses=[
             _build_expense_detail(expense)
             for expense in sorted(
-                reimbursement_request.expenses,
+                visible_expenses,
                 key=lambda expense: expense.created_at,
             )
         ],

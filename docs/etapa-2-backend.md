@@ -278,6 +278,62 @@ POST /api/v1/stores/{store_id}/users
 
 Tesoreria, direccion y admin siguen siendo roles transversales por ahora.
 
+## Areas de autorizacion
+
+Los usuarios con rol `authorizer` pueden limitarse a una o mas areas de autorizacion. Esto
+sirve para que, por ejemplo, un supervisor de `Sistemas` solo atienda gastos que tienda marco
+para el area `Sistemas`, aunque la solicitud tambien tenga gastos de otras areas.
+
+La migracion crea estas tablas:
+
+- `authorization_areas`: catalogo de areas autorizadoras.
+- `user_authorization_areas`: relacion entre usuarios `authorizer` y sus areas.
+- `expenses.authorization_area_id`: area asignada al gasto que requiere autorizacion.
+
+Para listar areas:
+
+```text
+GET /api/v1/authorization-areas/
+Authorization: Bearer <token>
+```
+
+Para crear o reactivar un area, el usuario debe ser `admin`:
+
+```text
+POST /api/v1/authorization-areas/
+Authorization: Bearer <token admin>
+```
+
+```json
+{
+  "name": "Sistemas"
+}
+```
+
+Para asignar un area a un autorizador:
+
+```text
+POST /api/v1/authorization-areas/users/{user_id}
+Authorization: Bearer <token admin>
+```
+
+```json
+{
+  "areaName": "Sistemas"
+}
+```
+
+Reglas:
+
+- solo usuarios `authorizer` pueden recibir areas;
+- un autorizador sin areas asignadas conserva el comportamiento anterior y puede ver todas
+  las autorizaciones de sus tiendas;
+- cuando un autorizador ya tiene areas asignadas, solo ve y puede aprobar/rechazar gastos
+  pendientes de esas areas;
+- si una solicitud tiene gastos de varias areas, cada autorizador atiende solo los gastos que
+  le corresponden y la solicitud avanza a contabilidad hasta que todas las areas necesarias
+  terminen.
+
 ## Cola de trabajo
 
 El frontend puede consultar la bandeja de trabajo del usuario con:

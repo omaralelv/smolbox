@@ -18,6 +18,7 @@ class ExpenseBase(BaseModel):
     description: str | None = None
     supplier_tax_id: str | None = Field(default=None, max_length=20)
     requires_authorization: bool = False
+    authorization_area_id: UUID | None = None
 
     @field_validator("currency")
     @classmethod
@@ -76,6 +77,7 @@ class ExpenseRead(ExpenseBase):
     authorized_at: datetime | None = None
     authorized_by_user_id: UUID | None = None
     authorization_note: str | None = None
+    authorization_area_name: str | None = None
     review_note: str | None = None
     removed_at: datetime | None = None
     removed_by_user_id: UUID | None = None

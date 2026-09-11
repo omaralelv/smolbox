@@ -14,6 +14,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.attachment import Attachment
     from app.models.audit_log import AuditLog
+    from app.models.authorization_area import AuthorizationArea
     from app.models.cfdi_validation import CfdiValidation
     from app.models.period import Period
     from app.models.reimbursement_request import ReimbursementRequest
@@ -51,6 +52,12 @@ class Expense(Base):
     description: Mapped[str | None] = mapped_column(Text)
     supplier_tax_id: Mapped[str | None] = mapped_column(String(20), index=True)
     requires_authorization: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    authorization_area_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("authorization_areas.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     authorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     authorized_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
@@ -92,6 +99,7 @@ class Expense(Base):
     reimbursement_request: Mapped[ReimbursementRequest | None] = relationship(
         back_populates="expenses",
     )
+    authorization_area: Mapped[AuthorizationArea | None] = relationship(back_populates="expenses")
     attachments: Mapped[list[Attachment]] = relationship(
         back_populates="expense",
         cascade="all, delete-orphan",
@@ -102,3 +110,9 @@ class Expense(Base):
         cascade="all, delete-orphan",
     )
     audit_events: Mapped[list[AuditLog]] = relationship(back_populates="expense")
+
+    @property
+    def authorization_area_name(self) -> str | None:
+        if self.authorization_area is None:
+            return None
+        return self.authorization_area.name

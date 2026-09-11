@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
@@ -62,6 +63,8 @@ class FrontendGastoRead(BaseModel):
     status: str
     backend_status: str = Field(alias="backendStatus")
     requires_authorization: bool = Field(alias="requiresAuthorization")
+    authorization_area_id: UUID | None = Field(default=None, alias="authorizationAreaId")
+    authorization_area_name: str | None = Field(default=None, alias="authorizationArea")
     download_url: str | None = Field(default=None, alias="downloadUrl")
 
 
@@ -155,6 +158,17 @@ class FrontendGastoCreate(BaseModel):
     requiere_autorizacion: bool = Field(
         default=False,
         validation_alias=AliasChoices("requiere_autorizacion", "requiresAuthorization"),
+    )
+    authorization_area_name: str | None = Field(
+        default=None,
+        max_length=120,
+        validation_alias=AliasChoices(
+            "authorization_area_name",
+            "authorizationArea",
+            "area_autoriza",
+            "areaAutoriza",
+            "area",
+        ),
     )
     observaciones_historial: list[FrontendObservationCreate] = Field(
         default_factory=list,

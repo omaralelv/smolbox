@@ -14,6 +14,10 @@ from app.schemas.reimbursement_request import (
     ReimbursementRequestQueueItemRead,
     ReimbursementRequestRead,
 )
+from app.services.authorization_areas import (
+    request_has_authorization_area_for_user,
+    request_has_authorization_visible_to_user,
+)
 from app.services.frontend_actions import available_actions_for_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 
@@ -65,6 +69,7 @@ def list_my_work_queue(
             selectinload(ReimbursementRequest.period),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
         )
         .order_by(ReimbursementRequest.created_at.desc())
     )
@@ -87,7 +92,7 @@ def list_my_work_queue(
     requests = [
         request
         for request in db.scalars(statement.limit(200))
-        if _request_is_visible_for_role(request, current_user.role)
+        if _request_is_visible_for_role(request, current_user, db)
     ]
     return [_build_queue_item(request, current_user) for request in requests]
 
@@ -110,15 +115,43 @@ def _scope_to_assigned_stores(
     )
 
 
-def _request_is_visible_for_role(request: ReimbursementRequest, role: UserRole) -> bool:
+def _request_is_visible_for_role(
+    request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> bool:
+    summary = summarize_reimbursement_request(request)
+    pending_authorization_ids = set(summary.missing_authorization_expense_ids)
+    has_pending_authorization = bool(pending_authorization_ids)
+
+    if (
+        current_user.role == UserRole.authorizer
+        and request.status == ReimbursementRequestStatus.submitted
+    ):
+        return request_has_authorization_visible_to_user(
+            request,
+            current_user,
+            db,
+            pending_expense_ids=pending_authorization_ids,
+        )
+
+    if (
+        current_user.role == UserRole.authorizer
+        and request.status == ReimbursementRequestStatus.authorization_review
+    ):
+        if has_pending_authorization:
+            return request_has_authorization_visible_to_user(
+                request,
+                current_user,
+                db,
+                pending_expense_ids=pending_authorization_ids,
+            )
+        return request_has_authorization_area_for_user(request, current_user, db)
+
     if request.status != ReimbursementRequestStatus.submitted:
         return True
 
-    summary = summarize_reimbursement_request(request)
-    has_pending_authorization = bool(summary.missing_authorization_expense_ids)
-    if role == UserRole.authorizer:
-        return has_pending_authorization
-    if role == UserRole.accountant:
+    if current_user.role == UserRole.accountant:
         return not has_pending_authorization
     return True
 

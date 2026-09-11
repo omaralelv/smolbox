@@ -30,6 +30,7 @@ from app.schemas.expense import (
     ExpenseReviewUpdate,
     ExpenseUpdate,
 )
+from app.services.authorization_areas import user_can_authorize_expense_area
 from app.services.expense_authorization_rules import expense_requires_authorization
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
@@ -430,6 +431,7 @@ def _authorize_expense_with_actor(
         )
     _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
     _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_authorization_area_allowed(db, actor, expense)
     _ensure_expense_not_excluded(expense)
 
     expense.requires_authorization = True
@@ -476,6 +478,7 @@ def _reject_expense_with_actor(
         )
     _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
     _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_authorization_area_allowed(db, actor, expense)
     _ensure_expense_not_excluded(expense)
     if expense.authorized_at is not None or expense.status == ExpenseStatus.approved:
         raise HTTPException(
@@ -631,6 +634,8 @@ def _remove_expense_with_actor(
                 "message": "Only expenses that require authorization can be removed during authorization review.",
             },
         )
+    if reimbursement_request.status == ReimbursementRequestStatus.authorization_review:
+        _ensure_authorization_area_allowed(db, actor, expense)
 
     original_amount = Decimal(expense.amount).quantize(Decimal("0.01"))
     original_currency = expense.currency
@@ -850,6 +855,18 @@ def _ensure_store_assignment_if_required(
         detail={
             "code": "STORE_ASSIGNMENT_REQUIRED",
             "message": "Actor must be assigned to the request store for this action",
+        },
+    )
+
+
+def _ensure_authorization_area_allowed(db: Session, actor: User, expense: Expense) -> None:
+    if user_can_authorize_expense_area(db, actor, expense):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "AUTHORIZATION_AREA_FORBIDDEN",
+            "message": "Actor cannot authorize expenses for this authorization area.",
         },
     )
 
