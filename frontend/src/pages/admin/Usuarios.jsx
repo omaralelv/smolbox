@@ -41,9 +41,9 @@ const DEFAULT_AUTHORIZATION_AREAS = [
 ];
 
 const EMPTY_FORM = {
-    fullName: '',
-    email: '',
-    password: 'secret-password',
+    fullName: 'Nombre',
+    email: 'nombre@vertiche.com.mx',
+    password: 'Inserte_Contraseña',
     role: 'store',
     storeId: '',
     authorizationArea: '',
@@ -256,11 +256,10 @@ function Usuarios() {
         <div style={styles.container}>
             <div style={styles.headerRow}>
                 <div>
-                    <h1 style={styles.title}>Usuarios</h1>
-                    <p style={styles.subtitle}>Administra cuentas internas y areas de autorizacion.</p>
+                    <h1 style={styles.title}>Administración de Usuarios</h1>
                 </div>
                 <button type="button" style={styles.primaryButton} onClick={abrirVentanaUsuario}>
-                    Nuevo usuario
+                    Crear Usuario
                 </button>
             </div>
 
@@ -306,13 +305,13 @@ function Usuarios() {
                 <div style={styles.modalBackdrop}>
                     <form style={styles.modal} onSubmit={handleGuardarUsuario}>
                         <div style={styles.modalHeader}>
-                            <h2 style={styles.modalTitle}>Usuario</h2>
+                            <h2 style={styles.modalTitle}>Nuevo Usuario</h2>
                             <button
                                 type="button"
                                 style={styles.closeButton}
                                 onClick={cerrarVentanaUsuario}
                             >
-                                x
+                                ✕
                             </button>
                         </div>
 
@@ -339,7 +338,7 @@ function Usuarios() {
                         </label>
 
                         <label style={styles.inputGroup}>
-                            Contrasena
+                            Contraseña
                             <input
                                 type="text"
                                 value={form.password}
@@ -366,7 +365,7 @@ function Usuarios() {
 
                         {requiereTienda && (
                             <label style={styles.inputGroup}>
-                                Tienda asignada
+                                Tienda
                                 <select
                                     value={form.storeId}
                                     onChange={(event) => actualizarCampo('storeId', event.target.value)}
@@ -384,7 +383,7 @@ function Usuarios() {
 
                         {requiereArea && (
                             <label style={styles.inputGroup}>
-                                Area que autoriza
+                                Área
                                 <select
                                     value={form.authorizationArea}
                                     onChange={(event) => actualizarCampo(
@@ -413,7 +412,7 @@ function Usuarios() {
                             >
                                 Cancelar
                             </button>
-                            <button type="submit" style={styles.primaryButton} disabled={guardando}>
+                            <button type="submit" style={styles.saveButton} disabled={guardando}>
                                 {guardando ? 'Guardando...' : 'Guardar'}
                             </button>
                         </div>
@@ -440,33 +439,49 @@ const styles = {
         marginBottom: '20px',
     },
     title: {
-        margin: '0 0 4px',
-        fontSize: '30px',
-        fontWeight: 600,
+        margin: 0,
+        fontSize: '24px',
+        //fontWeight: 600,
     },
     subtitle: {
         color: '#666',
         fontSize: '14px',
     },
+
     primaryButton: {
-        backgroundColor: 'var(--sb-sendBtnBg)',
-        border: '1px solid var(--sb-btnBorder)',
+        background: 'var(--sb-sendBtnBg)',
         color: 'var(--text-CBtn)',
-        padding: '10px 22px',
-        borderRadius: '6px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        padding: '8px 20px',
+        fontSize: '13px',
+        fontWeight: '600',
         cursor: 'pointer',
-        fontWeight: '700',
+        boxShadow: 'var(--shadow)',
+        transition: 'transform 0.1s',
+    },
+    saveButton: {
+        background: 'var(--gradient)',
+        color: 'var(--text-CBtn)',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        padding: '8px 20px',
         fontSize: '14px',
+        fontWeight: '700',
+        cursor: 'pointer',
+        boxShadow: 'var(--shadow)',
+        transition: 'transform 0.1s',
     },
     secondaryButton: {
         backgroundColor: 'var(--sb-WBtnBg)',
-        border: '1px solid var(--sb-btnBorder)',
         color: 'var(--text-WBtn)',
-        padding: '10px 22px',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        fontWeight: '700',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        padding: '8px 15px',
         fontSize: '14px',
+        fontWeight: '700',
+        cursor: 'pointer',
+        transition: 'transform 0.1s',
     },
     table: {
         border: '1px solid var(--border)',
@@ -480,8 +495,8 @@ const styles = {
         gap: '12px',
         padding: '12px 16px',
         backgroundColor: 'var(--sb-subhead)',
-        color: '#555',
-        fontSize: '12px',
+        color: '#000000',
+        fontSize: '14px',
         fontWeight: '700',
         textTransform: 'uppercase',
     },
@@ -492,22 +507,22 @@ const styles = {
         padding: '14px 16px',
         borderTop: '1px solid #f1dede',
         color: '#333',
-        fontSize: '14px',
+        fontSize: '13px',
         alignItems: 'center',
     },
     emptyState: {
         padding: '22px 16px',
-        color: '#777',
-        fontSize: '14px',
+        color: '#989898',
+        fontSize: '13px',
         textAlign: 'center',
     },
     error: {
         marginBottom: '14px',
         padding: '10px 12px',
-        border: '1px solid #eb6a00',
+        border: '1px solid #d31c00',
         borderRadius: '6px',
-        backgroundColor: 'var(--sb-denegadaBg)',
-        color: 'var(--text-denegada)',
+        backgroundColor: '#ff383821',
+        color: '#d31c00',
         fontSize: '14px',
     },
     success: {
@@ -552,30 +567,31 @@ const styles = {
         fontWeight: 700,
     },
     closeButton: {
-        border: '1px solid var(--sb-btnBorder)',
+        border: '1px solid #ffffff',
         backgroundColor: 'var(--sb-WBtnBg)',
-        color: 'var(--text-WBtn)',
-        borderRadius: '6px',
-        width: '32px',
-        height: '32px',
+        color: 'var(--text)',
+        borderRadius: '20px',
+        width: '28px',
+        height: '28px',
         cursor: 'pointer',
         fontWeight: '700',
+        fontSize: '16px',
     },
     inputGroup: {
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
-        color: '#444',
-        fontSize: '13px',
+        color: '#000000',
+        fontSize: '14px',
         fontWeight: '600',
     },
     input: {
-        border: '1px solid #e5c7c7',
+        border: '1px solid var(--border)',
         borderRadius: '6px',
         padding: '10px 12px',
-        color: '#333',
+        color: '#323232',
         backgroundColor: '#fff',
-        fontSize: '14px',
+        fontSize: '13px',
     },
     actions: {
         display: 'flex',
