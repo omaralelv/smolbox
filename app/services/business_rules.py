@@ -20,7 +20,7 @@ DEFAULT_BUSINESS_RULES = [
         "code": "block_out_of_period_expenses",
         "name": "Bloquear gastos fuera de periodo",
         "description": "Define si tienda/importacion deben bloquear gastos fuera del periodo.",
-        "value": {"enabled": True},
+        "value": {"enabled": False},
     },
     {
         "code": "auto_adjust_total_on_removed_expense",

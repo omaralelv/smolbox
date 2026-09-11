@@ -112,9 +112,9 @@ def _period_step(summary: ReimbursementValidationSummary) -> AutomatedReviewStep
         return _step(
             "period_check",
             "Detectar gastos fuera de periodo",
-            "blocked",
-            "Hay gastos fuera del periodo de reembolso.",
-            blocking=True,
+            "attention",
+            "Hay gastos fuera del periodo de reembolso; requieren revisión contable.",
+            blocking=False,
             issue_codes=["expense_outside_period"],
             expense_ids=summary.out_of_period_expense_ids,
         )

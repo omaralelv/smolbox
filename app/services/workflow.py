@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from app.models.expense import ExpenseStatus
 from app.models.reimbursement_request import (
     AccountingQueueStatus,
     ReimbursementRequest,
@@ -239,6 +240,11 @@ def transition_reimbursement_request(
         raise WorkflowTransitionError(
             "SAP policy placeholder must be prepared before manager review"
         )
+
+    if target_status == ReimbursementRequestStatus.submitted:
+        for expense in request.expenses:
+            if expense.status == ExpenseStatus.draft:
+                expense.status = ExpenseStatus.submitted
 
     request.status = target_status
     _sync_accounting_queue_status(

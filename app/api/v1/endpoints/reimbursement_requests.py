@@ -642,15 +642,7 @@ async def import_reimbursement_request_expenses(
         )
         for error in row_errors
     ]
-    for row in parsed_rows:
-        if not reimbursement_request.period.starts_on <= row.spent_on <= reimbursement_request.period.ends_on:
-            errors.append(
-                ExpenseImportErrorRead(
-                    row_number=row.row_number,
-                    field="spent_on",
-                    message="Expense date is outside the reimbursement period",
-                )
-            )
+        
 
     if not parsed_rows and not errors:
         errors.append(

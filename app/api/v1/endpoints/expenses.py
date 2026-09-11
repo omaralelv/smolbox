@@ -132,27 +132,13 @@ def create_expense(
         if expense_data.get("period_id") is None:
             expense_data["period_id"] = reimbursement_request.period_id
         elif expense_data["period_id"] != reimbursement_request.period_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Expense period must match the reimbursement request period",
-            )
+            raise HTTPException(...)
 
     period = db.get(Period, expense_data["period_id"])
     if period is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Period not found")
     if period.status == PeriodStatus.closed:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={"code": "PERIOD_CLOSED", "message": "The reimbursement period is closed"},
-        )
-    if not period.starts_on <= expense_in.spent_on <= period.ends_on:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "code": "EXPENSE_OUTSIDE_PERIOD",
-                "message": "The expense date is outside the reimbursement period",
-            },
-        )
+        raise HTTPException(...)
 
     expense_data["requires_authorization"] = expense_requires_authorization(
         explicit=bool(expense_data.get("requires_authorization", False)),
@@ -738,18 +724,13 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
     if period.status == PeriodStatus.closed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={"code": "PERIOD_CLOSED", "message": "The reimbursement period is closed"},
+            detail={
+                "code": "PERIOD_CLOSED",
+                "message": "The reimbursement period is closed",
+            },
         )
 
     spent_on = updates.get("spent_on", expense.spent_on)
-    if not period.starts_on <= spent_on <= period.ends_on:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "code": "EXPENSE_OUTSIDE_PERIOD",
-                "message": "The expense date is outside the reimbursement period",
-            },
-        )
 
     _apply_tax_rate_update(expense, updates)
 

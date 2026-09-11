@@ -113,6 +113,9 @@ def test_store_submission_requires_cfdi_but_not_receipt(
     )
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()["status"] == "submitted"
+    persisted_expense = client.get(f"/api/v1/expenses/{expense['id']}")
+    assert persisted_expense.status_code == 200, persisted_expense.text
+    assert persisted_expense.json()["status"] == "submitted"
 
 
 def test_request_moves_through_submission_and_accounting_review(

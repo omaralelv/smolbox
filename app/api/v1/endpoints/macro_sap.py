@@ -233,7 +233,7 @@ def generar_polizas(
         FROM expenses
         WHERE reimbursement_request_id = :request_id
           AND removed_at IS NULL
-          AND status = 'approved'
+          AND status = 'submitted'
         ORDER BY spent_on, created_at, id
     """)
 

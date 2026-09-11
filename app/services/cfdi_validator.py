@@ -99,17 +99,6 @@ def validate_cfdi_for_expense(
                 message="CFDI issue date is required.",
             )
         )
-    else:
-        period = getattr(expense, "period", None)
-        if period is not None and not (
-            period.starts_on <= parsed.issued_at.date() <= period.ends_on
-        ):
-            issues.append(
-                CfdiValidationIssue(
-                    code="issued_at_outside_period",
-                    message="CFDI issue date is outside the reimbursement period.",
-                )
-            )
 
     for warning in parsed.warnings:
         issues.append(

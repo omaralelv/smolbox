@@ -648,31 +648,6 @@ def _expense_from_frontend(
                 ),
             },
         )
-
-    if not (
-        reimbursement_starts_on
-        <= spent_on
-        <= reimbursement_ends_on
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": (
-                    "EXPENSE_OUTSIDE_REIMBURSEMENT_COVERAGE"
-                ),
-                "message": (
-                    "La fecha del gasto está fuera del "
-                    "periodo de reembolso de la solicitud."
-                ),
-                "spent_on": spent_on.isoformat(),
-                "reimbursement_starts_on": (
-                    reimbursement_starts_on.isoformat()
-                ),
-                "reimbursement_ends_on": (
-                    reimbursement_ends_on.isoformat()
-                ),
-            },
-        )
     category = expense_in.categoria or "Gasto General"
     merchant = expense_in.merchant or expense_in.proveedor or f"Gasto - {category}"
     return Expense(

@@ -163,7 +163,11 @@ def summarize_reimbursement_request(
         issues.append(
             ReimbursementValidationIssue(
                 code="expense_outside_period",
-                message="One or more expenses are outside the reimbursement period.",
+                message=(
+                    "One or more expenses are outside "
+                    "the reimbursement period."
+                ),
+                severity="warning",
             )
         )
 
@@ -202,7 +206,6 @@ def summarize_reimbursement_request(
         and not missing_cfdi_expense_ids
         and not invalid_cfdi_expense_ids
         and not duplicate_cfdi_uuids
-        and not out_of_period_expense_ids
     )
 
     return ReimbursementValidationSummary(

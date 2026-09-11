@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.models.expense import Expense, ExpenseStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import ReimbursementValidationSummary
@@ -51,6 +52,8 @@ def _no_payable_summary() -> ReimbursementValidationSummary:
 
 def test_store_user_can_submit_ready_request() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
+    expense = Expense(status=ExpenseStatus.draft)
+    request.expenses.append(expense)
     actor = User(
         email="tienda@example.com",
         full_name="Tienda Demo",
@@ -68,6 +71,7 @@ def test_store_user_can_submit_ready_request() -> None:
     assert from_status == ReimbursementRequestStatus.draft
     assert to_status == ReimbursementRequestStatus.submitted
     assert request.status == ReimbursementRequestStatus.submitted
+    assert expense.status == ExpenseStatus.submitted
     assert request.submitted_at is not None
 
 
