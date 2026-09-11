@@ -6,6 +6,7 @@ import hmac
 import json
 import secrets
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from uuid import UUID
 
 from app.core.config import Settings
@@ -15,6 +16,10 @@ PASSWORD_ITERATIONS = 600_000
 
 
 class InvalidToken(ValueError):
+    pass
+
+
+class CognitoConfigurationError(ValueError):
     pass
 
 
@@ -80,6 +85,53 @@ def parse_access_token(token: str, settings: Settings) -> UUID:
     if datetime.now(UTC).timestamp() > expires_at:
         raise InvalidToken("Expired token")
     return user_id
+
+
+def parse_cognito_token(token: str, settings: Settings) -> str:
+    if not settings.cognito_enabled:
+        raise InvalidToken("Cognito authentication is disabled")
+    if not settings.cognito_issuer or not settings.cognito_app_client_id:
+        raise CognitoConfigurationError(
+            "Cognito requires cognito_issuer and cognito_app_client_id"
+        )
+
+    try:
+        import jwt
+    except ImportError as exc:  # pragma: no cover - dependency configuration
+        raise CognitoConfigurationError(
+            "PyJWT is required when Cognito authentication is enabled"
+        ) from exc
+
+    jwks_url = settings.cognito_jwks_url or f"{settings.cognito_issuer}/.well-known/jwks.json"
+    try:
+        signing_key = _cognito_jwk_client(jwks_url).get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=settings.cognito_issuer,
+            options={"verify_aud": False},
+        )
+    except (jwt.PyJWTError, ValueError) as exc:
+        raise InvalidToken("Invalid Cognito token") from exc
+
+    if payload.get("token_use") not in {"access", "id"}:
+        raise InvalidToken("Invalid Cognito token use")
+    if payload.get("client_id") != settings.cognito_app_client_id and payload.get(
+        "aud"
+    ) != settings.cognito_app_client_id:
+        raise InvalidToken("Cognito token is for a different app client")
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise InvalidToken("Cognito token has no subject")
+    return subject
+
+
+@lru_cache(maxsize=8)
+def _cognito_jwk_client(jwks_url: str):
+    from jwt import PyJWKClient
+
+    return PyJWKClient(jwks_url)
 
 
 def _sign(data: bytes, secret: str) -> str:

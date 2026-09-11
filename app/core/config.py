@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     auto_create_schema: bool = False
     auth_token_secret: str = "local-dev-secret-change-me"
     auth_token_ttl_minutes: int = 8 * 60
+    cognito_enabled: bool = False
+    cognito_issuer: str | None = None
+    cognito_app_client_id: str | None = None
+    cognito_jwks_url: str | None = None
     cors_allowed_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

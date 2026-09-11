@@ -82,6 +82,17 @@ Fuera de esta etapa:
 - Validacion en linea contra SAT.
 - Dispersion bancaria o contabilizacion final automatica.
 
+La autenticación también puede delegarse a Amazon Cognito. Con `COGNITO_ENABLED=true`,
+FastAPI valida los tokens OIDC/JWT del User Pool y busca al usuario operativo por su
+`cognito_sub`; los roles, tiendas y permisos siguen siendo responsabilidad de Smolbox.
+Mientras permanezca desactivado, el login local existente continúa funcionando:
+
+```env
+COGNITO_ENABLED=true
+COGNITO_ISSUER=https://cognito-idp.us-east-1.amazonaws.com/tu_user_pool_id
+COGNITO_APP_CLIENT_ID=tu_app_client_id
+```
+
 ## Ejecutar localmente
 
 1. Copia la configuracion de ejemplo:
