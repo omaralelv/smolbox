@@ -596,6 +596,22 @@ function Usuarios() {
                         </div>
 
                         <label style={styles.inputGroup}>
+                            Rol
+                            <select
+                                value={form.role}
+                                onChange={(event) => actualizarCampo('role', event.target.value)}
+                                style={styles.input}
+                            >
+                                {ROLE_OPTIONS.map((role) => (
+                                    <option key={role.value} value={role.value}>
+                                        {role.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        
+                        <label style={styles.inputGroup}>
                             Nombre
                             <input
                                 type="text"
@@ -632,44 +648,7 @@ function Usuarios() {
                             />
                         </label>
 
-                        <label style={styles.inputGroup}>
-                            Rol
-                            <select
-                                value={form.role}
-                                onChange={(event) => actualizarCampo('role', event.target.value)}
-                                style={styles.input}
-                            >
-                                {ROLE_OPTIONS.map((role) => (
-                                    <option key={role.value} value={role.value}>
-                                        {role.label}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
 
-                        <label style={styles.switchGroup}>
-                            <span>Estado</span>
-                            <button
-                                type="button"
-                                role="switch"
-                                aria-checked={form.isActive}
-                                style={{
-                                    ...styles.switchButton,
-                                    ...(form.isActive ? styles.switchButtonOn : {}),
-                                }}
-                                onClick={() => actualizarCampo('isActive', !form.isActive)}
-                            >
-                                <span
-                                    style={{
-                                        ...styles.switchKnob,
-                                        ...(form.isActive ? styles.switchKnobOn : {}),
-                                    }}
-                                />
-                            </button>
-                            <strong style={styles.switchText}>
-                                {form.isActive ? 'Activo' : 'Inactivo'}
-                            </strong>
-                        </label>
 
                         {requiereTienda && (
                             <label style={styles.inputGroup}>
@@ -731,6 +710,30 @@ function Usuarios() {
                                 </select>
                             </label>
                         )}
+
+                        <label style={styles.switchGroup}>
+                            
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={form.isActive}
+                                style={{
+                                    ...styles.switchButton,
+                                    ...(form.isActive ? styles.switchButtonOn : {}),
+                                }}
+                                onClick={() => actualizarCampo('isActive', !form.isActive)}
+                            >
+                                <span
+                                    style={{
+                                        ...styles.switchKnob,
+                                        ...(form.isActive ? styles.switchKnobOn : {}),
+                                    }}
+                                />
+                            </button>
+                            <strong style={styles.switchText}>
+                                {form.isActive ? 'Activo' : 'Inactivo'}
+                            </strong>
+                        </label>
 
                         <div style={styles.actions}>
                             <button
@@ -1045,7 +1048,7 @@ const styles = {
         transition: 'background-color 0.15s ease',
     },
     switchButtonOn: {
-        backgroundColor: 'var(--text-pagada)',
+        backgroundColor: 'var(--sb-sendBtnBg)',
     },
     switchKnob: {
         width: '18px',
