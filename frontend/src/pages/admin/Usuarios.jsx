@@ -30,7 +30,7 @@ const ROLE_OPTIONS = [
 const ROLE_SECTIONS = [
     { roleKey: 'store', title: 'TIENDAS' },
     { roleKey: 'authorizer', title: 'SUPERVISORES' },
-    { roleKey: 'accountant', title: 'CONTADORES' },
+    { roleKey: 'accountant', title: 'CONTABILIDAD' },
     { roleKey: 'accounting_manager', title: 'GERENCIA' },
     { roleKey: 'treasury', title: 'TESORERÍA' },
     { roleKey: 'director', title: 'DIRECCIÓN' },
@@ -132,13 +132,13 @@ function Usuarios() {
 
     // Estado para controlar qué tablas por rol están colapsadas
     const [seccionesAbiertas, setSeccionesAbiertas] = useState({
-        store: true,
-        authorizer: true,
-        accountant: true,
-        accounting_manager: true,
-        treasury: true,
-        director: true,
-        admin: true,
+        store: false,
+        authorizer: false,
+        accountant: false,
+        accounting_manager: false,
+        treasury: false,
+        director: false,
+        admin: false,
     });
 
     // Estados para Formulario y Edición
