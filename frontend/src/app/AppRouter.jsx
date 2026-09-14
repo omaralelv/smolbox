@@ -10,6 +10,7 @@ import Login from '../pages/Login';
 import Historico from '../pages/Historico';
 import AutorizacionBandeja from '../pages/autorizacion/AutorizacionBandeja';
 import Usuarios from '../pages/admin/Usuarios';
+import { currentToken } from '../lib/api';
 
 /*<Routes>
     <Route path="/solicitud/nueva" element={<ProtectedRoute roles={['tienda','admin']}><SolicitudForm/></ProtectedRoute>} />
@@ -20,24 +21,34 @@ import Usuarios from '../pages/admin/Usuarios';
     <Route path="/usuarios" element={<ProtectedRoute roles={['admin']}><Usuarios/></ProtectedRoute>} />
 </Routes>*/
 
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+
+function RequireSession({ children }) {
+    const location = useLocation();
+
+    if (!currentToken()) {
+        return <Navigate to="/login" replace state={{ from: location }} />;
+    }
+
+    return children;
+}
 
 function AppRouter({ currentRole }) { 
     return (
         <Routes>
-        <Route path="/" element={<Navigate to="/solicitud/nueva" replace />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
 
         <Route path="/login" element={<Login />} />
-        <Route path="/solicitud/nueva" element={<SolicitudForm currentRole={currentRole} />} />
-        <Route path="/gasto/nuevo" element={<AnadirGasto />} />
-        <Route path="/autorizacion" element={<AutorizacionBandeja currentRole={currentRole}/>} />
-        <Route path="/bandeja" element={<Bandeja currentRole={currentRole}/>} />
+        <Route path="/solicitud/nueva" element={<RequireSession><SolicitudForm currentRole={currentRole} /></RequireSession>} />
+        <Route path="/gasto/nuevo" element={<RequireSession><AnadirGasto /></RequireSession>} />
+        <Route path="/autorizacion" element={<RequireSession><AutorizacionBandeja currentRole={currentRole}/></RequireSession>} />
+        <Route path="/bandeja" element={<RequireSession><Bandeja currentRole={currentRole}/></RequireSession>} />
 
-        <Route path="/acumulado" element={<Acumulado currentRole={currentRole} />}/>
-        <Route path="/detalle" element={<Detalle currentRole={currentRole} />}/>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/historico" element={<Historico currentRole={currentRole} />}/>
-        <Route path="/usuarios" element={<Usuarios />} />
+        <Route path="/acumulado" element={<RequireSession><Acumulado currentRole={currentRole} /></RequireSession>}/>
+        <Route path="/detalle" element={<RequireSession><Detalle currentRole={currentRole} /></RequireSession>}/>
+        <Route path="/dashboard" element={<RequireSession><Dashboard /></RequireSession>} />
+        <Route path="/historico" element={<RequireSession><Historico currentRole={currentRole} /></RequireSession>}/>
+        <Route path="/usuarios" element={<RequireSession><Usuarios /></RequireSession>} />
         
         </Routes>
     );
