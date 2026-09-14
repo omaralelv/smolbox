@@ -195,10 +195,7 @@ def list_frontend_work_queue(
     if current_user.role == UserRole.admin:
         statement = statement.where(
             ReimbursementRequest.status.not_in(
-                {
-                    ReimbursementRequestStatus.draft,
-                    ReimbursementRequestStatus.rejected,
-                }
+                {ReimbursementRequestStatus.draft} | HISTORICAL_STATUSES
             )
         )
         requests = list(db.scalars(statement.limit(200)))

@@ -444,5 +444,6 @@ export default Bandeja;
 function esSolicitudDeMonitoreo(solicitud) {
     const status = String(solicitud?.status || solicitud?.estatus || '').toLowerCase();
     const backendStatus = String(solicitud?.backendStatus || solicitud?.backend_status || '').toLowerCase();
-    return status !== 'rechazada' && backendStatus !== 'rejected';
+    return !['pagada', 'rechazada'].includes(status)
+        && !['paid', 'closed', 'rejected'].includes(backendStatus);
 }

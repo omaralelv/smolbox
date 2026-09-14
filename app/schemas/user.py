@@ -40,6 +40,18 @@ class UserUpdate(BaseModel):
         return email
 
 
+class UserDelete(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def clean_reason(cls, value: str) -> str:
+        reason = " ".join(value.strip().split())
+        if not reason:
+            raise ValueError("Reason cannot be blank")
+        return reason
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

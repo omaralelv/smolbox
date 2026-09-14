@@ -47,13 +47,16 @@ const EMPTY_FORM = {
     email: '',
     password: '',
     role: 'store',
+    isActive: true,
     storeId: '',
+    supervisorId: '',
     authorizationArea: '',
 };
 
 async function cargarAsignacionesPorUsuario(usuarios, tiendas) {
+    const usuariosPorId = Object.fromEntries(usuarios.map((usuario) => [usuario.id, usuario]));
     const asignaciones = Object.fromEntries(
-        usuarios.map((usuario) => [usuario.id, { areas: [], tiendas: [] }])
+        usuarios.map((usuario) => [usuario.id, { areas: [], storeIds: [], storeId: '', tiendas: [] }])
     );
 
     const areasPorUsuario = await Promise.all(
@@ -92,7 +95,11 @@ async function cargarAsignacionesPorUsuario(usuarios, tiendas) {
         usuariosTienda
             .filter((asignacion) => asignacion.is_active !== false)
             .forEach((asignacion) => {
-                if (!asignaciones[asignacion.user_id]) return;
+                const usuario = usuariosPorId[asignacion.user_id];
+                if (!usuario || !asignaciones[asignacion.user_id]) return;
+                if (asignacion.role && asignacion.role !== usuario.role) return;
+                asignaciones[asignacion.user_id].storeIds.push(tienda.id);
+                asignaciones[asignacion.user_id].storeId ||= tienda.id;
                 asignaciones[asignacion.user_id].tiendas.push(`${tienda.code} - ${tienda.name}`);
             });
     });
@@ -134,6 +141,28 @@ function Usuarios() {
         () => Object.fromEntries(ROLE_OPTIONS.map((role) => [role.value, role.label])),
         []
     );
+
+    const supervisoresActivos = useMemo(
+        () => usuarios.filter((usuario) => usuario.role === 'authorizer' && usuario.is_active),
+        [usuarios]
+    );
+
+    const supervisoresPorTienda = useMemo(() => {
+        const resultado = {};
+        supervisoresActivos.forEach((supervisor) => {
+            const asignaciones = asignacionesPorUsuario[supervisor.id] || {};
+            (asignaciones.storeIds || []).forEach((storeId) => {
+                resultado[storeId] ||= [];
+                resultado[storeId].push(supervisor);
+            });
+        });
+        return resultado;
+    }, [asignacionesPorUsuario, supervisoresActivos]);
+
+    const supervisorInicialParaTienda = (storeId) => {
+        if (!storeId) return '';
+        return supervisoresPorTienda[storeId]?.[0]?.id || '';
+    };
 
     const reloadData = async () => {
         const [usuariosData, tiendasData] = await Promise.all([listUsers(), listStores()]);
@@ -219,15 +248,31 @@ function Usuarios() {
     }, [navigate]);
 
     const actualizarCampo = (campo, valor) => {
-        setForm((actual) => ({
-            ...actual,
-            [campo]: valor,
-            ...(campo === 'role' && valor !== 'authorizer' ? { authorizationArea: '' } : {}),
-            ...(campo === 'role' && !STORE_SCOPED_ROLES.has(valor) ? { storeId: '' } : {}),
-        }));
+        setForm((actual) => {
+            const siguiente = {
+                ...actual,
+                [campo]: valor,
+                ...(campo === 'role' && valor !== 'authorizer' ? { authorizationArea: '' } : {}),
+                ...(campo === 'role' && !STORE_SCOPED_ROLES.has(valor)
+                    ? { storeId: '', supervisorId: '' }
+                    : {}),
+                ...(campo === 'role' && valor !== 'store' ? { supervisorId: '' } : {}),
+            };
+
+            if (campo === 'storeId' && siguiente.role === 'store') {
+                siguiente.supervisorId = supervisorInicialParaTienda(valor);
+            }
+
+            if (campo === 'role' && valor === 'store' && siguiente.storeId) {
+                siguiente.supervisorId = supervisorInicialParaTienda(siguiente.storeId);
+            }
+
+            return siguiente;
+        });
     };
 
     const abrirVentanaUsuario = () => {
+        setUsuarioEditarId(null);
         setForm(EMPTY_FORM);
         setError('');
         setMensaje('');
@@ -247,13 +292,16 @@ function Usuarios() {
 
     const abrirVentanaEditarUsuario = (usuario) => {
         const asignaciones = asignacionesPorUsuario[usuario.id] || {};
+        const storeId = asignaciones.storeId || '';
         setUsuarioEditarId(usuario.id);
         setForm({
             fullName: usuario.full_name || '',
             email: usuario.email || '',
             password: '', // Se deja vacío a menos que se quiera actualizar
             role: usuario.role || 'store',
-            storeId: asignaciones.storeId || '',
+            isActive: usuario.is_active !== false,
+            storeId,
+            supervisorId: usuario.role === 'store' ? supervisorInicialParaTienda(storeId) : '',
             authorizationArea: asignaciones.areas?.[0] || '',
         });
         setError('');
@@ -273,7 +321,7 @@ function Usuarios() {
         setError('');
         setMensaje('');
 
-        if (requiereArea && !form.authorizationArea) {
+        if (form.isActive && requiereArea && !form.authorizationArea) {
             setError('Selecciona el area que autoriza este supervisor.');
             return;
         }
@@ -287,15 +335,20 @@ function Usuarios() {
                     email: form.email.trim(),
                     full_name: form.fullName.trim(),
                     role: form.role,
+                    is_active: form.isActive,
                     ...(form.password ? { password: form.password } : {}),
                 });
 
-                if (requiereTienda && form.storeId) {
+                if (form.isActive && requiereTienda && form.storeId) {
                     await assignUserToStore(form.storeId, usuarioEditarId, form.role);
                 }
 
-                if (requiereArea) {
+                if (form.isActive && requiereArea) {
                     await assignAuthorizationAreaToUser(usuarioEditarId, form.authorizationArea);
+                }
+
+                if (form.storeId && form.supervisorId) {
+                    await assignUserToStore(form.storeId, form.supervisorId, 'authorizer');
                 }
 
                 setMensaje('Usuario actualizado correctamente.');
@@ -305,15 +358,20 @@ function Usuarios() {
                     email: form.email.trim(),
                     full_name: form.fullName.trim(),
                     role: form.role,
+                    is_active: form.isActive,
                     password: form.password || undefined,
                 });
 
-                if (requiereTienda && form.storeId) {
+                if (form.isActive && requiereTienda && form.storeId) {
                     await assignUserToStore(form.storeId, usuario.id, form.role);
                 }
 
-                if (requiereArea) {
+                if (form.isActive && requiereArea) {
                     await assignAuthorizationAreaToUser(usuario.id, form.authorizationArea);
+                }
+
+                if (form.storeId && form.supervisorId) {
+                    await assignUserToStore(form.storeId, form.supervisorId, 'authorizer');
                 }
 
                 setMensaje('Usuario guardado correctamente.');
@@ -510,6 +568,30 @@ function Usuarios() {
                             </select>
                         </label>
 
+                        <label style={styles.switchGroup}>
+                            <span>Estado</span>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={form.isActive}
+                                style={{
+                                    ...styles.switchButton,
+                                    ...(form.isActive ? styles.switchButtonOn : {}),
+                                }}
+                                onClick={() => actualizarCampo('isActive', !form.isActive)}
+                            >
+                                <span
+                                    style={{
+                                        ...styles.switchKnob,
+                                        ...(form.isActive ? styles.switchKnobOn : {}),
+                                    }}
+                                />
+                            </button>
+                            <strong style={styles.switchText}>
+                                {form.isActive ? 'Activo' : 'Inactivo'}
+                            </strong>
+                        </label>
+
                         {requiereTienda && (
                             <label style={styles.inputGroup}>
                                 Tienda
@@ -528,6 +610,27 @@ function Usuarios() {
                             </label>
                         )}
 
+                        {form.role === 'store' && (
+                            <label style={styles.inputGroup}>
+                                Supervisor
+                                <select
+                                    value={form.supervisorId}
+                                    onChange={(event) => actualizarCampo('supervisorId', event.target.value)}
+                                    style={styles.input}
+                                    disabled={!form.storeId || supervisoresActivos.length === 0}
+                                >
+                                    <option value="">
+                                        {form.storeId ? 'Sin supervisor asignado' : 'Selecciona una tienda primero'}
+                                    </option>
+                                    {supervisoresActivos.map((supervisor) => (
+                                        <option key={supervisor.id} value={supervisor.id}>
+                                            {supervisor.full_name} - {supervisor.email}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+
                         {requiereArea && (
                             <label style={styles.inputGroup}>
                                 Área
@@ -538,7 +641,7 @@ function Usuarios() {
                                         event.target.value
                                     )}
                                     style={styles.input}
-                                    required
+                                    required={form.isActive}
                                 >
                                     <option value="">Seleccionar área...</option>
                                     {areas.map((area) => (
@@ -808,6 +911,45 @@ const styles = {
         color: '#323232',
         backgroundColor: '#fff',
         fontSize: '13px',
+    },
+    switchGroup: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        color: '#000000',
+        fontSize: '14px',
+        fontWeight: '600',
+    },
+    switchButton: {
+        width: '42px',
+        height: '24px',
+        border: '1px solid var(--border)',
+        borderRadius: '999px',
+        backgroundColor: '#d7d7d7',
+        padding: '2px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        transition: 'background-color 0.15s ease',
+    },
+    switchButtonOn: {
+        backgroundColor: '#64b96a',
+    },
+    switchKnob: {
+        width: '18px',
+        height: '18px',
+        borderRadius: '999px',
+        backgroundColor: '#ffffff',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
+        transform: 'translateX(0)',
+        transition: 'transform 0.15s ease',
+    },
+    switchKnobOn: {
+        transform: 'translateX(18px)',
+    },
+    switchText: {
+        fontSize: '13px',
+        color: '#323232',
     },
     actions: {
         display: 'flex',
