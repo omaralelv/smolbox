@@ -10,9 +10,9 @@ import {
     deleteUser,
     listAuthorizationAreas,
     listAuthorizationAreasForUser,
-    listStores,
+    listAllStores,
+    listAllUsers,
     listStoreUserAssignments,
-    listUsers,
     updateUser,
 } from '../../lib/api';
 
@@ -165,13 +165,8 @@ function Usuarios() {
     };
 
     const reloadData = async () => {
-        const [usuariosData, tiendasData] = await Promise.all([listUsers(), listStores()]);
-        let areasData = [];
-        try {
-            areasData = await listAuthorizationAreas();
-        } catch {
-            areasData = [];
-        }
+        const [usuariosData, tiendasData] = await Promise.all([listAllUsers(), listAllStores()]);
+        const areasData = await listAuthorizationAreas().catch(() => []);
 
         const usuariosLista = Array.isArray(usuariosData) ? usuariosData : [];
         const tiendasLista = Array.isArray(tiendasData) ? tiendasData : [];
@@ -205,8 +200,8 @@ function Usuarios() {
 
             try {
                 const [usuariosData, tiendasData] = await Promise.all([
-                    listUsers(),
-                    listStores(),
+                    listAllUsers(),
+                    listAllStores(),
                 ]);
                 let areasData = [];
 
@@ -280,15 +275,6 @@ function Usuarios() {
     };
 
 
-
-    // Funciones del Modal de Usuario (Crear / Editar)
-    const abrirVentanaCrearUsuario = () => {
-        setUsuarioEditarId(null);
-        setForm(EMPTY_FORM);
-        setError('');
-        setMensaje('');
-        setMostrarUsuario(true);
-    };
 
     const abrirVentanaEditarUsuario = (usuario) => {
         const asignaciones = asignacionesPorUsuario[usuario.id] || {};
@@ -378,8 +364,8 @@ function Usuarios() {
             }
 
             const [usuariosActualizados, tiendasActualizadas] = await Promise.all([
-                listUsers(),
-                listStores(),
+                listAllUsers(),
+                listAllStores(),
             ]);
             const usuariosLista = Array.isArray(usuariosActualizados) ? usuariosActualizados : [];
             const tiendasLista = Array.isArray(tiendasActualizadas) ? tiendasActualizadas : [];

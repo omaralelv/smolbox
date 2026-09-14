@@ -147,6 +147,46 @@ docker compose down -v
 docker compose up --build
 ```
 
+## Catalogo inicial de usuarios, tiendas y asignaciones
+
+La base `Copia de BASE DE TIENDAS.xlsx` tiene una fila por tienda, por lo que un supervisor o
+contador puede aparecer muchas veces. La importacion inicial deduplica usuarios por correo,
+crea supervisores con rol `authorizer` y area `supervisores`, crea contadores con rol
+`accountant`, y relaciona cada usuario con todas las tiendas correspondientes.
+
+Las altas quedan inactivas y los registros que ya existen no se modifican. El codigo de tienda
+evita duplicar tiendas al repetir el comando:
+
+```bash
+docker compose exec api python -m app.scripts.import_initial_catalog \
+  --excel "/app/app/assets/Copia de BASE DE TIENDAS.xlsx"
+```
+
+Opcionalmente, `--password` establece una contrasena temporal unicamente para usuarios nuevos.
+Si no se especifica, se crean sin contrasena para completar despues el flujo de autenticacion.
+El comando muestra usuarios y tiendas creados u omitidos, asignaciones, filas invalidas y
+conflictos. Un error estructural o de base de datos hace rollback de toda la carga.
+
+Para actualizar una instalacion existente despues de hacer `git pull`, no elimines el volumen
+de PostgreSQL. Reconstruye la imagen, deja que el arranque aplique las migraciones y ejecuta la
+importacion una sola vez:
+
+```bash
+git pull
+docker compose up -d --build
+docker compose exec api python -m app.scripts.import_initial_catalog
+```
+
+La pantalla de administracion carga usuarios y tiendas por paginas de 200 registros, por lo
+que puede mostrar catalogos mayores a 100 elementos. Si el frontend se ejecuta fuera de Docker,
+reinstala dependencias solo si cambiaron sus manifiestos y ejecuta `npm run build` o reinicia
+`npm run dev`. Despues de actualizar, cierra sesion y usa una recarga forzada del navegador si
+el navegador conserva un bundle anterior.
+
+No uses `docker compose down -v` para esta actualizacion: elimina el volumen `postgres_data`.
+Ese comando solo debe reservarse para reiniciar una base de datos de desarrollo que pueda
+perderse.
+
 ## Datos de prueba
 
 El repo incluye datos ficticios para pruebas manuales en `docs/test-data`:

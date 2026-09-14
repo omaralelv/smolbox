@@ -74,6 +74,10 @@ export async function listUsers() {
     return request('/users/');
 }
 
+export async function listAllUsers() {
+    return listAllPages((offset) => request(`/users/?limit=200&offset=${offset}`));
+}
+
 export async function createUser(payload) {
     return request('/users/', {
         method: 'POST',
@@ -100,6 +104,26 @@ export async function deleteUser(userId, payload) {
 
 export async function listStores() {
     return request('/stores/');
+}
+
+export async function listAllStores() {
+    return listAllPages((offset) => request(`/stores/?limit=200&offset=${offset}`));
+}
+
+async function listAllPages(fetchPage) {
+    const pageSize = 200;
+    const records = [];
+    let offset = 0;
+
+    while (true) {
+        const page = await fetchPage(offset);
+        if (!Array.isArray(page)) {
+            throw new Error('La API devolvió una lista inválida.');
+        }
+        records.push(...page);
+        if (page.length < pageSize) return records;
+        offset += pageSize;
+    }
 }
 
 export async function listStoreUserAssignments(storeId) {
