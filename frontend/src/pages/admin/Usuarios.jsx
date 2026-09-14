@@ -177,10 +177,18 @@ function Usuarios() {
             admin: [],
         };
 
+        // Agrupar usuarios por rol
         usuarios.forEach((u) => {
             if (agrupados[u.role]) {
                 agrupados[u.role].push(u);
             }
+        });
+
+        // Ordenar alfabéticamente por nombre dentro de cada grupo
+        Object.keys(agrupados).forEach((roleKey) => {
+            agrupados[roleKey].sort((a, b) =>
+                (a.full_name || '').localeCompare(b.full_name || '', 'es', { sensitivity: 'base' })
+            );
         });
 
         return agrupados;
@@ -610,7 +618,7 @@ function Usuarios() {
                             </select>
                         </label>
 
-                        
+
                         <label style={styles.inputGroup}>
                             Nombre
                             <input
