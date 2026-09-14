@@ -7,11 +7,13 @@ import {
     assignUserToStore,
     createUser,
     currentToken,
+    deleteUser,
     listAuthorizationAreas,
     listAuthorizationAreasForUser,
     listStores,
     listStoreUserAssignments,
     listUsers,
+    updateUser,
 } from '../../lib/api';
 
 const ROLE_OPTIONS = [
@@ -41,9 +43,9 @@ const DEFAULT_AUTHORIZATION_AREAS = [
 ];
 
 const EMPTY_FORM = {
-    fullName: 'Nombre',
-    email: 'nombre@vertiche.com.mx',
-    password: 'Inserte_Contraseña',
+    fullName: '',
+    email: '',
+    password: '',
     role: 'store',
     storeId: '',
     authorizationArea: '',
@@ -109,8 +111,17 @@ function Usuarios() {
     const [tiendas, setTiendas] = useState([]);
     const [areas, setAreas] = useState(DEFAULT_AUTHORIZATION_AREAS);
     const [asignacionesPorUsuario, setAsignacionesPorUsuario] = useState({});
+
+    // Estados para Formulario y Edición
     const [form, setForm] = useState(EMPTY_FORM);
+    const [usuarioEditarId, setUsuarioEditarId] = useState(null);
     const [mostrarUsuario, setMostrarUsuario] = useState(false);
+    
+    // Estados para Eliminación
+    const [usuarioAEliminar, setUsuarioAEliminar] = useState(null);
+    const [justificacion, setJustificacion] = useState('');
+    const [mostrarEliminar, setMostrarEliminar] = useState(false);
+
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
     const [error, setError] = useState('');
@@ -123,6 +134,31 @@ function Usuarios() {
         () => Object.fromEntries(ROLE_OPTIONS.map((role) => [role.value, role.label])),
         []
     );
+
+    const reloadData = async () => {
+        const [usuariosData, tiendasData] = await Promise.all([listUsers(), listStores()]);
+        let areasData = [];
+        try {
+            areasData = await listAuthorizationAreas();
+        } catch {
+            areasData = [];
+        }
+
+        const usuariosLista = Array.isArray(usuariosData) ? usuariosData : [];
+        const tiendasLista = Array.isArray(tiendasData) ? tiendasData : [];
+        const asignaciones = await cargarAsignacionesPorUsuario(usuariosLista, tiendasLista);
+
+        setUsuarios(usuariosLista);
+        setTiendas(tiendasLista);
+        setAsignacionesPorUsuario(asignaciones);
+
+        const nombresAreas = Array.isArray(areasData)
+            ? areasData.filter((area) => area.is_active !== false).map((area) => area.name)
+            : [];
+        setAreas(nombresAreas.length ? nombresAreas : DEFAULT_AUTHORIZATION_AREAS);
+    };
+
+
 
     useEffect(() => {
         let activo = true;
@@ -198,6 +234,35 @@ function Usuarios() {
         setMostrarUsuario(true);
     };
 
+
+
+    // Funciones del Modal de Usuario (Crear / Editar)
+    const abrirVentanaCrearUsuario = () => {
+        setUsuarioEditarId(null);
+        setForm(EMPTY_FORM);
+        setError('');
+        setMensaje('');
+        setMostrarUsuario(true);
+    };
+
+    const abrirVentanaEditarUsuario = (usuario) => {
+        const asignaciones = asignacionesPorUsuario[usuario.id] || {};
+        setUsuarioEditarId(usuario.id);
+        setForm({
+            fullName: usuario.full_name || '',
+            email: usuario.email || '',
+            password: '', // Se deja vacío a menos que se quiera actualizar
+            role: usuario.role || 'store',
+            storeId: asignaciones.storeId || '',
+            authorizationArea: asignaciones.areas?.[0] || '',
+        });
+        setError('');
+        setMensaje('');
+        setMostrarUsuario(true);
+    };
+
+
+
     const cerrarVentanaUsuario = () => {
         if (guardando) return;
         setMostrarUsuario(false);
@@ -216,19 +281,42 @@ function Usuarios() {
         setGuardando(true);
 
         try {
-            const usuario = await createUser({
-                email: form.email.trim(),
-                full_name: form.fullName.trim(),
-                role: form.role,
-                password: form.password || undefined,
-            });
+            if (usuarioEditarId) {
+                // Modo EDICIÓN
+                await updateUser(usuarioEditarId, {
+                    email: form.email.trim(),
+                    full_name: form.fullName.trim(),
+                    role: form.role,
+                    ...(form.password ? { password: form.password } : {}),
+                });
 
-            if (requiereTienda && form.storeId) {
-                await assignUserToStore(form.storeId, usuario.id, form.role);
-            }
+                if (requiereTienda && form.storeId) {
+                    await assignUserToStore(form.storeId, usuarioEditarId, form.role);
+                }
 
-            if (requiereArea) {
-                await assignAuthorizationAreaToUser(usuario.id, form.authorizationArea);
+                if (requiereArea) {
+                    await assignAuthorizationAreaToUser(usuarioEditarId, form.authorizationArea);
+                }
+
+                setMensaje('Usuario actualizado correctamente.');
+            } else {
+                // Modo CREACIÓN
+                const usuario = await createUser({
+                    email: form.email.trim(),
+                    full_name: form.fullName.trim(),
+                    role: form.role,
+                    password: form.password || undefined,
+                });
+
+                if (requiereTienda && form.storeId) {
+                    await assignUserToStore(form.storeId, usuario.id, form.role);
+                }
+
+                if (requiereArea) {
+                    await assignAuthorizationAreaToUser(usuario.id, form.authorizationArea);
+                }
+
+                setMensaje('Usuario guardado correctamente.');
             }
 
             const [usuariosActualizados, tiendasActualizadas] = await Promise.all([
@@ -252,6 +340,46 @@ function Usuarios() {
         }
     };
 
+    // Funciones del Modal de Eliminación
+    const abrirVentanaEliminar = (usuario) => {
+        setUsuarioAEliminar(usuario);
+        setJustificacion('');
+        setError('');
+        setMostrarEliminar(true);
+    };
+
+    const cerrarVentanaEliminar = () => {
+        if (guardando) return;
+        setMostrarEliminar(false);
+        setUsuarioAEliminar(null);
+        setJustificacion('');
+    };
+
+    const handleConfirmarEliminar = async (event) => {
+        event.preventDefault();
+        if (!justificacion.trim()) {
+            setError('Debes ingresar una justificación para eliminar el usuario.');
+            return;
+        }
+
+        setGuardando(true);
+        setError('');
+
+        try {
+            await deleteUser(usuarioAEliminar.id, { reason: justificacion.trim() });
+            setMensaje(`Usuario "${usuarioAEliminar.full_name}" eliminado correctamente.`);
+            await reloadData();
+            cerrarVentanaEliminar();
+        } catch (err) {
+            setError(apiErrorMessage(err));
+        } finally {
+            setGuardando(false);
+        }
+    };
+
+
+
+
     return (
         <div style={styles.container}>
             <div style={styles.headerRow}>
@@ -270,10 +398,11 @@ function Usuarios() {
                 <div style={styles.tableHeader}>
                     <span>Nombre</span>
                     <span>Correo</span>
-                    <span>Perfil</span>
-                    <span>Area</span>
+                    <span>Rol</span>
+                    <span>Área</span>
                     <span>Tienda</span>
                     <span>Estado</span>
+                    <span>Herramientas</span>
                 </div>
 
                 {cargando ? (
@@ -284,7 +413,7 @@ function Usuarios() {
                     usuarios.map((usuario) => {
                         const asignaciones = asignacionesPorUsuario[usuario.id] || {};
                         const areaAsignada = usuario.role === 'authorizer'
-                            ? mostrarListaAsignada(asignaciones.areas, 'Sin area')
+                            ? mostrarListaAsignada(asignaciones.areas, 'Sin área')
                             : 'No aplica';
 
                         return (
@@ -295,24 +424,38 @@ function Usuarios() {
                                 <span>{areaAsignada}</span>
                                 <span>{mostrarListaAsignada(asignaciones.tiendas, 'Sin tienda')}</span>
                                 <span>{usuario.is_active ? 'Activo' : 'Inactivo'}</span>
+                                <div style={styles.toolsCell}>
+                                    <button
+                                        type="button"
+                                        style={styles.iconBtn}
+                                        onClick={() => abrirVentanaEditarUsuario(usuario)}
+                                        title="Editar Usuario"
+                                    >
+                                        <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        style={{ ...styles.iconBtn }}
+                                        onClick={() => abrirVentanaEliminar(usuario)}
+                                        title="Eliminar Usuario"
+                                    >
+                                        <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
+                                    </button>
+                                </div>
                             </div>
                         );
                     })
                 )}
             </div>
 
+            {/* Modal Crear / Editar Usuario */}
             {mostrarUsuario && (
                 <div style={styles.modalBackdrop}>
                     <form style={styles.modal} onSubmit={handleGuardarUsuario}>
                         <div style={styles.modalHeader}>
-                            <h2 style={styles.modalTitle}>Nuevo Usuario</h2>
-                            <button
-                                type="button"
-                                style={styles.closeButton}
-                                onClick={cerrarVentanaUsuario}
-                            >
-                                ✕
-                            </button>
+                            <h2 style={styles.modalTitle}>
+                                {usuarioEditarId ? 'Editar Usuario' : 'Nuevo Usuario'}
+                            </h2>
                         </div>
 
                         <label style={styles.inputGroup}>
@@ -322,6 +465,7 @@ function Usuarios() {
                                 value={form.fullName}
                                 onChange={(event) => actualizarCampo('fullName', event.target.value)}
                                 style={styles.input}
+                                placeholder='Nombre Completo'
                                 required
                             />
                         </label>
@@ -333,6 +477,7 @@ function Usuarios() {
                                 value={form.email}
                                 onChange={(event) => actualizarCampo('email', event.target.value)}
                                 style={styles.input}
+                                placeholder='nombre@vertiche.com.mx'
                                 required
                             />
                         </label>
@@ -340,16 +485,18 @@ function Usuarios() {
                         <label style={styles.inputGroup}>
                             Contraseña
                             <input
-                                type="text"
+                                type="password"
                                 value={form.password}
                                 onChange={(event) => actualizarCampo('password', event.target.value)}
                                 style={styles.input}
-                                minLength={8}
+                                minLength={usuarioEditarId ? undefined : 8}
+                                required={!usuarioEditarId}
+                                placeholder={usuarioEditarId ? 'Insertar Contraseña' : 'Inserte Contraseña'}
                             />
                         </label>
 
                         <label style={styles.inputGroup}>
-                            Perfil
+                            Rol
                             <select
                                 value={form.role}
                                 onChange={(event) => actualizarCampo('role', event.target.value)}
@@ -393,7 +540,7 @@ function Usuarios() {
                                     style={styles.input}
                                     required
                                 >
-                                    <option value="">Seleccionar area...</option>
+                                    <option value="">Seleccionar área...</option>
                                     {areas.map((area) => (
                                         <option key={area} value={area}>
                                             {area}
@@ -419,15 +566,60 @@ function Usuarios() {
                     </form>
                 </div>
             )}
+
+
+            {/* Modal Eliminar Usuario */}
+            {mostrarEliminar && usuarioAEliminar && (
+                <div style={styles.modalBackdrop}>
+                    <form style={styles.modal} onSubmit={handleConfirmarEliminar}>
+                        <div style={styles.modalHeader}>
+                            <h2 style={styles.modalTitle}>Eliminar Usuario</h2>
+                        </div>
+
+                        <p style={{ margin: 0, fontSize: '13px', color: '#333' }}>
+                            ¿Estás seguro de que deseas eliminar al usuario{' '}
+                            <strong>{usuarioAEliminar.full_name}</strong>?
+                        </p>
+
+                        <label style={styles.inputGroup}>
+                            <textarea
+                                value={justificacion}
+                                onChange={(e) => setJustificacion(e.target.value)}
+                                style={{ ...styles.input, minHeight: '80px', resize: 'vertical' }}
+                                placeholder="Escribe el motivo de la baja..."
+                                required
+                            />
+                        </label>
+
+                        <div style={styles.actions}>
+                            <button
+                                type="button"
+                                style={styles.secondaryButton}
+                                onClick={cerrarVentanaEliminar}
+                                disabled={guardando}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="submit"
+                                style={{ ...styles.saveButton }}
+                                disabled={guardando}
+                            >
+                                {guardando ? 'Eliminando...' : 'Eliminar'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
         </div>
     );
 }
 
 const styles = {
     container: {
-        maxWidth: '1300px',
+        maxWidth: '1450px',
         margin: '0 auto',
-        padding: '30px 20px',
+        padding: '10px 10px',
         textAlign: 'left',
         fontFamily: 'var(--sans)',
     },
@@ -491,25 +683,49 @@ const styles = {
     },
     tableHeader: {
         display: 'grid',
-        gridTemplateColumns: '1.2fr 1.6fr 0.9fr 1fr 1.3fr 0.7fr',
+        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
         gap: '12px',
         padding: '12px 16px',
-        backgroundColor: 'var(--sb-subhead)',
-        color: '#000000',
+        backgroundColor: '#ffb9b9',
+        color: '#ffffff',
         fontSize: '14px',
         fontWeight: '700',
         textTransform: 'uppercase',
     },
     row: {
         display: 'grid',
-        gridTemplateColumns: '1.2fr 1.6fr 0.9fr 1fr 1.3fr 0.7fr',
+        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
         gap: '12px',
-        padding: '14px 16px',
-        borderTop: '1px solid #f1dede',
+        padding: '13px 16px',
+        borderTop: '1px solid var(--border)',
         color: '#333',
-        fontSize: '13px',
+        fontSize: '12px',
         alignItems: 'center',
     },
+
+
+    toolsCell: {
+        display: 'flex',
+        gap: '20px',
+        alignItems: 'center',
+    },
+    iconBtn: {
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+        display: 'flex',
+        alignItems: 'center',
+        paddingRight: '5px',
+    },
+    iconImg: {
+        width: '16px',
+        height: '16px',
+        objectFit: 'contain'
+    },
+
+
+
     emptyState: {
         padding: '22px 16px',
         color: '#989898',

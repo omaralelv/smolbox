@@ -81,6 +81,23 @@ export async function createUser(payload) {
     });
 }
 
+// Editar usuario existente
+export async function updateUser(userId, payload) {
+    return request(`/users/${encodeURIComponent(userId)}`, {
+        method: 'PATCH', // O 'PUT' según esté configurado tu backend FastAPI
+        body: payload,
+    });
+}
+
+// Eliminar/desactivar usuario con razón
+export async function deleteUser(userId, payload) {
+    return request(`/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        body: payload,
+    });
+}
+
+
 export async function listStores() {
     return request('/stores/');
 }
