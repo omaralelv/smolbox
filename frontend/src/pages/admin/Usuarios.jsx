@@ -912,7 +912,7 @@ const styles = {
         gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
         gap: '12px',
         padding: '8px 16px',
-        backgroundColor: '#ffe2e2',
+        backgroundColor: '#fef2f2',
         color: '#000000',
         fontSize: '14px',
         fontWeight: '700',
