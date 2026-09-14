@@ -26,6 +26,17 @@ const ROLE_OPTIONS = [
     { value: 'admin', label: 'Admin' },
 ];
 
+// Configuración de las secciones según la maqueta
+const ROLE_SECTIONS = [
+    { roleKey: 'store', title: 'TIENDAS' },
+    { roleKey: 'authorizer', title: 'SUPERVISORES' },
+    { roleKey: 'accountant', title: 'CONTADORES' },
+    { roleKey: 'accounting_manager', title: 'GERENCIA' },
+    { roleKey: 'treasury', title: 'TESORERÍA' },
+    { roleKey: 'director', title: 'DIRECCIÓN' },
+    { roleKey: 'admin', title: 'ADMINS' },
+]; 
+
 const STORE_SCOPED_ROLES = new Set(['store']);
 
 const DEFAULT_AUTHORIZATION_AREAS = [
@@ -119,6 +130,17 @@ function Usuarios() {
     const [areas, setAreas] = useState(DEFAULT_AUTHORIZATION_AREAS);
     const [asignacionesPorUsuario, setAsignacionesPorUsuario] = useState({});
 
+    // Estado para controlar qué tablas por rol están colapsadas
+    const [seccionesAbiertas, setSeccionesAbiertas] = useState({
+        store: true,
+        authorizer: true,
+        accountant: true,
+        accounting_manager: true,
+        treasury: true,
+        director: true,
+        admin: true,
+    });
+
     // Estados para Formulario y Edición
     const [form, setForm] = useState(EMPTY_FORM);
     const [usuarioEditarId, setUsuarioEditarId] = useState(null);
@@ -141,6 +163,30 @@ function Usuarios() {
         () => Object.fromEntries(ROLE_OPTIONS.map((role) => [role.value, role.label])),
         []
     );
+
+
+    // Agrupación de usuarios por rol
+    const usuariosPorRol = useMemo(() => {
+        const agrupados = {
+            store: [],
+            authorizer: [],
+            accountant: [],
+            accounting_manager: [],
+            treasury: [],
+            director: [],
+            admin: [],
+        };
+
+        usuarios.forEach((u) => {
+            if (agrupados[u.role]) {
+                agrupados[u.role].push(u);
+            }
+        });
+
+        return agrupados;
+    }, [usuarios]);
+    
+
 
     const supervisoresActivos = useMemo(
         () => usuarios.filter((usuario) => usuario.role === 'authorizer' && usuario.is_active),
@@ -438,62 +484,106 @@ function Usuarios() {
             {error && <div style={styles.error}>{error}</div>}
             {mensaje && <div style={styles.success}>{mensaje}</div>}
 
-            <div style={styles.table}>
-                <div style={styles.tableHeader}>
-                    <span>Nombre</span>
-                    <span>Correo</span>
-                    <span>Rol</span>
-                    <span>Área</span>
-                    <span>Tienda</span>
-                    <span>Estado</span>
-                    <span>Herramientas</span>
-                </div>
 
                 {cargando ? (
                     <div style={styles.emptyState}>Cargando usuarios...</div>
                 ) : usuarios.length === 0 ? (
                     <div style={styles.emptyState}>No hay usuarios registrados.</div>
                 ) : (
-                    usuarios.map((usuario) => {
-                        const asignaciones = asignacionesPorUsuario[usuario.id] || {};
-                        const areaAsignada = usuario.role === 'authorizer'
-                            ? mostrarListaAsignada(asignaciones.areas, 'Sin área')
-                            : 'No aplica';
-                        const tiendaAsignada = usuario.role === 'store'
-                            ? mostrarListaAsignada(asignaciones.tiendas, 'Sin tienda')
-                            : 'No aplica';
-
-                        return (
-                            <div key={usuario.id} style={styles.row}>
-                                <span>{usuario.full_name}</span>
-                                <span>{usuario.email}</span>
-                                <span>{rolesPorValor[usuario.role] || usuario.role}</span>
-                                <span>{areaAsignada}</span>
-                                <span>{tiendaAsignada}</span>
-                                <span>{usuario.is_active ? 'Activo' : 'Inactivo'}</span>
-                                <div style={styles.toolsCell}>
-                                    <button
-                                        type="button"
-                                        style={styles.iconBtn}
-                                        onClick={() => abrirVentanaEditarUsuario(usuario)}
-                                        title="Editar Usuario"
-                                    >
-                                        <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        style={{ ...styles.iconBtn }}
-                                        onClick={() => abrirVentanaEliminar(usuario)}
-                                        title="Eliminar Usuario"
-                                    >
-                                        <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
-                                    </button>
+                <div style={styles.sectionsWrapper}>
+                    {ROLE_SECTIONS.map((seccion) => {
+                        const listaUsuariosRole = usuariosPorRol[seccion.roleKey] || [];
+                        const estaAbierto = seccionesAbiertas[seccion.roleKey];
+                        
+                    return (
+                        <div key={seccion.roleKey} style={styles.sectionContainer}>
+                                {/* Header rosa Desplegable */}
+                                <div
+                                    style={styles.collapsibleHeader}
+                                    onClick={() => 
+                                        setSeccionesAbiertas((prev) => ({
+                                            ...prev,
+                                            [seccion.roleKey]: !prev[seccion.roleKey],
+                                        }))
+                                    }
+                                >
+                                    <span style={styles.arrowIcon}>
+                                        {estaAbierto ? '▼' : '►'}
+                                    </span>
+                                    <span>{seccion.title}</span>
                                 </div>
+
+                                {/* Contenido Desplegable */}
+                                {estaAbierto && (
+                                    <div style={styles.table}>
+                                        <div style={styles.tableHeader}>
+                                            <span>NOMBRE</span>
+                                            <span>CORREO</span>
+                                            <span>ROL</span>
+                                            <span>ÁREA</span>
+                                            <span>TIENDA</span>
+                                            <span>ESTATUS</span>
+                                            <span>HERRAMIENTAS</span>
+                                        </div>
+
+                                        {listaUsuariosRole.length === 0 ? (
+                                            <div style={styles.emptyState}>
+                                                No hay usuarios registrados con este rol.
+                                            </div>
+                                        ) : (
+                                            listaUsuariosRole.map((usuario) => {
+                                                const asignaciones = asignacionesPorUsuario[usuario.id] || {};
+                                                const areaAsignada = usuario.role === 'authorizer'
+                                                    ? mostrarListaAsignada(asignaciones.areas, 'Sin área')
+                                                    : 'No aplica';
+                                                const tiendaAsignada = usuario.role === 'store'
+                                                    ? mostrarListaAsignada(asignaciones.tiendas, 'Sin tienda')
+                                                    : 'No aplica';
+
+                                                return(
+                                                    <div key={usuario.id} style={styles.row}>
+                                                        <span>{usuario.full_name}</span>
+                                                        <span>{usuario.email}</span>
+                                                        <span>{rolesPorValor[usuario.role] || usuario.role}</span>
+                                                        <span>{areaAsignada}</span>
+                                                        <span>{tiendaAsignada}</span>
+                                                        <span>{usuario.is_active ? 'Activo' : 'Inactivo'}</span>
+                                                        <div style={styles.toolsCell}>
+                                                            <button
+                                                                type="button"
+                                                                style={styles.iconBtn}
+                                                                onClick={() => abrirVentanaEditarUsuario(usuario)}
+                                                                title="Editar Usuario"
+                                                            >
+                                                                <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                style={{ ...styles.iconBtn }}
+                                                                onClick={() => abrirVentanaEliminar(usuario)}
+                                                                title="Eliminar Usuario"
+                                                            >
+                                                                <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         );
-                    })
+                    })}
+                </div>
                 )}
-            </div>
+            
+
+
+
+
+
+
 
             {/* Modal Crear / Editar Usuario */}
             {mostrarUsuario && (
@@ -767,6 +857,39 @@ const styles = {
         cursor: 'pointer',
         transition: 'transform 0.1s',
     },
+
+
+
+    sectionsWrapper: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '18px',
+    },
+    sectionContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: '6px',
+        overflow: 'hidden',
+    },
+    collapsibleHeader: {
+        backgroundColor: '#fca5a5',
+        color: '#ffffff',
+        padding: '10px 16px',
+        fontSize: '16px',
+        fontWeight: '700',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        cursor: 'pointer',
+        userSelect: 'none',
+        letterSpacing: '0.5px',
+    },
+    arrowIcon: {
+        fontSize: '16px',
+    },
+
+
+
     table: {
         border: '1px solid var(--border)',
         borderRadius: '8px',
@@ -777,9 +900,9 @@ const styles = {
         display: 'grid',
         gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
         gap: '12px',
-        padding: '12px 16px',
-        backgroundColor: '#ffb9b9',
-        color: '#ffffff',
+        padding: '8px 16px',
+        backgroundColor: '#ffe2e2',
+        color: '#000000',
         fontSize: '14px',
         fontWeight: '700',
         textTransform: 'uppercase',
@@ -788,7 +911,7 @@ const styles = {
         display: 'grid',
         gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
         gap: '12px',
-        padding: '13px 16px',
+        padding: '10px 16px',
         borderTop: '1px solid var(--border)',
         color: '#333',
         fontSize: '12px',
@@ -922,7 +1045,7 @@ const styles = {
         transition: 'background-color 0.15s ease',
     },
     switchButtonOn: {
-        backgroundColor: '#64b96a',
+        backgroundColor: 'var(--text-pagada)',
     },
     switchKnob: {
         width: '18px',
