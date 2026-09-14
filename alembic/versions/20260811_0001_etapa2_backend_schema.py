@@ -15,6 +15,7 @@ from app.db.base import Base
 from app.models import (  # noqa: F401
     attachment,
     audit_log,
+    authorization_area,
     business_rule,
     cfdi_validation,
     expense,
@@ -34,6 +35,7 @@ BASE_SCHEMA_TABLES = (
     "stores",
     "periods",
     "reimbursement_requests",
+    "authorization_areas",
     "expenses",
     "attachments",
     "users",
