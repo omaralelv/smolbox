@@ -26,7 +26,7 @@ const ROLE_OPTIONS = [
     { value: 'admin', label: 'Admin' },
 ];
 
-const STORE_SCOPED_ROLES = new Set(['store', 'authorizer', 'accountant', 'accounting_manager']);
+const STORE_SCOPED_ROLES = new Set(['store']);
 
 const DEFAULT_AUTHORIZATION_AREAS = [
     'Auditoria Interna',
@@ -473,6 +473,9 @@ function Usuarios() {
                         const areaAsignada = usuario.role === 'authorizer'
                             ? mostrarListaAsignada(asignaciones.areas, 'Sin área')
                             : 'No aplica';
+                        const tiendaAsignada = usuario.role === 'store'
+                            ? mostrarListaAsignada(asignaciones.tiendas, 'Sin tienda')
+                            : 'No aplica';
 
                         return (
                             <div key={usuario.id} style={styles.row}>
@@ -480,7 +483,7 @@ function Usuarios() {
                                 <span>{usuario.email}</span>
                                 <span>{rolesPorValor[usuario.role] || usuario.role}</span>
                                 <span>{areaAsignada}</span>
-                                <span>{mostrarListaAsignada(asignaciones.tiendas, 'Sin tienda')}</span>
+                                <span>{tiendaAsignada}</span>
                                 <span>{usuario.is_active ? 'Activo' : 'Inactivo'}</span>
                                 <div style={styles.toolsCell}>
                                     <button
