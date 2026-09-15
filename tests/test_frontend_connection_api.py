@@ -117,3 +117,22 @@ def test_work_queue_and_request_detail_include_frontend_payload(
         "11111111-2222-3333-4444-AAAAAAAAAAAA"
     )
     assert "submit_request" in body["available_actions"]
+    cfdi_attachment_id = next(
+        attachment["id"]
+        for attachment in body["expenses"][0]["attachments"]
+        if attachment["attachment_type"] == "cfdi_xml"
+    )
+
+    frontend_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=headers,
+    )
+    assert frontend_detail.status_code == 200, frontend_detail.text
+    frontend_expense = frontend_detail.json()["gastos"][0]
+    assert frontend_expense["urlFactura"] == (
+        f"/api/v1/attachments/{cfdi_attachment_id}/download/me"
+    )
+    assert frontend_expense["urlGasto"] == (
+        f"/api/v1/attachments/{receipt.json()['id']}/download/me"
+    )
+    assert frontend_expense["urlRecibo"] == frontend_expense["urlGasto"]

@@ -78,16 +78,14 @@ def summarize_reimbursement_request(
             missing_authorization_expense_ids.append(expense.id)
 
         cfdi_validations = getattr(expense, "cfdi_validations", [])
-        if not _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml) or not _has_current_cfdi_validation(
-            cfdi_validations
-        ):
+        if not _has_valid_invoice_evidence(expense, cfdi_validations):
             missing_cfdi_expense_ids.append(expense.id)
 
         spent_on = getattr(expense, "spent_on", None)
         if _is_outside_period(spent_on, period_starts_on, period_ends_on):
             out_of_period_expense_ids.append(expense.id)
 
-        cfdi_uuid = getattr(expense, "cfdi_uuid", None)
+        cfdi_uuid = getattr(expense, "cfdi_uuid", None) or _valid_ocr_cfdi_uuid(expense)
         if cfdi_uuid:
             normalized_uuid = str(cfdi_uuid).upper()
             if normalized_uuid in seen_cfdi_uuids:
@@ -154,7 +152,7 @@ def summarize_reimbursement_request(
         issues.append(
             ReimbursementValidationIssue(
                 code="missing_cfdi_xml",
-                message="One or more expenses do not have a CFDI XML attachment.",
+                message="One or more expenses do not have valid CFDI XML or OCR invoice evidence.",
                 severity="warning",
             )
         )
@@ -240,15 +238,70 @@ def summarize_reimbursement_request(
 
 def _has_attachment_type(attachments: list[AttachmentLike], expected: AttachmentType) -> bool:
     for attachment in attachments:
-        attachment_type = attachment.attachment_type
-        value = (
-            attachment_type.value
-            if isinstance(attachment_type, AttachmentType)
-            else attachment_type
-        )
-        if value == expected.value:
+        if _attachment_type_value(attachment) == expected.value:
             return True
     return False
+
+
+def _has_valid_invoice_evidence(
+    expense: ExpenseLike,
+    cfdi_validations: list[CfdiValidationLike],
+) -> bool:
+    if _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml):
+        return _has_current_cfdi_validation(cfdi_validations)
+    return _valid_ocr_cfdi_uuid(expense) is not None
+
+
+def _valid_ocr_cfdi_uuid(expense: ExpenseLike) -> str | None:
+    for attachment in getattr(expense, "attachments", []):
+        if _attachment_type_value(attachment) not in {
+            AttachmentType.receipt.value,
+            AttachmentType.other.value,
+        }:
+            continue
+        extraction = getattr(attachment, "ocr_extraction", None)
+        if extraction is None:
+            continue
+        ocr_status = getattr(extraction, "status", None)
+        if getattr(ocr_status, "value", ocr_status) != "succeeded":
+            continue
+        suggested_uuid = getattr(extraction, "suggested_cfdi_uuid", None)
+        if not suggested_uuid:
+            continue
+        if not _ocr_total_matches_expense(expense, extraction):
+            continue
+        if not _ocr_date_matches_expense(expense, extraction):
+            continue
+        return str(suggested_uuid).upper()
+    return None
+
+
+def _attachment_type_value(attachment: AttachmentLike) -> str:
+    attachment_type = attachment.attachment_type
+    return (
+        attachment_type.value
+        if isinstance(attachment_type, AttachmentType)
+        else str(attachment_type)
+    )
+
+
+def _ocr_total_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
+    extracted_total = getattr(extraction, "extracted_total", None)
+    if extracted_total is None:
+        return False
+    return _money(extracted_total) == _money(expense.amount)
+
+
+def _ocr_date_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
+    extracted_date = getattr(extraction, "extracted_date", None)
+    spent_on = getattr(expense, "spent_on", None)
+    if extracted_date is None or spent_on is None:
+        return False
+    if isinstance(extracted_date, datetime):
+        extracted_date = extracted_date.date()
+    if isinstance(spent_on, datetime):
+        spent_on = spent_on.date()
+    return extracted_date == spent_on
 
 
 def _money(value: Decimal) -> Decimal:

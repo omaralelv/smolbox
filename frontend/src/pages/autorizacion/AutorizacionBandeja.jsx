@@ -417,8 +417,8 @@ function AutorizacionBandeja( { currentRole } ) {
                                     <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                                 </button>
 
-                                <button style={styles.iconBtn} title="Ver Recibo" onClick={() => handleVerRecibo(gasto)}>
-                                        <img src="/Recibo.png" alt="Recibo" style={styles.iconImg} />
+                                <button style={styles.iconBtn} title="Ver Gasto" onClick={() => handleVerRecibo(gasto)}>
+                                        <img src="/Recibo.png" alt="Gasto" style={styles.iconImg} />
                                     </button>
 
                                 <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
@@ -740,7 +740,10 @@ function gastosAutorizacionDesdeSolicitud(solicitud) {
             tienda: gasto.tienda || solicitud?.tienda || '',
             tipo: gasto.tipo || gasto.type || 'Gasto General',
             estado: estadoAutorizacionDesdeGasto(gasto),
+            urlFactura: gasto.urlFactura || gasto.url_factura || null,
+            urlVale: gasto.urlVale || gasto.url_vale || null,
             urlRecibo: gasto.urlRecibo || gasto.downloadUrl,
+            urlGasto: gasto.urlGasto || gasto.urlRecibo || gasto.downloadUrl,
         }));
 }
 

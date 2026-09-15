@@ -23,8 +23,10 @@ def detect_attachment_content_type(
         return _detect_receipt(extension, content)
     if attachment_type == AttachmentType.cfdi_xml:
         return _detect_cfdi_xml(extension, content)
+    if attachment_type == AttachmentType.other:
+        return _detect_supporting_document(extension, content)
 
-    raise InvalidAttachment("The 'other' attachment type is not configured for this MVP")
+    raise InvalidAttachment("Unsupported attachment type")
 
 
 def _detect_cash_box_format(extension: str, content: bytes) -> str:
@@ -81,3 +83,10 @@ def _detect_cfdi_xml(extension: str, content: bytes) -> str:
     if root.tag.rsplit("}", maxsplit=1)[-1] != "Comprobante":
         raise InvalidAttachment("The XML root element is not cfdi:Comprobante")
     return "application/xml"
+
+
+def _detect_supporting_document(extension: str, content: bytes) -> str:
+    try:
+        return _detect_receipt(extension, content)
+    except InvalidAttachment as exc:
+        raise InvalidAttachment("Supporting documents must be PDF, JPEG, or PNG") from exc

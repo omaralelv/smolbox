@@ -1,3 +1,4 @@
+from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -14,9 +15,16 @@ from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense
 from app.models.reimbursement_request import ReimbursementRequest
-from app.schemas.cfdi import CfdiParseResult, CfdiUuidAvailability, CfdiValidationResult
+from app.schemas.cfdi import (
+    CfdiParseResult,
+    CfdiUuidAvailability,
+    CfdiValidationResult,
+    InvoiceOcrPreviewResult,
+)
 from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_expense
+from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
@@ -24,6 +32,7 @@ from app.services.storage import (
     UploadTooLarge,
     read_upload_limited,
 )
+from app.services.textract_ocr import TextractOcrError, TextractOcrService
 
 router = APIRouter()
 
@@ -64,6 +73,89 @@ async def parse_cfdi(
 ) -> CfdiParseResult:
     _, parsed = await _parse_upload(file, settings)
     return parsed
+
+
+@router.post("/cfdi/ocr-preview", response_model=InvoiceOcrPreviewResult)
+async def preview_invoice_ocr(
+    file: Annotated[UploadFile, File()],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> InvoiceOcrPreviewResult:
+    try:
+        content = await read_upload_limited(file, settings.max_upload_bytes)
+    except EmptyUpload as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UploadTooLarge as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        content_type = detect_attachment_content_type(
+            file.filename or "factura.pdf",
+            content,
+            AttachmentType.receipt,
+        )
+    except InvalidAttachment as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=str(exc),
+        ) from exc
+
+    service = TextractOcrService(settings)
+    if not service.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TEXTRACT_DISABLED",
+                "message": "Textract is not enabled for OCR invoice validation.",
+            },
+        )
+    if not service.supports_content_type(content_type):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Textract OCR supports PDF, JPEG, and PNG files.",
+        )
+
+    try:
+        result = service.extract_expense(
+            content,
+            content_type=content_type,
+            filename=file.filename or "factura.pdf",
+        )
+    except TextractOcrError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "OCR_NOT_AVAILABLE",
+                "message": "OCR did not return an invoice result.",
+            },
+        )
+
+    checksum = sha256(content).hexdigest()
+    payload = build_ocr_preview_payload(
+        checksum_sha256=checksum,
+        suggested_cfdi_uuid=result.suggested_cfdi_uuid,
+        extracted_total=result.extracted_total,
+        extracted_date=result.extracted_date,
+        extracted_supplier=result.extracted_supplier,
+        confidence=result.confidence,
+    )
+    return InvoiceOcrPreviewResult(
+        suggested_cfdi_uuid=result.suggested_cfdi_uuid,
+        extracted_total=result.extracted_total,
+        extracted_date=result.extracted_date,
+        extracted_supplier=result.extracted_supplier,
+        confidence=result.confidence,
+        checksum_sha256=checksum,
+        verification_token=sign_ocr_preview_payload(payload, settings.auth_token_secret),
+    )
 
 
 @router.get("/cfdi/uuid/{uuid}/availability", response_model=CfdiUuidAvailability)

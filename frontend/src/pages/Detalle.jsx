@@ -514,8 +514,8 @@ function Detalle({ currentRole }) {
                                     </button>
                                 )}
                                 {puedeVer('recibo') && (
-                                    <button style={styles.iconBtn} title="Ver Recibo" onClick={() => handleVerRecibo(gasto)}>
-                                        <img src="/Recibo.png" alt="Recibo" style={styles.iconImg} />
+                                    <button style={styles.iconBtn} title="Ver Gasto" onClick={() => handleVerRecibo(gasto)}>
+                                        <img src="/Recibo.png" alt="Gasto" style={styles.iconImg} />
                                     </button>
                                 )}
                                 {puedeVer('observaciones') && (

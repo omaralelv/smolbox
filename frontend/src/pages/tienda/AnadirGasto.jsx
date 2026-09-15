@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { apiErrorMessage, checkCfdiUuidAvailability, parseCfdi } from '../../lib/api';
+import { apiErrorMessage, checkCfdiUuidAvailability, parseCfdi, previewInvoiceOcr } from '../../lib/api';
 import { addDraftGasto, loadDraftGastos } from '../../lib/draftSolicitud';
 
 function AnadirGasto() {
@@ -23,11 +23,13 @@ function AnadirGasto() {
     const [observaciones, setObservaciones] = useState('');
 
     const [folioValidado, setFolioValidado] = useState(false);
+    const [ocrFactura, setOcrFactura] = useState(null);
 
 
     // Cambio dinámico de tipo de documento
     const handleTipoDocumentoChange = (nuevoTipo) => {
         setTipoDocumento(nuevoTipo);
+        setOcrFactura(null);
         if (nuevoTipo === 'vale' || nuevoTipo === 'recibo') {
             setFolio('N/A');
             setFolioValidado(true);
@@ -45,6 +47,7 @@ function AnadirGasto() {
     const handleFacturaFileChange = async (file) => {
         setFacturaFile(file || null);
         setEstadoValidacion(null);
+        setOcrFactura(null);
 
         if (!file) {
             setFolio('');
@@ -52,10 +55,17 @@ function AnadirGasto() {
             return;
         }
 
-        if (!esXml(file)) {
+        if (!esXml(file) && !esPdf(file)) {
+            setFacturaFile(null);
             setFolio('');
             setFolioValidado(false);
-            alert('El archivo de CFDI debe ser XML.');
+            alert('La factura debe ser XML o PDF.');
+            return;
+        }
+
+        if (esPdf(file)) {
+            setFolio('OCR pendiente');
+            setFolioValidado(false);
             return;
         }
 
@@ -107,7 +117,10 @@ function AnadirGasto() {
             return;
         }
         
-        if (tipoDocumento === 'factura' && !folioValidado) {
+        const facturaEsXml = esXml(facturaFile);
+        const facturaEsPdf = esPdf(facturaFile);
+
+        if (tipoDocumento === 'factura' && facturaEsXml && !folioValidado) {
             alert("Por favor, confirma el Folio Fiscal antes de validar.");
             return;
         }
@@ -115,11 +128,33 @@ function AnadirGasto() {
         setCargandoValidacion(true);
 
         try {
-            const cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
-            validarSolicitudDespuesDeAnadir([
-                ...loadDraftGastos(),
-                crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
-            ]);
+            if (facturaEsXml) {
+                const cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
+                validarSolicitudDespuesDeAnadir([
+                    ...loadDraftGastos(),
+                    crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
+                ]);
+            } else if (facturaEsPdf) {
+                const ocrParsed = await validarFacturaPdfAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
+                setOcrFactura(datosOcrParaBorrador(ocrParsed, facturaFile));
+                setFolio(normalizarUuidLocal(ocrParsed.suggested_cfdi_uuid));
+                setFolioValidado(true);
+                validarSolicitudDespuesDeAnadir([
+                    ...loadDraftGastos(),
+                    crearGastoParaValidacion({
+                        categoria,
+                        monto,
+                        folio: normalizarUuidLocal(ocrParsed.suggested_cfdi_uuid),
+                        fecha,
+                        observaciones,
+                        cfdiParsed: cfdiDesdeOcr(ocrParsed),
+                        facturaFile,
+                        valeFile,
+                        facturaRequiereOcr: true,
+                        ocrValidado: true,
+                    }),
+                ]);
+            }
             setEstadoValidacion('listo');
         } 
         catch (error) {
@@ -141,13 +176,33 @@ function AnadirGasto() {
             return;
         }
 
-        let cfdiParsed;
-        try {
-            cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
-        } catch (error) {
-            setEstadoValidacion('error');
-            alert(apiErrorMessage(error));
-            return;
+        const facturaEsXml = esXml(facturaFile);
+        const facturaEsPdf = esPdf(facturaFile);
+        let cfdiParsed = null;
+        let ocrParsed = ocrFactura;
+        if (facturaEsXml) {
+            try {
+                cfdiParsed = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`);
+            } catch (error) {
+                setEstadoValidacion('error');
+                alert(apiErrorMessage(error));
+                return;
+            }
+        } else if (facturaEsPdf) {
+            try {
+                if (!ocrCoincideConArchivoActual(ocrParsed, facturaFile)) {
+                    setEstadoValidacion('error');
+                    alert('Primero presiona "Validar Gasto" para leer la factura PDF con OCR.');
+                    return;
+                }
+                cfdiParsed = cfdiDesdeOcr(ocrParsed);
+                setFolio(normalizarUuidLocal(ocrParsed.suggested_cfdi_uuid));
+                setFolioValidado(true);
+            } catch (error) {
+                setEstadoValidacion('error');
+                alert(apiErrorMessage(error));
+                return;
+            }
         }
 
 
@@ -161,19 +216,25 @@ function AnadirGasto() {
             monto: parseFloat(monto) || 0,
             tipo: categoria,
             tipoDocumento: tipoDocumento,
-            folio: tipoDocumento === 'factura' ? folio : 'N/A',
+            folio: tipoDocumento === 'factura'
+                ? (facturaEsPdf ? normalizarUuidLocal(ocrParsed?.suggested_cfdi_uuid) : folio)
+                : 'N/A',
             fecha: fecha,
             areaAutoriza: esTransporte ? areaAutoriza : null, // Guardamos la selección si aplica
 
             observaciones: observaciones,
             
             //observacion: observaciones,
-            cfdiUuid: normalizarUuidLocal(cfdiParsed.uuid),
-            cfdiSubtotal: numeroOculto(cfdiParsed.subtotal),
-            cfdiTotal: cfdiParsed.total,
-            cfdiCurrency: cfdiParsed.currency,
-            cfdiTaxAmount: numeroOculto(cfdiParsed.tax_amount),
-            cfdiTaxRate: numeroOculto(cfdiParsed.tax_rate),
+            cfdiUuid: cfdiParsed ? normalizarUuidLocal(cfdiParsed.uuid) : null,
+            cfdiSubtotal: cfdiParsed ? numeroOculto(cfdiParsed.subtotal) : null,
+            cfdiTotal: cfdiParsed ? cfdiParsed.total : null,
+            cfdiCurrency: cfdiParsed ? cfdiParsed.currency : null,
+            cfdiTaxAmount: cfdiParsed ? numeroOculto(cfdiParsed.tax_amount) : null,
+            cfdiTaxRate: cfdiParsed ? numeroOculto(cfdiParsed.tax_rate) : null,
+            facturaRequiereOcr: tipoDocumento === 'factura' && esPdf(facturaFile),
+            ocrValidado: tipoDocumento === 'factura' && esPdf(facturaFile),
+            ocrPreviewToken: ocrParsed?.verification_token || null,
+            ocrChecksumSha256: ocrParsed?.checksum_sha256 || null,
 
             facturaFile: tipoDocumento === 'factura' ? facturaFile : null,
             valeFile: tipoDocumento === 'vale' ? valeFile : null,
@@ -334,7 +395,7 @@ function AnadirGasto() {
                                     Seleccionar archivo...
                                     <input 
                                         type="file" 
-                                        accept=".xml,application/xml,text/xml" 
+                                        accept=".xml,.pdf,application/xml,text/xml,application/pdf"
                                         disabled={tipoDocumento !== 'factura'}
                                         style={{ display: 'none' }} 
                                         onChange={(e) => handleFacturaFileChange(e.target.files?.[0] || null)} 
@@ -803,11 +864,11 @@ export default AnadirGasto;
 
 function validarCfdiXmlRequerido(file) {
     if (!file) {
-        return 'Debes cargar el CFDI XML antes de añadir el gasto.';
+        return 'Debes cargar la factura XML o PDF antes de añadir el gasto.';
     }
 
-    if (!esXml(file)) {
-        return 'El archivo de CFDI debe ser XML.';
+    if (!esXml(file) && !esPdf(file)) {
+        return 'La factura debe ser XML o PDF.';
     }
 
     return null;
@@ -817,6 +878,12 @@ function esXml(file) {
     const nombre = file?.name?.toLowerCase() || '';
     const tipo = file?.type?.toLowerCase() || '';
     return nombre.endsWith('.xml') || tipo.includes('xml');
+}
+
+function esPdf(file) {
+    const nombre = file?.name?.toLowerCase() || '';
+    const tipo = file?.type?.toLowerCase() || '';
+    return nombre.endsWith('.pdf') || tipo === 'application/pdf';
 }
 
 async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto) {
@@ -871,6 +938,86 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto) {
     return parsed;
 }
 
+async function validarFacturaPdfAntesDeAnadir(file, monto, fecha, nombreGasto) {
+    const parsed = await previewInvoiceOcr(file);
+    const errores = [];
+    const uuid = normalizarUuidLocal(parsed.suggested_cfdi_uuid);
+    const montoGasto = Number(monto);
+    const totalOcr = parsed.extracted_total === null || parsed.extracted_total === undefined
+        ? null
+        : Number(parsed.extracted_total);
+    const fechaGasto = normalizarFechaCapturada(fecha);
+    const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
+
+    if (!uuid) {
+        errores.push('El OCR no encontró folio fiscal en el PDF.');
+    }
+
+    if (totalOcr === null || Number.isNaN(totalOcr)) {
+        errores.push('El OCR no encontró total en el PDF.');
+    } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
+        errores.push(`El total del PDF (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+    }
+
+    if (!fechaGasto) {
+        errores.push('Captura la fecha de la factura en formato DD/MM/AAAA.');
+    } else if (!fechaOcr) {
+        errores.push('El OCR no encontró fecha en el PDF.');
+    } else if (fechaOcr !== fechaGasto) {
+        errores.push(`La fecha del PDF (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
+    }
+
+    if (uuid) {
+        if (uuidYaExisteEnSolicitud(uuid)) {
+            errores.push('El folio fiscal del PDF ya está agregado en otro gasto de esta solicitud.');
+        } else {
+            const disponibilidad = await checkCfdiUuidAvailability(uuid);
+            if (!disponibilidad.is_available) {
+                errores.push('El folio fiscal del PDF ya está registrado en otro gasto.');
+            }
+        }
+    }
+
+    if (errores.length) {
+        throw new Error([
+            `La factura PDF del gasto "${nombreGasto}" no coincide con el gasto capturado:`,
+            ...errores,
+        ].join('\n'));
+    }
+
+    return parsed;
+}
+
+function datosOcrParaBorrador(parsed, file) {
+    return {
+        ...parsed,
+        fileName: file?.name || '',
+        fileSize: file?.size || 0,
+        fileLastModified: file?.lastModified || 0,
+    };
+}
+
+function ocrCoincideConArchivoActual(ocr, file) {
+    if (!ocr || !file) return false;
+    return (
+        ocr.fileName === file.name &&
+        ocr.fileSize === file.size &&
+        ocr.fileLastModified === file.lastModified
+    );
+}
+
+function cfdiDesdeOcr(ocr) {
+    return {
+        uuid: ocr?.suggested_cfdi_uuid || null,
+        subtotal: null,
+        total: ocr?.extracted_total ?? null,
+        currency: 'MXN',
+        tax_amount: null,
+        tax_rate: null,
+        issued_at: ocr?.extracted_date || null,
+    };
+}
+
 function uuidYaExisteEnSolicitud(uuid) {
     if (!uuid) return false;
     return loadDraftGastos().some((gasto) => {
@@ -881,7 +1028,18 @@ function uuidYaExisteEnSolicitud(uuid) {
     });
 }
 
-function crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }) {
+function crearGastoParaValidacion({
+    categoria,
+    monto,
+    folio,
+    fecha,
+    observaciones,
+    cfdiParsed,
+    facturaFile,
+    valeFile,
+    facturaRequiereOcr = false,
+    ocrValidado = false,
+}) {
     return {
         id: `validacion-${Date.now()}`,
         nombre: `Gasto - ${categoria}`,
@@ -896,6 +1054,8 @@ function crearGastoParaValidacion({ categoria, monto, folio, fecha, observacione
         cfdiCurrency: cfdiParsed.currency,
         cfdiTaxAmount: numeroOculto(cfdiParsed.tax_amount),
         cfdiTaxRate: numeroOculto(cfdiParsed.tax_rate),
+        facturaRequiereOcr,
+        ocrValidado,
         facturaFile,
         valeFile,
     };
@@ -907,7 +1067,7 @@ function validarSolicitudDespuesDeAnadir(gastos) {
 
     const sinCfdiValido = activos.filter((gasto) => !gastoTieneCfdiValido(gasto));
     if (sinCfdiValido.length) {
-        errores.push(`Todos los gastos activos deben tener CFDI XML válido. Falta CFDI válido en ${sinCfdiValido.length} gasto(s).`);
+        errores.push(`Todos los gastos activos deben tener factura XML válida o PDF validado con OCR. Falta evidencia válida en ${sinCfdiValido.length} gasto(s).`);
     }
 
     const cfdisDuplicados = obtenerCfdisDuplicados(activos);
@@ -943,9 +1103,11 @@ function gastoTieneCfdiValido(gasto) {
     const uuid = cfdiUuidDesdeGasto(gasto);
     const total = cfdiTotalDesdeGasto(gasto);
     const moneda = String(gasto.cfdiCurrency || gasto.cfdi_currency || 'MXN').trim().toUpperCase();
-    const archivoXmlValido = gasto.facturaFile ? esXml(gasto.facturaFile) : Boolean(uuid && total !== null);
+    const archivoFacturaValida = gasto.facturaFile
+        ? esXml(gasto.facturaFile) || (esPdf(gasto.facturaFile) && Boolean(gasto.ocrValidado))
+        : Boolean(uuid && total !== null);
 
-    return Boolean(uuid) && total !== null && moneda === 'MXN' && archivoXmlValido;
+    return Boolean(uuid) && total !== null && moneda === 'MXN' && archivoFacturaValida;
 }
 
 function obtenerCfdisDuplicados(gastos) {

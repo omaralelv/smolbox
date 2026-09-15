@@ -1,3 +1,5 @@
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
 from uuid import UUID
 
@@ -13,6 +15,7 @@ from app.models.ocr_extraction import OcrExtraction, OcrExtractionStatus
 from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.attachment import AttachmentRead
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.ocr_preview import verify_ocr_preview_token
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
@@ -38,6 +41,7 @@ async def upload_attachment(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     attachment_type: Annotated[AttachmentType, Form()] = AttachmentType.receipt,
+    ocr_preview_token: Annotated[str | None, Form()] = None,
 ) -> Attachment:
     expense = db.get(Expense, expense_id)
     if expense is None:
@@ -92,6 +96,8 @@ async def upload_attachment(
             attachment,
             expense,
             content=content,
+            checksum_sha256=stored.checksum_sha256,
+            ocr_preview_token=ocr_preview_token,
             settings=settings,
             db=db,
         )
@@ -135,10 +141,27 @@ def _maybe_extract_attachment_ocr(
     expense: Expense,
     *,
     content: bytes,
+    checksum_sha256: str,
+    ocr_preview_token: str | None,
     settings: Settings,
     db: Session,
 ) -> None:
     if attachment.attachment_type not in OCR_ATTACHMENT_TYPES:
+        return
+
+    preview_result = _ocr_result_from_preview_token(
+        ocr_preview_token,
+        checksum_sha256=checksum_sha256,
+        settings=settings,
+    )
+    if preview_result is not None:
+        _store_ocr_extraction_result(
+            attachment,
+            expense,
+            result=preview_result,
+            message="OCR reused from validation preview.",
+            db=db,
+        )
         return
 
     service = TextractOcrService(settings)
@@ -172,6 +195,23 @@ def _maybe_extract_attachment_ocr(
     if result is None:
         return
 
+    _store_ocr_extraction_result(
+        attachment,
+        expense,
+        result=result,
+        message="OCR extracted with AWS Textract.",
+        db=db,
+    )
+
+
+def _store_ocr_extraction_result(
+    attachment: Attachment,
+    expense: Expense,
+    *,
+    result: TextractOcrResult,
+    message: str,
+    db: Session,
+) -> None:
     db.add(
         OcrExtraction(
             attachment_id=attachment.id,
@@ -189,10 +229,55 @@ def _maybe_extract_attachment_ocr(
     _add_ocr_audit_event(
         expense,
         action="expense_ocr_extracted",
-        message="OCR extracted with AWS Textract.",
+        message=message,
         payload=_ocr_audit_payload(result),
         db=db,
     )
+
+
+def _ocr_result_from_preview_token(
+    token: str | None,
+    *,
+    checksum_sha256: str,
+    settings: Settings,
+) -> TextractOcrResult | None:
+    payload = verify_ocr_preview_token(token, settings.auth_token_secret)
+    if payload is None or payload.get("checksum_sha256") != checksum_sha256:
+        return None
+
+    return TextractOcrResult(
+        raw_text="",
+        extracted_total=_decimal_from_payload(payload.get("extracted_total")),
+        extracted_date=_date_from_payload(payload.get("extracted_date")),
+        extracted_supplier=_string_or_none(payload.get("extracted_supplier")),
+        suggested_cfdi_uuid=_string_or_none(payload.get("suggested_cfdi_uuid")),
+        confidence=_decimal_from_payload(payload.get("confidence")),
+        raw_response={"source": "validated_ocr_preview"}
+        if settings.textract_store_raw_response
+        else None,
+    )
+
+
+def _decimal_from_payload(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+
+def _date_from_payload(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _string_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _add_ocr_audit_event(

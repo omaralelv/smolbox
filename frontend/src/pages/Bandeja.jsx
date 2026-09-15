@@ -277,7 +277,6 @@ function Bandeja({currentRole}) {
                     else if (currentRole === 'contabilidad' && queueStatus === 'taken_other') {
                         rowStyle = {
                             ...styles.row,
-                            backgroundColor: '#fcf3f3', // Gris suave opaco
                             backgroundColor: '#f1e9e9', // Gris suave opaco
                             borderColor: '#ceb8b8',
                             color: '#e7d8d8',

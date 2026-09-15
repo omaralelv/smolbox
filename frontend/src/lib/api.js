@@ -213,9 +213,12 @@ export async function executeRequestAction(requestId, action) {
     });
 }
 
-export async function uploadExpenseAttachment(expenseId, file, attachmentType = 'receipt') {
+export async function uploadExpenseAttachment(expenseId, file, attachmentType = 'receipt', options = {}) {
     const formData = new FormData();
     formData.append('attachment_type', attachmentType);
+    if (options.ocrPreviewToken) {
+        formData.append('ocr_preview_token', options.ocrPreviewToken);
+    }
     formData.append('file', file);
     return request(`/expenses/${expenseId}/attachments`, {
         method: 'POST',
@@ -227,6 +230,15 @@ export async function parseCfdi(file) {
     const formData = new FormData();
     formData.append('file', file);
     return request('/cfdi/parse', {
+        method: 'POST',
+        body: formData,
+    });
+}
+
+export async function previewInvoiceOcr(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/cfdi/ocr-preview', {
         method: 'POST',
         body: formData,
     });

@@ -78,6 +78,22 @@ def test_attachment_download_returns_file_or_404(
     assert missing.status_code == 404
 
 
+def test_accepts_supporting_document_attachment(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records)
+    uploaded = client.post(
+        f"/api/v1/expenses/{expense['id']}/attachments",
+        data={"attachment_type": "other"},
+        files={"file": ("vale.pdf", b"%PDF-1.4\nvale\n%%EOF", "application/pdf")},
+    )
+
+    assert uploaded.status_code == 201, uploaded.text
+    assert uploaded.json()["attachment_type"] == "other"
+    assert uploaded.json()["content_type"] == "application/pdf"
+
+
 def test_authenticated_attachment_download_requires_store_scope(
     client: TestClient,
     base_records: dict[str, str],

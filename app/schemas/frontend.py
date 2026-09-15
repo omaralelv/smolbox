@@ -66,6 +66,10 @@ class FrontendGastoRead(BaseModel):
     authorization_area_id: UUID | None = Field(default=None, alias="authorizationAreaId")
     authorization_area_name: str | None = Field(default=None, alias="authorizationArea")
     download_url: str | None = Field(default=None, alias="downloadUrl")
+    url_factura: str | None = Field(default=None, alias="urlFactura")
+    url_vale: str | None = Field(default=None, alias="urlVale")
+    url_recibo: str | None = Field(default=None, alias="urlRecibo")
+    url_gasto: str | None = Field(default=None, alias="urlGasto")
 
 
 class FrontendSolicitudRead(BaseModel):

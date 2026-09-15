@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -96,6 +97,78 @@ def test_summarize_reimbursement_request_blocks_submission_without_cfdi() -> Non
     assert summary.ready_for_submission is False
     assert summary.ready_for_authorization_approval is False
     assert summary.ready_for_accounting_approval is False
+
+
+def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice() -> None:
+    spent_on = date(2026, 9, 15)
+    pdf_invoice = SimpleNamespace(
+        id=uuid4(),
+        amount=Decimal("100.00"),
+        category="papeleria",
+        requires_authorization=False,
+        authorized_at=None,
+        removed_at=None,
+        status="draft",
+        spent_on=spent_on,
+        attachments=[
+            SimpleNamespace(
+                attachment_type=AttachmentType.receipt,
+                ocr_extraction=SimpleNamespace(
+                    status="succeeded",
+                    suggested_cfdi_uuid="12345678-abcd-1234-abcd-1234567890ab",
+                    extracted_total=Decimal("100.00"),
+                    extracted_date=spent_on,
+                ),
+            )
+        ],
+        cfdi_validations=[],
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[pdf_invoice],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
+
+
+def test_summarize_reimbursement_request_blocks_pdf_ocr_invoice_mismatch() -> None:
+    spent_on = date(2026, 9, 15)
+    pdf_invoice = SimpleNamespace(
+        id=uuid4(),
+        amount=Decimal("100.00"),
+        category="papeleria",
+        requires_authorization=False,
+        authorized_at=None,
+        removed_at=None,
+        status="draft",
+        spent_on=spent_on,
+        attachments=[
+            SimpleNamespace(
+                attachment_type=AttachmentType.receipt,
+                ocr_extraction=SimpleNamespace(
+                    status="succeeded",
+                    suggested_cfdi_uuid="12345678-abcd-1234-abcd-1234567890ab",
+                    extracted_total=Decimal("90.00"),
+                    extracted_date=spent_on,
+                ),
+            )
+        ],
+        cfdi_validations=[],
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[pdf_invoice],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.missing_cfdi_expense_ids == [pdf_invoice.id]
+    assert summary.ready_for_submission is False
 
 
 def test_summarize_reimbursement_request_allows_submission_without_receipt() -> None:

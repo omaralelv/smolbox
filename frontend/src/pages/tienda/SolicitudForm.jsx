@@ -469,8 +469,8 @@ function SolicitudForm({ currentRole }) {
                                 <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
                             </button>
                             {/* ICONO DE DOCUMENTO / COMPROBANTE */}
-                            <button style={styles.iconBtn} title="Ver Recibo" onClick={() => handleVerRecibo(gasto)}>
-                                <img src="/Recibo.png" alt="Recibo" style={styles.iconImg} />
+                            <button style={styles.iconBtn} title="Ver Gasto" onClick={() => handleVerRecibo(gasto)}>
+                                <img src="/Recibo.png" alt="Gasto" style={styles.iconImg} />
                             </button>
 
                             <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
@@ -547,7 +547,11 @@ async function subirArchivosPendientes(nuevaSolicitud, gastosOriginales) {
         if (!gastoBackend?.backendId) continue;
 
         if (gasto.valeFile) {
-            await uploadExpenseAttachment(gastoBackend.backendId, gasto.valeFile, 'receipt');
+            await uploadExpenseAttachment(gastoBackend.backendId, gasto.valeFile, 'other');
+        }
+
+        if (gasto.reciboFile) {
+            await uploadExpenseAttachment(gastoBackend.backendId, gasto.reciboFile, 'receipt');
         }
 
         if (gasto.facturaFile) {
@@ -557,7 +561,9 @@ async function subirArchivosPendientes(nuevaSolicitud, gastosOriginales) {
                     throw new Error(mensajeCfdiInvalido(gasto, resultado));
                 }
             } else {
-                await uploadExpenseAttachment(gastoBackend.backendId, gasto.facturaFile, 'other');
+                await uploadExpenseAttachment(gastoBackend.backendId, gasto.facturaFile, 'receipt', {
+                    ocrPreviewToken: gasto.ocrPreviewToken,
+                });
             }
         }
     }
@@ -596,13 +602,20 @@ async function validarCfdisAntesDeCrearSolicitud(gastos) {
 }
 
 function validarEvidenciaAntesDeEnviar(gastos) {
-    const sinCfdi = gastos.filter((gasto) => !gasto.facturaFile || !esXml(gasto.facturaFile));
+    const sinFactura = gastos.filter((gasto) => !gasto.facturaFile || (!esXml(gasto.facturaFile) && !esPdf(gasto.facturaFile)));
+    const pdfSinOcr = gastos.filter((gasto) => gasto.facturaFile && esPdf(gasto.facturaFile) && !gasto.ocrPreviewToken);
 
-    if (sinCfdi.length) {
+    if (sinFactura.length) {
         return [
-            'Antes de enviar, cada gasto debe tener CFDI XML.',
-            sinCfdi.length ? `Falta CFDI XML válido en ${sinCfdi.length} gasto(s).` : '',
+            'Antes de enviar, cada gasto debe tener factura XML o PDF.',
+            sinFactura.length ? `Falta factura XML o PDF en ${sinFactura.length} gasto(s).` : '',
         ].filter(Boolean).join('\n');
+    }
+    if (pdfSinOcr.length) {
+        return [
+            'Antes de enviar, cada factura PDF debe validarse con OCR.',
+            `Falta validar OCR en ${pdfSinOcr.length} gasto(s).`,
+        ].join('\n');
     }
     return null;
 }
@@ -611,6 +624,12 @@ function esXml(file) {
     const nombre = file?.name?.toLowerCase() || '';
     const tipo = file?.type?.toLowerCase() || '';
     return nombre.endsWith('.xml') || tipo.includes('xml');
+}
+
+function esPdf(file) {
+    const nombre = file?.name?.toLowerCase() || '';
+    const tipo = file?.type?.toLowerCase() || '';
+    return nombre.endsWith('.pdf') || tipo === 'application/pdf';
 }
 
 function mensajeCfdiInvalido(gasto, resultado) {
@@ -639,7 +658,7 @@ function valorFiscalOculto(value) {
 }
 
 function folioManual(folio) {
-    if (!folio || folio === '5FB2822E-396D-4725-8521-CDC4BDD20CCF') return null;
+    if (!folio || folio === 'OCR pendiente' || folio === '5FB2822E-396D-4725-8521-CDC4BDD20CCF') return null;
     return folio;
 }
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies.auth import get_current_user
 from app.db.session import get_db
-from app.models.attachment import AttachmentType
+from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense, ExpenseStatus
 from app.models.period import Period, PeriodStatus
@@ -472,7 +472,9 @@ def _request_detail_statement():
         selectinload(ReimbursementRequest.store),
         selectinload(ReimbursementRequest.period),
         selectinload(ReimbursementRequest.attachments),
-        selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
+        selectinload(ReimbursementRequest.expenses)
+        .selectinload(Expense.attachments)
+        .selectinload(Attachment.ocr_extraction),
         selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
         selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
         selectinload(ReimbursementRequest.payments),
@@ -564,7 +566,8 @@ def _frontend_visible_expenses(
 
 def _expense_payload(expense: Expense) -> FrontendGastoRead:
     category = expense.category or "Gasto General"
-    folio = expense.cfdi_uuid or "N/A"
+    folio = expense.cfdi_uuid or _suggested_cfdi_uuid_from_ocr(expense) or "N/A"
+    document_urls = _expense_document_urls(expense)
     return FrontendGastoRead(
         id=str(expense.id),
         backend_id=expense.id,
@@ -589,7 +592,15 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         authorization_area_name=(
             expense.authorization_area.name if expense.authorization_area else None
         ),
-        download_url=_first_receipt_download_url(expense),
+        download_url=(
+            document_urls["url_recibo"]
+            or document_urls["url_factura"]
+            or document_urls["url_vale"]
+        ),
+        url_factura=document_urls["url_factura"],
+        url_vale=document_urls["url_vale"],
+        url_recibo=document_urls["url_recibo"],
+        url_gasto=document_urls["url_recibo"],
     )
 
 
@@ -1049,21 +1060,109 @@ def _invoice_count(expense: Expense) -> int:
     xml_count = sum(1 for attachment in expense.attachments if attachment.attachment_type == AttachmentType.cfdi_xml)
     if xml_count:
         return xml_count
-    return 1 if expense.cfdi_uuid else 0
+    return 1 if expense.cfdi_uuid or _suggested_cfdi_uuid_from_ocr(expense) else 0
 
 
-def _first_receipt_download_url(expense: Expense) -> str | None:
-    receipt = next(
+def _suggested_cfdi_uuid_from_ocr(expense: Expense) -> str | None:
+    for attachment in sorted(expense.attachments, key=lambda item: item.uploaded_at):
+        extraction = attachment.ocr_extraction
+        if extraction is None:
+            continue
+        extraction_status = getattr(extraction.status, "value", extraction.status)
+        if extraction_status != "succeeded":
+            continue
+        if extraction.suggested_cfdi_uuid:
+            return extraction.suggested_cfdi_uuid.upper()
+    return None
+
+
+def _expense_document_urls(expense: Expense) -> dict[str, str | None]:
+    attachments = sorted(expense.attachments, key=lambda item: item.uploaded_at)
+    receipts = [
+        attachment
+        for attachment in attachments
+        if attachment.attachment_type == AttachmentType.receipt
+    ]
+    other_files = [
+        attachment
+        for attachment in attachments
+        if attachment.attachment_type == AttachmentType.other
+    ]
+
+    factura = _first_attachment(attachments, AttachmentType.cfdi_xml)
+    if factura is None:
+        factura = next((_ for _ in receipts if _looks_like_invoice(_)), None)
+
+    vale = next((_ for _ in other_files if _looks_like_vale(_)), None)
+    if vale is None:
+        vale = next((_ for _ in receipts if _looks_like_vale(_)), None)
+    if vale is None:
+        vale = other_files[0] if other_files else None
+
+    used_ids = {
+        attachment.id
+        for attachment in (factura, vale)
+        if attachment is not None
+    }
+    recibo = next(
         (
             attachment
-            for attachment in sorted(expense.attachments, key=lambda item: item.uploaded_at)
-            if attachment.attachment_type == AttachmentType.receipt
+            for attachment in receipts
+            if attachment.id not in used_ids and _looks_like_receipt(attachment)
         ),
         None,
     )
-    if receipt is None:
+    if recibo is None:
+        recibo = next(
+            (attachment for attachment in receipts if attachment.id not in used_ids),
+            None,
+        )
+
+    return {
+        "url_factura": _attachment_download_url(factura),
+        "url_vale": _attachment_download_url(vale),
+        "url_recibo": _attachment_download_url(recibo),
+    }
+
+
+def _first_attachment(
+    attachments: list[Attachment],
+    attachment_type: AttachmentType,
+) -> Attachment | None:
+    return next(
+        (
+            attachment
+            for attachment in attachments
+            if attachment.attachment_type == attachment_type
+        ),
+        None,
+    )
+
+
+def _attachment_download_url(attachment: Attachment | None) -> str | None:
+    if attachment is None:
         return None
-    return f"/api/v1/attachments/{receipt.id}/download/me"
+    return f"/api/v1/attachments/{attachment.id}/download/me"
+
+
+def _looks_like_invoice(attachment: Attachment) -> bool:
+    extraction = attachment.ocr_extraction
+    if extraction is not None and extraction.suggested_cfdi_uuid:
+        return True
+    return _filename_has_any(attachment, {"factura", "invoice", "cfdi", "xml"})
+
+
+def _looks_like_vale(attachment: Attachment) -> bool:
+    return _filename_has_any(attachment, {"vale"})
+
+
+def _looks_like_receipt(attachment: Attachment) -> bool:
+    return _filename_has_any(attachment, {"recibo", "ticket", "comprobante", "receipt"})
+
+
+def _filename_has_any(attachment: Attachment, terms: set[str]) -> bool:
+    filename = (attachment.filename or "").lower()
+    return any(term in filename for term in terms)
 
 
 def _money(value: Decimal) -> Decimal:

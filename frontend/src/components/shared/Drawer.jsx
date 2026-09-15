@@ -1,3 +1,7 @@
+import { useEffect, useState } from 'react';
+
+import { apiFileUrl, currentToken } from '../../lib/api';
+
 export default function Drawer({ 
     documentoActivo,      // 'factura' | 'vale' | null
     observacionesAbiertas, // true | false
@@ -10,20 +14,15 @@ export default function Drawer({
     onEnviarObservacion,   // Función al dar submit al comentario
     currentRole,
 }) {
-    // Si no hay nada abierto, no renderizamos nada
     if (!documentoActivo && !observacionesAbiertas) return null;
 
     const rolNormalizado = String(currentRole).toLowerCase().trim();
+    const documento = documentoActivo ? obtenerDocumento(gasto, documentoActivo) : null;
 
     const tituloDocumento =
         documentoActivo === 'factura' ? 'Factura' :
         documentoActivo === 'vale' ? 'Vale' :
-        documentoActivo === 'recibo' ? 'Recibo' : '';
-
-    const srcDocumento =
-        documentoActivo === 'factura' ? gasto?.urlFactura :
-        documentoActivo === 'vale' ? gasto?.urlVale :
-        documentoActivo === 'recibo' ? gasto?.urlRecibo : undefined;
+        documentoActivo === 'recibo' ? 'Gasto' : '';
 
 
     return (
@@ -40,10 +39,9 @@ export default function Drawer({
                     </div>
 
                     <div style={styles.documentoBody}>
-                        <iframe 
-                            src={srcDocumento} 
-                            title="Comprobante"
-                            style={styles.iframe}
+                        <DocumentoPreview
+                            key={documentoKey(documentoActivo, documento)}
+                            documento={documento}
                         />
                     </div>
                 </div>
@@ -113,6 +111,200 @@ export default function Drawer({
     );
 }
 
+function DocumentoPreview({ documento }) {
+    const [estado, setEstado] = useState(() => estadoInicialDocumento(documento));
+
+    useEffect(() => {
+        if (estado.revokeUrl) {
+            return () => URL.revokeObjectURL(estado.url);
+        }
+        if (estado.status !== 'protected') return undefined;
+
+        let cancelado = false;
+        let urlTemporal = null;
+        let urlEntregadaAlEstado = false;
+        const controller = new AbortController();
+
+        fetch(estado.fetchUrl, {
+            headers: {
+                Authorization: `Bearer ${estado.token}`,
+            },
+            signal: controller.signal,
+        })
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error('No se pudo abrir el archivo.');
+                }
+                return response.blob();
+            })
+            .then((blob) => {
+                if (cancelado) return;
+                urlTemporal = URL.createObjectURL(blob);
+                urlEntregadaAlEstado = true;
+                setEstado({
+                    status: 'ready',
+                    url: urlTemporal,
+                    error: '',
+                    revokeUrl: true,
+                });
+            })
+            .catch((error) => {
+                if (cancelado || error.name === 'AbortError') return;
+                setEstado({
+                    status: 'error',
+                    url: null,
+                    error: error.message || 'No se pudo abrir el archivo.',
+                    revokeUrl: false,
+                });
+            });
+
+        return () => {
+            cancelado = true;
+            controller.abort();
+            if (urlTemporal && !urlEntregadaAlEstado) {
+                URL.revokeObjectURL(urlTemporal);
+            }
+        };
+    }, [estado]);
+
+    if (estado.status === 'loading' || estado.status === 'protected') {
+        return <div style={styles.documentoMensaje}>Cargando archivo...</div>;
+    }
+    if (estado.error) {
+        return <div style={styles.documentoMensaje}>{estado.error}</div>;
+    }
+    if (!estado.url) {
+        return <div style={styles.documentoMensaje}>No hay archivo para mostrar.</div>;
+    }
+
+    return (
+        <iframe
+            src={estado.url}
+            title="Comprobante"
+            style={styles.iframe}
+        />
+    );
+}
+
+function estadoInicialDocumento(documento) {
+    if (!documento) {
+        return {
+            status: 'error',
+            url: null,
+            error: 'No hay archivo para mostrar.',
+            revokeUrl: false,
+        };
+    }
+
+    if (esArchivoLocal(documento)) {
+        return {
+            status: 'ready',
+            url: URL.createObjectURL(documento),
+            error: '',
+            revokeUrl: true,
+        };
+    }
+
+    const url = apiFileUrl(documento);
+    if (!url) {
+        return {
+            status: 'error',
+            url: null,
+            error: 'No hay archivo para mostrar.',
+            revokeUrl: false,
+        };
+    }
+
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+        return {
+            status: 'ready',
+            url,
+            error: '',
+            revokeUrl: false,
+        };
+    }
+
+    const token = currentToken();
+    if (!token) {
+        return {
+            status: 'error',
+            url: null,
+            error: 'Inicia sesión para ver este archivo.',
+            revokeUrl: false,
+        };
+    }
+
+    return {
+        status: 'protected',
+        url: null,
+        error: '',
+        revokeUrl: false,
+        fetchUrl: url,
+        token,
+    };
+}
+
+function documentoKey(tipoDocumento, documento) {
+    if (esArchivoLocal(documento)) {
+        return [
+            tipoDocumento,
+            documento.name,
+            documento.size,
+            documento.lastModified,
+        ].join(':');
+    }
+
+    return `${tipoDocumento || 'documento'}:${documento || 'sin-archivo'}`;
+}
+
+function obtenerDocumento(gasto, tipoDocumento) {
+    if (!gasto) return null;
+
+    if (tipoDocumento === 'factura') {
+        return primerValor(
+            gasto.facturaFile,
+            gasto.urlFactura,
+            gasto.facturaUrl,
+            gasto.url_factura,
+            gasto.downloadUrl,
+            gasto.download_url
+        );
+    }
+
+    if (tipoDocumento === 'vale') {
+        return primerValor(
+            gasto.valeFile,
+            gasto.urlVale,
+            gasto.valeUrl,
+            gasto.url_vale
+        );
+    }
+
+    if (tipoDocumento === 'recibo') {
+        return primerValor(
+            gasto.reciboFile,
+            gasto.urlRecibo,
+            gasto.reciboUrl,
+            gasto.urlGasto,
+            gasto.gastoUrl,
+            gasto.url_recibo,
+            gasto.url_gasto,
+            gasto.downloadUrl,
+            gasto.download_url
+        );
+    }
+
+    return null;
+}
+
+function primerValor(...valores) {
+    return valores.find((valor) => Boolean(valor)) || null;
+}
+
+function esArchivoLocal(valor) {
+    return typeof File !== 'undefined' && valor instanceof File;
+}
+
 const styles = {
     drawerWrapper: {
         display: 'flex',
@@ -166,6 +358,16 @@ const styles = {
     documentoBody: {
         flex: 1,
         backgroundColor: '#f9fafb',
+    },
+    documentoMensaje: {
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+        color: '#6b7280',
+        fontSize: '13px',
+        textAlign: 'center',
     },
     iframe: {
         width: '100%',

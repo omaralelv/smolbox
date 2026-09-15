@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -40,6 +40,16 @@ class CfdiUuidAvailability(BaseModel):
     is_available: bool
     existing_expense_id: UUID | None = None
     existing_validation_expense_id: UUID | None = None
+
+
+class InvoiceOcrPreviewResult(BaseModel):
+    suggested_cfdi_uuid: str | None = None
+    extracted_total: Decimal | None = None
+    extracted_date: date | None = None
+    extracted_supplier: str | None = None
+    confidence: Decimal | None = None
+    checksum_sha256: str
+    verification_token: str
 
 
 class CfdiValidationRead(BaseModel):
