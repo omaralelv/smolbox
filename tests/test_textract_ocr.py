@@ -50,6 +50,30 @@ def test_analyze_expense_suggests_cfdi_uuid_from_compact_ocr_text() -> None:
     assert result.suggested_cfdi_uuid == "11111111-2222-3333-4444-AAAAAAAAAAAA"
 
 
+def test_analyze_expense_suggests_cfdi_uuid_from_spaced_ocr_text() -> None:
+    result = _parse_analyze_expense_response(
+        {
+            "ExpenseDocuments": [
+                {
+                    "Blocks": [
+                        {
+                            "BlockType": "LINE",
+                            "Text": (
+                                "Folio Fiscal 11111111 2222 3333 4444 "
+                                "aaaaaaaaaaaa"
+                            ),
+                        }
+                    ],
+                    "SummaryFields": [],
+                }
+            ]
+        },
+        store_raw_response=False,
+    )
+
+    assert result.suggested_cfdi_uuid == "11111111-2222-3333-4444-AAAAAAAAAAAA"
+
+
 def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_settings) -> None:
     test_settings.textract_enabled = True
 

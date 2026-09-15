@@ -108,13 +108,13 @@ async def preview_invoice_ocr(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "TEXTRACT_DISABLED",
-                "message": "Textract is not enabled for OCR invoice validation.",
+                "message": "Textract no está activado para validar facturas PDF.",
             },
         )
     if not service.supports_content_type(content_type):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Textract OCR supports PDF, JPEG, and PNG files.",
+            detail="Textract OCR solo acepta PDF, JPEG y PNG.",
         )
 
     try:
@@ -134,7 +134,7 @@ async def preview_invoice_ocr(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "OCR_NOT_AVAILABLE",
-                "message": "OCR did not return an invoice result.",
+                "message": "OCR no pudo leer la factura PDF. Revisa que el archivo sea legible.",
             },
         )
 

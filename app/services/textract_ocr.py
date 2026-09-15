@@ -188,10 +188,37 @@ def _cfdi_uuid_from_text(value: str | None) -> str | None:
         return hyphenated_match.group(0).upper()
 
     compact_match = re.search(r"\b[0-9a-fA-F]{32}\b", normalized)
-    if not compact_match:
+    if compact_match:
+        return _format_compact_uuid(compact_match.group(0))
+
+    label_match = re.search(
+        r"(?:folio\s*fiscal|uuid|id\s*documento|timbre\s*fiscal)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if label_match:
+        nearby_text = normalized[label_match.end() : label_match.end() + 160]
+        nearby_uuid = _uuid_from_text_with_separators(nearby_text)
+        if nearby_uuid:
+            return nearby_uuid
+
+    return _uuid_from_text_with_separators(normalized)
+
+
+def _uuid_from_text_with_separators(value: str) -> str | None:
+    match = re.search(r"(?<![0-9a-fA-F])((?:[0-9a-fA-F][\s-]*){32})(?![0-9a-fA-F])", value)
+    if not match:
         return None
 
-    compact = compact_match.group(0).upper()
+    compact = re.sub(r"[^0-9a-fA-F]", "", match.group(1))
+    if len(compact) != 32:
+        return None
+
+    return _format_compact_uuid(compact)
+
+
+def _format_compact_uuid(value: str) -> str:
+    compact = value.upper()
     return "-".join(
         (
             compact[:8],
