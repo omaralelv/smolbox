@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
 
 RUN mkdir -p /data/uploads \
+    && sed -i 's/\r$//' /app/docker-entrypoint.sh \
     && chmod +x /app/docker-entrypoint.sh \
     && chown -R smolbox:smolbox /data/uploads /app
 
@@ -24,4 +25,4 @@ USER smolbox
 
 EXPOSE 8000
 
-CMD ["/app/docker-entrypoint.sh"]
+CMD ["sh", "/app/docker-entrypoint.sh"]
