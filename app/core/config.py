@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     cognito_app_client_id: str | None = None
     cognito_jwks_url: str | None = None
     cors_allowed_origins: list[str] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        #"http://localhost:5173",
+        http://10.5.1.16:5173,
     ]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
