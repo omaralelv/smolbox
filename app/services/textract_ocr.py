@@ -25,6 +25,7 @@ class TextractOcrResult:
     extracted_total: Decimal | None
     extracted_date: date | None
     extracted_supplier: str | None
+    suggested_cfdi_uuid: str | None
     confidence: Decimal | None
     raw_response: dict[str, Any] | None
 
@@ -99,6 +100,7 @@ def _parse_analyze_expense_response(
     extracted_date = _date_from_text(
         _first_summary_value(values_by_type, "INVOICE_RECEIPT_DATE", "DATE")
     )
+    suggested_cfdi_uuid = _cfdi_uuid_from_text(raw_text)
     confidence = _average_confidence(summary_fields)
 
     return TextractOcrResult(
@@ -106,6 +108,7 @@ def _parse_analyze_expense_response(
         extracted_total=total,
         extracted_date=extracted_date,
         extracted_supplier=supplier,
+        suggested_cfdi_uuid=suggested_cfdi_uuid,
         confidence=confidence,
         raw_response=response if store_raw_response else None,
     )
@@ -170,6 +173,34 @@ def _date_from_text(value: str | None) -> date | None:
 
     first, second, year = (int(part) for part in short_match.groups())
     return _safe_date(year, second, first) or _safe_date(year, first, second)
+
+
+def _cfdi_uuid_from_text(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    normalized = re.sub(r"\s*-\s*", "-", value)
+    hyphenated_match = re.search(
+        r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
+        normalized,
+    )
+    if hyphenated_match:
+        return hyphenated_match.group(0).upper()
+
+    compact_match = re.search(r"\b[0-9a-fA-F]{32}\b", normalized)
+    if not compact_match:
+        return None
+
+    compact = compact_match.group(0).upper()
+    return "-".join(
+        (
+            compact[:8],
+            compact[8:12],
+            compact[12:16],
+            compact[16:20],
+            compact[20:],
+        )
+    )
 
 
 def _safe_date(year: int, month: int, day: int) -> date | None:

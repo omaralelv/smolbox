@@ -181,6 +181,7 @@ def _maybe_extract_attachment_ocr(
             extracted_total=result.extracted_total,
             extracted_date=result.extracted_date,
             extracted_supplier=result.extracted_supplier,
+            suggested_cfdi_uuid=result.suggested_cfdi_uuid,
             confidence=result.confidence,
             raw_response=result.raw_response,
         )
@@ -222,5 +223,6 @@ def _ocr_audit_payload(result: TextractOcrResult) -> dict[str, object]:
         "extracted_total": str(result.extracted_total) if result.extracted_total else None,
         "extracted_date": result.extracted_date.isoformat() if result.extracted_date else None,
         "extracted_supplier": result.extracted_supplier,
+        "suggested_cfdi_uuid": result.suggested_cfdi_uuid,
         "confidence": str(result.confidence) if result.confidence else None,
     }
