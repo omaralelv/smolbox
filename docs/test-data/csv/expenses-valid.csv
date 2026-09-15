@@ -1,0 +1,5 @@
+proveedor,importe,fecha,categoria,descripcion,rfc_proveedor,moneda,requiere_autorizacion
+Papeleria Centro SA,830.25,2026-08-05,papeleria,Material de oficina,PCA9601011A1,MXN,false
+Limpieza Express,1000.00,2026-08-12,limpieza,Insumos de limpieza,LEX920101QW1,MXN,false
+Servicio Tecnico Local,620.00,2026-08-14,mantenimiento,Revision basica de equipo,STL010101EE1,MXN,false
+
