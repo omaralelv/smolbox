@@ -35,6 +35,7 @@ def user_can_transition_store_request(db: Session, user: User, store_id: UUID) -
     }
     if user.role in {
         UserRole.accountant,
+        UserRole.accounting_manager,
         UserRole.treasury,
         UserRole.director,
         UserRole.admin,

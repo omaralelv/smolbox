@@ -57,6 +57,14 @@ ROLE_QUEUE_STATUSES: dict[UserRole, set[ReimbursementRequestStatus]] = {
 }
 
 
+GLOBAL_QUEUE_ROLES = {
+    UserRole.accountant,
+    UserRole.accounting_manager,
+    UserRole.treasury,
+    UserRole.director,
+}
+
+
 @router.get("/me", response_model=list[ReimbursementRequestQueueItemRead])
 def list_my_work_queue(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -101,11 +109,7 @@ def _scope_to_assigned_stores(
     statement: Select[tuple[ReimbursementRequest]],
     current_user: User,
 ) -> Select[tuple[ReimbursementRequest]]:
-    if current_user.role in {
-        UserRole.accountant,
-        UserRole.treasury,
-        UserRole.director,
-    }:
+    if current_user.role in GLOBAL_QUEUE_ROLES:
         return statement
 
     return statement.where(

@@ -1,5 +1,14 @@
+from datetime import date
+from decimal import Decimal
+from uuid import UUID
+
 from conftest import create_expense
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.store_reimbursement_opening_cutoff import (
+    StoreReimbursementOpeningCutoff,
+)
 
 
 def test_frontend_context_and_bandeja_use_ui_shape(
@@ -112,7 +121,90 @@ def test_unassigned_accountant_can_see_and_start_global_accounting_queue(
     assert review.json()["status"] == "under_accounting_review"
 
 
-def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> None:
+def test_unassigned_accounting_manager_can_see_global_post_accounting_queue(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    store_user_id = _create_user(client, "store", "frontend.global.manager.store@example.com")
+    accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.global.manager.accountant@example.com",
+    )
+    manager_email = "frontend.global.manager@example.com"
+    _create_user(client, "accounting_manager", manager_email)
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    reviewed = _transition(
+        client,
+        base_records["request_id"],
+        "under_accounting_review",
+        accountant_user_id,
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    reviewed = _transition(
+        client,
+        base_records["request_id"],
+        "accounting_reviewed",
+        accountant_user_id,
+    )
+    assert reviewed.status_code == 200, reviewed.text
+
+    accountant_headers = _auth_headers(client, "frontend.global.manager.accountant@example.com")
+    sap_policy = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/sap-policy/prepare/me",
+        headers=accountant_headers,
+        json={"reference": "SAP-GLOBAL-MANAGER"},
+    )
+    assert sap_policy.status_code == 200, sap_policy.text
+
+    sent_to_manager = _transition(
+        client,
+        base_records["request_id"],
+        "accounting_manager_review",
+        accountant_user_id,
+    )
+    assert sent_to_manager.status_code == 200, sent_to_manager.text
+
+    manager_headers = _auth_headers(client, manager_email)
+    manager_queue = client.get("/api/v1/frontend/bandeja/me", headers=manager_headers)
+    assert manager_queue.status_code == 200, manager_queue.text
+    assert [item["backendId"] for item in manager_queue.json()] == [
+        base_records["request_id"]
+    ]
+
+    manager_api_queue = client.get("/api/v1/work-queue/me", headers=manager_headers)
+    assert manager_api_queue.status_code == 200, manager_api_queue.text
+    assert [item["id"] for item in manager_api_queue.json()] == [
+        base_records["request_id"]
+    ]
+
+    manager_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=manager_headers,
+    )
+    assert manager_detail.status_code == 200, manager_detail.text
+    assert manager_detail.json()["availableActions"] == [
+        "approve_accounting_manager",
+        "return_to_accounting",
+        "reject_request",
+    ]
+
+
+def test_frontend_can_create_request_and_lookup_by_folio(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
     user = client.post(
         "/api/v1/users/",
         json={
@@ -139,6 +231,7 @@ def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> 
         json={"user_id": user.json()["id"], "role": "store"},
     )
     assert assignment.status_code == 201, assignment.text
+    _create_opening_cutoff(session_factory, store.json()["id"])
     period = client.post(
         "/api/v1/periods/",
         json={
@@ -199,6 +292,7 @@ def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> 
 def test_frontend_taxi_expense_routes_request_to_authorization(
     client: TestClient,
     base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
 ) -> None:
     store_user_id = _create_user(client, "store", "frontend.taxi.store@example.com")
     authorizer_user_id = _create_user(
@@ -214,6 +308,7 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
     _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
     _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _create_opening_cutoff(session_factory, base_records["store_id"])
 
     store_headers = _auth_headers(client, "frontend.taxi.store@example.com")
     created = client.post(
@@ -709,6 +804,23 @@ def _assign_user_to_store(client: TestClient, store_id: str, user_id: str, role:
         json={"user_id": user_id, "role": role},
     )
     assert response.status_code == 201, response.text
+
+
+def _create_opening_cutoff(
+    session_factory: sessionmaker[Session],
+    store_id: str,
+) -> None:
+    with session_factory() as db:
+        db.add(
+            StoreReimbursementOpeningCutoff(
+                store_id=UUID(store_id),
+                starts_on=date(2026, 7, 1),
+                ends_on=date(2026, 7, 31),
+                reimbursed_amount=Decimal("0.00"),
+                notes="Corte inicial de prueba",
+            )
+        )
+        db.commit()
 
 
 def _transition(

@@ -117,6 +117,12 @@ HISTORICAL_STATUSES = {
     ReimbursementRequestStatus.rejected,
 }
 
+GLOBAL_POST_ACCOUNTING_ROLES = {
+    UserRole.accounting_manager,
+    UserRole.treasury,
+    UserRole.director,
+}
+
 ACTION_LABELS = {
     "edit_request": "Editar solicitud",
     "add_expense": "Añadir gasto",
@@ -212,8 +218,7 @@ def list_frontend_work_queue(
     statement = statement.where(ReimbursementRequest.status.in_(statuses))
     if current_user.role not in {
         UserRole.accountant,
-        UserRole.treasury,
-        UserRole.director,
+        *GLOBAL_POST_ACCOUNTING_ROLES,
     }:
         statement = statement.where(
             ReimbursementRequest.store_id.in_(
@@ -243,7 +248,7 @@ def list_frontend_historical_requests(
         .where(ReimbursementRequest.status.in_(HISTORICAL_STATUSES))
         .order_by(ReimbursementRequest.created_at.desc())
     )
-    if current_user.role not in {UserRole.treasury, UserRole.director, UserRole.admin}:
+    if current_user.role not in {*GLOBAL_POST_ACCOUNTING_ROLES, UserRole.admin}:
         statement = statement.where(
             ReimbursementRequest.store_id.in_(
                 select(StoreUserAssignment.store_id).where(
