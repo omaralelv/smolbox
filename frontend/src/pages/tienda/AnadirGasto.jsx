@@ -1431,11 +1431,11 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     }
 
     if (!fechaGasto) {
-        errores.push('- No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
+        advertencias.push('- No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
     } else if (!fechaOcr) {
-        errores.push('- El OCR no encontró fecha en el PDF para comparar.');
+        advertencias.push('- El OCR no encontró fecha en el PDF para comparar.');
     } else if (fechaOcr !== fechaGasto) {
-        errores.push(`- La fecha del PDF (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
+        advertencias.push(`- La fecha del PDF (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
     }
 
     if (uuidParaGuardar) {
