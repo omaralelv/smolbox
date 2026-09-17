@@ -1,6 +1,8 @@
 const DRAFT_GASTOS_KEY = 'listaGastosSmolbox';
+const DRAFT_REQUEST_KEY = 'solicitudBorradorBackendSmolbox';
 
 let draftGastos = null;
+let draftRequest = null;
 
 export function loadDraftGastos() {
     if (draftGastos) return draftGastos;
@@ -26,6 +28,12 @@ export function addDraftGasto(gasto) {
     return draftGastos;
 }
 
+export function replaceDraftGastos(gastos) {
+    draftGastos = Array.isArray(gastos) ? [...gastos] : [];
+    persistDraftMetadata();
+    return draftGastos;
+}
+
 export function updateDraftGasto(gastoId, updater) {
     const gastos = loadDraftGastos();
     draftGastos = gastos.map((item) => {
@@ -42,6 +50,34 @@ export function clearDraftGastos() {
     draftGastos = [];
     localStorage.removeItem(DRAFT_GASTOS_KEY);
     localStorage.removeItem('pendienteGasto');
+    clearDraftRequest();
+}
+
+export function loadDraftRequest() {
+    if (draftRequest) return draftRequest;
+
+    const guardado = localStorage.getItem(DRAFT_REQUEST_KEY);
+    draftRequest = guardado ? JSON.parse(guardado) : null;
+    return draftRequest;
+}
+
+export function saveDraftRequest(solicitud) {
+    const backendId = solicitud?.backendId || solicitud?.backend_id;
+    if (!backendId) return null;
+
+    draftRequest = {
+        backendId: String(backendId),
+        id: solicitud.id || null,
+        folio: solicitud.folio || solicitud.id || null,
+        savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(DRAFT_REQUEST_KEY, JSON.stringify(draftRequest));
+    return draftRequest;
+}
+
+export function clearDraftRequest() {
+    draftRequest = null;
+    localStorage.removeItem(DRAFT_REQUEST_KEY);
 }
 
 function persistDraftMetadata() {
@@ -52,5 +88,6 @@ function sinArchivos(gasto) {
     const copia = { ...gasto };
     delete copia.facturaFile;
     delete copia.valeFile;
+    delete copia.reciboFile;
     return copia;
 }

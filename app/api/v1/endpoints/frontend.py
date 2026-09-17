@@ -445,6 +445,9 @@ def add_frontend_expense(
     expense = _expense_from_frontend(expense_in, request=request, period=request.period, db=db)
     db.add(expense)
     db.flush()
+    request.reported_total = _money(
+        (request.reported_total or Decimal("0.00")) + expense.amount
+    )
     _add_frontend_observation_events(
         expense_in,
         request=request,

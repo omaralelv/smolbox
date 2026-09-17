@@ -18,7 +18,14 @@ import {
     validateExpenseCfdi,
 } from '../../lib/api';
 
-import { clearDraftGastos, loadDraftGastos, updateDraftGasto } from '../../lib/draftSolicitud';
+import {
+    clearDraftGastos,
+    loadDraftGastos,
+    loadDraftRequest,
+    replaceDraftGastos,
+    saveDraftRequest,
+    updateDraftGasto,
+} from '../../lib/draftSolicitud';
 
 const DATOS_INICIALES = {
     fecha: new Date().toLocaleDateString('es-MX', {
@@ -208,12 +215,16 @@ function SolicitudForm({ currentRole }) {
     };
 
     const handleEnviarSolicitud = async () => {
-        if (gastos.length === 0) {
+        const borradorBackend = loadDraftRequest();
+
+        if (gastos.length === 0 && !borradorBackend?.backendId) {
             alert("Debes añadir al menos un gasto antes de enviar.");
             return;
         }
 
-        const errorEvidencia = validarEvidenciaAntesDeEnviar(gastos);
+        const errorEvidencia = borradorBackend?.backendId
+            ? null
+            : validarEvidenciaAntesDeEnviar(gastos);
         if (errorEvidencia) {
             alert(errorEvidencia);
             return;
@@ -222,6 +233,23 @@ function SolicitudForm({ currentRole }) {
         setEnviando(true);
 
         try {
+            if (borradorBackend?.backendId) {
+                const solicitudBorrador = await getFrontendSolicitud(borradorBackend.backendId);
+                if (!solicitudBorrador.gastos?.length) {
+                    throw new Error('El borrador no tiene gastos guardados.');
+                }
+
+                await executeRequestAction(solicitudBorrador.backendId, 'submit_request');
+                const solicitudActualizada = await getFrontendSolicitud(solicitudBorrador.backendId);
+
+                clearDraftGastos();
+                localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitudActualizada]));
+
+                alert(`¡Solicitud ${solicitudActualizada.id} enviada con éxito!`);
+                navigate('/bandeja', { state: { solicitud: solicitudActualizada } });
+                return;
+            }
+
             await validarCfdisAntesDeCrearSolicitud(gastos);
 
             const nuevaSolicitud = await createFrontendSolicitud({
@@ -266,6 +294,42 @@ function SolicitudForm({ currentRole }) {
         }
 
     };
+
+
+    useEffect(() => {
+        if (solicitudBackendId || !currentToken()) return undefined;
+
+        const borradorBackend = loadDraftRequest();
+        if (!borradorBackend?.backendId) return undefined;
+
+        let activo = true;
+
+        getFrontendSolicitud(borradorBackend.backendId)
+            .then((solicitud) => {
+                if (!activo) return;
+
+                const backendStatus = solicitud.backendStatus || solicitud.backend_status;
+                if (!['draft', 'correction_required'].includes(backendStatus)) {
+                    clearDraftGastos();
+                    setGastos([]);
+                    setHistorial([]);
+                    return;
+                }
+
+                const gastosBackend = solicitud.gastos || [];
+                saveDraftRequest(solicitud);
+                replaceDraftGastos(gastosBackend);
+                setGastos(gastosBackend);
+                setHistorial(historialBorradorDesdeGastos(gastosBackend));
+            })
+            .catch((error) => {
+                console.error('No se pudo restaurar el borrador guardado', error);
+            });
+
+        return () => {
+            activo = false;
+        };
+    }, [solicitudBackendId]);
 
 
     useEffect(() => {
@@ -315,10 +379,10 @@ function SolicitudForm({ currentRole }) {
     }, [solicitudBackendId, gastosDesglosados]);
     
     
-    const refrescarHistorialBackend = async () => {
-        if (!solicitudBackendId) return;
+    const refrescarHistorialBackend = async (requestId = solicitudBackendId) => {
+        if (!requestId) return;
 
-        const eventos = await getRequestAuditEvents(solicitudBackendId);
+        const eventos = await getRequestAuditEvents(requestId);
         const obsIniciales = (gastosDesglosados || [])
             .map(observacionInicialDesdeGasto)
             .filter(Boolean);
@@ -355,7 +419,9 @@ function SolicitudForm({ currentRole }) {
         if (!textoObservacion || !gastoSeleccionado) return;
 
         const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
-        if (solicitudBackendId && (!expenseId || typeof expenseId !== 'string')) {
+        const draftBackendId = loadDraftRequest()?.backendId || null;
+        const requestIdParaObservacion = solicitudBackendId || draftBackendId;
+        if (requestIdParaObservacion && (!expenseId || typeof expenseId !== 'string')) {
             alert('Este gasto no tiene ID de backend para guardar la observación.');
             return;
         }
@@ -366,9 +432,9 @@ function SolicitudForm({ currentRole }) {
         console.log("➡️ 1. Intentando añadir nueva observación:", nueva);
 
         try {
-            if (solicitudBackendId) {
+            if (requestIdParaObservacion) {
                 await addExpenseObservation(expenseId, textoObservacion);
-                await refrescarHistorialBackend();
+                await refrescarHistorialBackend(requestIdParaObservacion);
             } else {
                 // 2. ACTUALIZAMOS EL OBJETO GASTO EN 'gastos'
                 // Concatenamos las observaciones para que al enviar la solicitud no se pierdan

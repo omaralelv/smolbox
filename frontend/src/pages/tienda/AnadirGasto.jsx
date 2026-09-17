@@ -1,8 +1,18 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { apiErrorMessage, checkCfdiUuidAvailability, parseCfdi, previewInvoiceOcr } from '../../lib/api';
-import { addDraftGasto, loadDraftGastos } from '../../lib/draftSolicitud';
+import {
+    addFrontendGasto,
+    apiErrorMessage,
+    checkCfdiUuidAvailability,
+    createFrontendSolicitud,
+    getFrontendContext,
+    parseCfdi,
+    previewInvoiceOcr,
+    uploadExpenseAttachment,
+    validateExpenseCfdi,
+} from '../../lib/api';
+import { addDraftGasto, loadDraftGastos, loadDraftRequest, saveDraftRequest } from '../../lib/draftSolicitud';
 
 function AnadirGasto() {
     const navigate = useNavigate();
@@ -161,6 +171,7 @@ function AnadirGasto() {
     // Estados para simular la IA de Validación Automática
     const [estadoValidacion, setEstadoValidacion] = useState(null); // 'listo', 'advertencia', 'error', 'legibilidad'
     const [cargandoValidacion, setCargandoValidacion] = useState(false);
+    const [guardandoGasto, setGuardandoGasto] = useState(false);
 
     // Menú desplegable unificado para no perder coherencia
     const categoriasGasto = ["Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil", 
@@ -260,6 +271,7 @@ function AnadirGasto() {
 
     const handleGuardarGasto = async (e) => {
         e.preventDefault();
+        if (guardandoGasto) return;
 
         const errorCfdi = validarCfdiXmlRequerido(facturaFile);
         if (errorCfdi) {
@@ -337,6 +349,7 @@ function AnadirGasto() {
                 : 'N/A',
             fecha: fecha,
             areaAutoriza: esTransporte ? areaAutoriza : null, // Guardamos la selección si aplica
+            requiresAuthorization: esTransporte,
 
             observaciones: observaciones,
             
@@ -370,12 +383,34 @@ function AnadirGasto() {
             }
         }
 
-        alert(mensajeConAdvertencias("¡Gasto guardado exitosamente en la solicitud!", advertencias));
-        addDraftGasto(nuevoGastoItem);
-        //console.log("📦 OBJETO ENVIADO DESDE AÑADIR GASTO:", nuevoGastoItem);
-        
-        // 2. Pasamos el objeto dentro de la propiedad 'state' al regresar
-        navigate('/solicitud/nueva');
+        setGuardandoGasto(true);
+
+        try {
+            const { solicitud, gastoBackend } = await guardarGastoEnBorradorBackend(nuevoGastoItem);
+            const gastoGuardado = {
+                ...nuevoGastoItem,
+                id: gastoBackend.id || nuevoGastoItem.id,
+                backendId: gastoBackend.backendId,
+                folio: gastoBackend.folio || nuevoGastoItem.folio,
+                urlFactura: gastoBackend.urlFactura || null,
+                urlVale: gastoBackend.urlVale || null,
+                urlRecibo: gastoBackend.urlRecibo || null,
+                facturas: gastoBackend.facturas,
+                documentoGuardadoEnBackend: true,
+            };
+
+            saveDraftRequest(solicitud);
+            addDraftGasto(gastoGuardado);
+            alert(mensajeConAdvertencias("¡Gasto guardado exitosamente en la solicitud!", advertencias));
+            navigate('/solicitud/nueva');
+        } catch (error) {
+            const mensaje = apiErrorMessage(error);
+            setEstadoValidacion('error');
+            setMensajeValidacion(mensaje);
+            alert(mensaje);
+        } finally {
+            setGuardandoGasto(false);
+        }
 
     };
 
@@ -681,16 +716,24 @@ function AnadirGasto() {
             <button
                 style={{
                     ...styles.validarActionBtn,
-                    opacity: cargandoValidacion ? 0.6 : 1,
-                    cursor: cargandoValidacion ? 'not-allowed' : 'pointer',
+                    opacity: cargandoValidacion || guardandoGasto ? 0.6 : 1,
+                    cursor: cargandoValidacion || guardandoGasto ? 'not-allowed' : 'pointer',
                 }}
                 onClick={handleValidarGasto}
-                disabled={cargandoValidacion}
+                disabled={cargandoValidacion || guardandoGasto}
             >
             Validar Gasto
             </button>            
-            <button style={styles.añadirActionBtn} onClick={handleGuardarGasto}>
-            Añadir
+            <button
+                style={{
+                    ...styles.añadirActionBtn,
+                    opacity: guardandoGasto ? 0.6 : 1,
+                    cursor: guardandoGasto ? 'not-allowed' : 'pointer',
+                }}
+                onClick={handleGuardarGasto}
+                disabled={guardandoGasto}
+            >
+            {guardandoGasto ? 'Guardando...' : 'Añadir'}
             </button>
         </div>
 
@@ -1020,6 +1063,119 @@ function AnadirGasto() {
 };
 
 export default AnadirGasto;
+
+async function guardarGastoEnBorradorBackend(gasto) {
+    const gastosPrevios = loadDraftGastos();
+    const gastosPreviosBackendIds = new Set(
+        gastosPrevios
+            .map((item) => item.backendId || item.backend_id)
+            .filter(Boolean)
+            .map(String)
+    );
+    const payloadGasto = gastoPayloadParaBackend(gasto);
+    const borradorActual = loadDraftRequest();
+    let solicitud;
+
+    if (borradorActual?.backendId) {
+        solicitud = await addFrontendGasto(borradorActual.backendId, payloadGasto);
+    } else {
+        const contexto = await getFrontendContext();
+        solicitud = await createFrontendSolicitud({
+            tienda: contexto.tienda,
+            montoTotal: String(gasto.monto || 0),
+            gastos: [payloadGasto],
+        });
+    }
+
+    const gastoBackend = gastoAgregadoDesdeRespuesta(solicitud, gastosPreviosBackendIds, gasto);
+    if (!gastoBackend?.backendId) {
+        throw new Error('No se pudo identificar el gasto guardado en el servidor.');
+    }
+
+    await subirDocumentoGastoBackend(gastoBackend.backendId, gasto);
+    return { solicitud, gastoBackend };
+}
+
+function gastoPayloadParaBackend(gasto) {
+    return {
+        fecha: gasto.fecha,
+        categoria: gasto.tipo || gasto.type,
+        monto: String(gasto.monto),
+        folio: folioManualLocal(gasto.folio),
+        cfdiUuid: gasto.cfdiUuid || null,
+        cfdiSubtotal: numeroOculto(gasto.cfdiSubtotal),
+        cfdiTotal: numeroOculto(gasto.cfdiTotal),
+        cfdiTaxAmount: numeroOculto(gasto.cfdiTaxAmount),
+        cfdiTaxRate: numeroOculto(gasto.cfdiTaxRate),
+        cfdiCurrency: gasto.cfdiCurrency || null,
+        observaciones: gasto.observaciones || null,
+        observacionesHistorial: [],
+        requiresAuthorization: Boolean(gasto.requiresAuthorization || gasto.areaAutoriza),
+        authorizationArea: gasto.areaAutoriza || gasto.authorizationArea || null,
+    };
+}
+
+function gastoAgregadoDesdeRespuesta(solicitud, gastosPreviosBackendIds, gastoLocal) {
+    const gastos = solicitud?.gastos || [];
+    const nuevos = gastos.filter(
+        (gasto) => !gastosPreviosBackendIds.has(String(gasto.backendId || gasto.backend_id || gasto.id))
+    );
+    const candidatos = nuevos.length ? nuevos : gastos;
+    const folioLocal = normalizarUuidLocal(gastoLocal?.folio);
+    const tipoLocal = String(gastoLocal?.tipo || gastoLocal?.type || '').trim().toLowerCase();
+    const montoLocal = redondearMonto(gastoLocal?.monto);
+
+    return (
+        candidatos.find((gasto) => (
+            redondearMonto(gasto.monto) === montoLocal
+            && String(gasto.tipo || gasto.type || '').trim().toLowerCase() === tipoLocal
+            && (!folioLocal || normalizarUuidLocal(gasto.folio || gasto.folioFiscal || gasto.folio_fiscal) === folioLocal)
+        ))
+        || nuevos[0]
+        || gastos[gastos.length - 1]
+        || null
+    );
+}
+
+async function subirDocumentoGastoBackend(expenseId, gasto) {
+    if (gasto.valeFile) {
+        await uploadExpenseAttachment(expenseId, gasto.valeFile, 'other');
+    }
+
+    if (gasto.reciboFile) {
+        await uploadExpenseAttachment(expenseId, gasto.reciboFile, 'receipt');
+    }
+
+    if (!gasto.facturaFile) return;
+
+    if (esXml(gasto.facturaFile)) {
+        const resultado = await validateExpenseCfdi(expenseId, gasto.facturaFile);
+        if (!resultado.is_valid) {
+            throw new Error(mensajeCfdiBackendInvalido(gasto, resultado));
+        }
+        return;
+    }
+
+    await uploadExpenseAttachment(expenseId, gasto.facturaFile, 'receipt', {
+        ocrPreviewToken: gasto.ocrPreviewToken,
+    });
+}
+
+function mensajeCfdiBackendInvalido(gasto, resultado) {
+    const errores = (resultado.issues || [])
+        .filter((issue) => issue.severity !== 'warning')
+        .map((issue) => issue.message);
+
+    return [
+        `El CFDI XML del gasto "${gasto.nombre}" no es válido.`,
+        errores.length ? errores.join('\n') : 'Revisa que el total, moneda, UUID y RFC coincidan.',
+    ].join('\n');
+}
+
+function folioManualLocal(folio) {
+    if (!folio || folio === 'OCR pendiente' || folio === 'N/A') return null;
+    return folio;
+}
 
 function validarCfdiXmlRequerido(file) {
     if (!file) {
