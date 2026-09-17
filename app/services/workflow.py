@@ -314,18 +314,20 @@ def _sync_accounting_queue_status(
             if not summary.missing_authorization_expense_ids
             else None
         )
+        request.accounting_queue_taken_by_user_id = None
         return
 
     if target_status == ReimbursementRequestStatus.authorized:
         request.accounting_queue_status = AccountingQueueStatus.single
+        request.accounting_queue_taken_by_user_id = None
         return
 
     if target_status == ReimbursementRequestStatus.under_accounting_review:
-        request.accounting_queue_status = (
-            AccountingQueueStatus.single
-            if from_status == ReimbursementRequestStatus.accounting_manager_review
-            else AccountingQueueStatus.taken
-        )
+        if from_status == ReimbursementRequestStatus.accounting_manager_review:
+            request.accounting_queue_status = AccountingQueueStatus.single
+            request.accounting_queue_taken_by_user_id = None
+        else:
+            request.accounting_queue_status = AccountingQueueStatus.taken
         return
 
     if target_status in {
@@ -343,6 +345,7 @@ def _sync_accounting_queue_status(
         ReimbursementRequestStatus.rejected,
     }:
         request.accounting_queue_status = None
+        request.accounting_queue_taken_by_user_id = None
 
 
 def _review_roles_for_status(status: ReimbursementRequestStatus) -> set[UserRole]:

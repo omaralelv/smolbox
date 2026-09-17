@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from app.models.payment import Payment
     from app.models.period import Period
     from app.models.store import Store
+    from app.models.user import User
 
 
 class ReimbursementRequestStatus(str, enum.Enum):
@@ -142,6 +143,12 @@ class ReimbursementRequest(Base):
         Enum(AccountingQueueStatus, name="accounting_queue_status"),
         nullable=True,
     )
+    accounting_queue_taken_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     store: Mapped[Store] = relationship(back_populates="reimbursement_requests")
 
@@ -167,4 +174,8 @@ class ReimbursementRequest(Base):
     payments: Mapped[list[Payment]] = relationship(
         back_populates="reimbursement_request",
         cascade="all, delete-orphan",
+    )
+    accounting_queue_taken_by: Mapped[User | None] = relationship(
+        "User",
+        foreign_keys=[accounting_queue_taken_by_user_id],
     )

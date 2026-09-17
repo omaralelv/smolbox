@@ -21,6 +21,7 @@ def mark_accounting_request_taken_on_open(
         return False
 
     request.accounting_queue_status = AccountingQueueStatus.taken
+    request.accounting_queue_taken_by_user_id = actor.id
     return True
 
 

@@ -616,8 +616,19 @@ def test_accounting_queue_status_is_single_until_accountant_opens_request(
         "accountant",
         "frontend.single.accountant@example.com",
     )
+    second_accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.single.second.accountant@example.com",
+    )
     _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
     _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
+    _assign_user_to_store(
+        client,
+        base_records["store_id"],
+        second_accountant_user_id,
+        "accountant",
+    )
 
     submitted = _transition(
         client,
@@ -642,6 +653,25 @@ def test_accounting_queue_status_is_single_until_accountant_opens_request(
     assert detail.status_code == 200, detail.text
     assert detail.json()["backendStatus"] == "submitted"
     assert detail.json()["accountingQueueStatus"] == "taken"
+
+    second_accountant_headers = _auth_headers(
+        client,
+        "frontend.single.second.accountant@example.com",
+    )
+    second_accountant_queue = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=second_accountant_headers,
+    )
+    assert second_accountant_queue.status_code == 200, second_accountant_queue.text
+    assert second_accountant_queue.json()[0]["accountingQueueStatus"] == "taken_other"
+
+    second_accountant_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=second_accountant_headers,
+    )
+    assert second_accountant_detail.status_code == 200, second_accountant_detail.text
+    assert second_accountant_detail.json()["accountingQueueStatus"] == "taken_other"
+    assert "start_accounting_review" in second_accountant_detail.json()["availableActions"]
 
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"

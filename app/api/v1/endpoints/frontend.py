@@ -15,7 +15,11 @@ from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense, ExpenseStatus
 from app.models.period import Period, PeriodStatus
-from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.reimbursement_request import (
+    AccountingQueueStatus,
+    ReimbursementRequest,
+    ReimbursementRequestStatus,
+)
 from app.models.store import Store, StoreUserAssignment
 from app.models.user import User, UserRole
 from app.schemas.frontend import (
@@ -537,9 +541,7 @@ def _request_payload(
         fecha_formateada=display_date.strftime("%d%m%Y"),
         status=_frontend_request_status(request.status),
         backend_status=request.status.value,
-        accounting_queue_status=(
-            request.accounting_queue_status.value if request.accounting_queue_status else None
-        ),
+        accounting_queue_status=_frontend_accounting_queue_status(request, current_user),
         gerente=request.store.manager_name,
         cuenta_bancaria=request.store.bank_account,
         estado_region=request.store.state_region,
@@ -557,6 +559,23 @@ def _request_payload(
         available_actions=actions,
         action_labels={action: ACTION_LABELS.get(action, action) for action in actions},
     )
+
+
+def _frontend_accounting_queue_status(
+    request: ReimbursementRequest,
+    current_user: User,
+) -> str | None:
+    queue_status = request.accounting_queue_status
+    if queue_status is None:
+        return None
+    if queue_status != AccountingQueueStatus.taken:
+        return queue_status.value
+    if (
+        current_user.role in {UserRole.accountant, UserRole.admin}
+        and request.accounting_queue_taken_by_user_id != current_user.id
+    ):
+        return "taken_other"
+    return queue_status.value
 
 
 def _frontend_visible_expenses(
