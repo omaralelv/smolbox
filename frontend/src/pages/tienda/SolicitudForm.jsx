@@ -668,13 +668,22 @@ async function validarCfdisAntesDeCrearSolicitud(gastos) {
 }
 
 function validarEvidenciaAntesDeEnviar(gastos) {
-    const sinFactura = gastos.filter((gasto) => !gasto.facturaFile || (!esXml(gasto.facturaFile) && !esPdf(gasto.facturaFile)));
-    const pdfSinOcr = gastos.filter((gasto) => gasto.facturaFile && esPdf(gasto.facturaFile) && !gasto.ocrPreviewToken);
+    const sinComprobante = gastos.filter((gasto) => {
+        if (gasto.tipoDocumento === 'vale') return !gasto.valeFile || !esPdf(gasto.valeFile);
+        if (gasto.tipoDocumento === 'recibo') return !gasto.reciboFile || !esPdf(gasto.reciboFile);
+        return !gasto.facturaFile || (!esXml(gasto.facturaFile) && !esPdf(gasto.facturaFile));
+    });
+    const pdfSinOcr = gastos.filter(
+        (gasto) => gasto.tipoDocumento === 'factura'
+            && gasto.facturaFile
+            && esPdf(gasto.facturaFile)
+            && !gasto.ocrPreviewToken,
+    );
 
-    if (sinFactura.length) {
+    if (sinComprobante.length) {
         return [
-            'Antes de enviar, cada gasto debe tener factura XML o PDF.',
-            sinFactura.length ? `Falta factura XML o PDF en ${sinFactura.length} gasto(s).` : '',
+            'Antes de enviar, cada gasto debe tener su comprobante.',
+            `Falta comprobante válido en ${sinComprobante.length} gasto(s).`,
         ].filter(Boolean).join('\n');
     }
     if (pdfSinOcr.length) {

@@ -256,11 +256,25 @@ def _has_valid_invoice_evidence(
 ) -> bool:
     if _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml):
         return _has_current_cfdi_validation(cfdi_validations)
-    if _valid_ocr_cfdi_uuid(expense) is not None:
-        return True
-    if normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None)):
-        return False
-    if _has_ocr_invoice_hint(expense):
+
+    has_ocr_invoice = False
+    for attachment in getattr(expense, "attachments", []):
+        if _attachment_type_value(attachment) not in {
+            AttachmentType.receipt.value,
+            AttachmentType.other.value,
+        }:
+            continue
+        extraction = getattr(attachment, "ocr_extraction", None)
+        if extraction is None or not normalize_cfdi_uuid(
+            getattr(extraction, "suggested_cfdi_uuid", None)
+        ):
+            continue
+        has_ocr_invoice = True
+        status = getattr(getattr(extraction, "status", None), "value", extraction.status)
+        if status == "succeeded" and _ocr_matches_expense(expense, extraction):
+            return True
+
+    if normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None)) or has_ocr_invoice:
         return False
     return _has_non_invoice_expense_evidence(expense)
 
@@ -339,6 +353,13 @@ def _ocr_date_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
     if isinstance(spent_on, datetime):
         spent_on = spent_on.date()
     return extracted_date == spent_on
+
+
+def _ocr_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
+    return _ocr_total_matches_expense(expense, extraction) and _ocr_date_matches_expense(
+        expense,
+        extraction,
+    )
 
 
 def _money(value: Decimal) -> Decimal:

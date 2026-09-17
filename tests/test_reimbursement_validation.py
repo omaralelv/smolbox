@@ -167,7 +167,7 @@ def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice(
     assert summary.ready_for_submission is True
 
 
-def test_summarize_reimbursement_request_uses_confirmed_pdf_ocr_uuid_without_date_block() -> None:
+def test_summarize_reimbursement_request_blocks_pdf_ocr_date_mismatch() -> None:
     pdf_invoice = SimpleNamespace(
         id=uuid4(),
         amount=Decimal("100.00"),
@@ -199,8 +199,8 @@ def test_summarize_reimbursement_request_uses_confirmed_pdf_ocr_uuid_without_dat
 
     summary = summarize_reimbursement_request(request)
 
-    assert summary.missing_cfdi_expense_ids == []
-    assert summary.ready_for_submission is True
+    assert summary.missing_cfdi_expense_ids == [pdf_invoice.id]
+    assert summary.ready_for_submission is False
 
 
 def test_summarize_reimbursement_request_blocks_pdf_ocr_invoice_mismatch() -> None:

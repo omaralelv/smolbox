@@ -76,7 +76,7 @@ def _cfdi_step(summary: ReimbursementValidationSummary) -> AutomatedReviewStep:
             "cfdi_validation",
             "Validar CFDI",
             "blocked",
-            "Falta CFDI XML vigente en uno o mas gastos.",
+            "Falta comprobante válido en uno o más gastos.",
             blocking=True,
             issue_codes=["missing_cfdi_xml"],
             expense_ids=summary.missing_cfdi_expense_ids,
