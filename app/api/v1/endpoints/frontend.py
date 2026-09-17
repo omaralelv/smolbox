@@ -206,7 +206,11 @@ def list_frontend_work_queue(
         return []
 
     statement = statement.where(ReimbursementRequest.status.in_(statuses))
-    if current_user.role not in {UserRole.treasury, UserRole.director}:
+    if current_user.role not in {
+        UserRole.accountant,
+        UserRole.treasury,
+        UserRole.director,
+    }:
         statement = statement.where(
             ReimbursementRequest.store_id.in_(
                 select(StoreUserAssignment.store_id).where(
@@ -980,8 +984,6 @@ def _request_is_visible_for_role(
     if request.status != ReimbursementRequestStatus.submitted:
         return True
 
-    if current_user.role == UserRole.accountant:
-        return not has_pending_authorization
     return True
 
 

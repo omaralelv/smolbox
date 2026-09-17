@@ -33,6 +33,11 @@ def user_can_transition_store_request(db: Session, user: User, store_id: UUID) -
         UserRole.accountant,
         UserRole.accounting_manager,
     }
-    if user.role in {UserRole.treasury, UserRole.director, UserRole.admin}:
+    if user.role in {
+        UserRole.accountant,
+        UserRole.treasury,
+        UserRole.director,
+        UserRole.admin,
+    }:
         return True
     return user_has_store_assignment(db, user, store_id, roles=review_roles)

@@ -101,7 +101,11 @@ def _scope_to_assigned_stores(
     statement: Select[tuple[ReimbursementRequest]],
     current_user: User,
 ) -> Select[tuple[ReimbursementRequest]]:
-    if current_user.role in {UserRole.treasury, UserRole.director}:
+    if current_user.role in {
+        UserRole.accountant,
+        UserRole.treasury,
+        UserRole.director,
+    }:
         return statement
 
     return statement.where(
@@ -151,8 +155,6 @@ def _request_is_visible_for_role(
     if request.status != ReimbursementRequestStatus.submitted:
         return True
 
-    if current_user.role == UserRole.accountant:
-        return not has_pending_authorization
     return True
 
 

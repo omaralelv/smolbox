@@ -140,7 +140,9 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
 
     accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
     assert accountant_queue.status_code == 200, accountant_queue.text
-    assert accountant_queue.json() == []
+    accountant_items = accountant_queue.json()
+    assert [item["backendId"] for item in accountant_items] == [base_records["request_id"]]
+    assert accountant_items[0]["availableActions"] == []
 
     authorization_review = _transition(
         client,

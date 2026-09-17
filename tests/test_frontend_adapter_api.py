@@ -63,6 +63,55 @@ def test_frontend_context_and_bandeja_use_ui_shape(
     assert item["actionLabels"] == {}
 
 
+def test_unassigned_accountant_can_see_and_start_global_accounting_queue(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    admin_user_id = _create_user(client, "admin", "frontend.global.admin@example.com")
+    accountant_email = "frontend.global.accountant@example.com"
+    _create_user(client, "accountant", accountant_email)
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        admin_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    accountant_headers = _auth_headers(client, accountant_email)
+    frontend_queue = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=accountant_headers,
+    )
+    assert frontend_queue.status_code == 200, frontend_queue.text
+    assert [item["backendId"] for item in frontend_queue.json()] == [
+        base_records["request_id"]
+    ]
+
+    api_queue = client.get("/api/v1/work-queue/me", headers=accountant_headers)
+    assert api_queue.status_code == 200, api_queue.text
+    assert [item["id"] for item in api_queue.json()] == [base_records["request_id"]]
+
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=accountant_headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["availableActions"] == ["start_accounting_review"]
+
+    review = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=accountant_headers,
+        json={"target_status": "under_accounting_review", "note": "Inicio contabilidad"},
+    )
+    assert review.status_code == 200, review.text
+    assert review.json()["status"] == "under_accounting_review"
+
+
 def test_frontend_can_create_request_and_lookup_by_folio(client: TestClient) -> None:
     user = client.post(
         "/api/v1/users/",
@@ -212,7 +261,9 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     accountant_headers = _auth_headers(client, "frontend.taxi.accountant@example.com")
     accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
     assert accountant_queue.status_code == 200, accountant_queue.text
-    assert accountant_queue.json() == []
+    accountant_items = accountant_queue.json()
+    assert [item["backendId"] for item in accountant_items] == [created_body["backendId"]]
+    assert accountant_items[0]["availableActions"] == []
 
 
 def test_frontend_accounting_actions_follow_sap_policy_order(
