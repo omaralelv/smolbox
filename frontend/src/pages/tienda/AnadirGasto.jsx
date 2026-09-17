@@ -70,14 +70,10 @@ function AnadirGasto() {
                 return;
             }
 
-            const folioOcr = normalizarUuidLocal(ocrFactura.suggested_cfdi_uuid);
-            if (folioOcr && folioNormalizado !== folioOcr) {
-                const mensaje = `El folio confirmado (${folioNormalizado}) no coincide con el folio detectado en la factura (${folioOcr}).`;
-                setEstadoValidacion('error');
-                setMensajeValidacion(mensaje);
-                alert(mensaje);
-                return;
-            }
+            setOcrFactura((actual) => datosOcrParaBorrador(actual, facturaFile, {
+                monto,
+                folio: folioNormalizado,
+            }));
         }
 
         setFolio(folioNormalizado);
@@ -106,7 +102,7 @@ function AnadirGasto() {
             && ocrCoincideConArchivoActual(ocrFactura, facturaFile)
         ) {
             setEstadoValidacion(null);
-            setMensajeValidacion('El folio cambió. Confirma el folio y presiona "Validar Gasto" para revisarlo contra la factura.');
+            setMensajeValidacion('El folio cambió. Presiona "Confirmar" para usar este folio en el gasto.');
         }
     };
 
@@ -240,7 +236,7 @@ function AnadirGasto() {
                     crearGastoParaValidacion({
                         categoria,
                         monto,
-                        folio: uuidOcr,
+                        folio: uuidOcr || folio,
                         fecha,
                         observaciones,
                         cfdiParsed: cfdiDesdeOcr(ocrActualizado),
@@ -250,9 +246,10 @@ function AnadirGasto() {
                         ocrValidado: true,
                     }),
                 ]);
+                const folioDetectado = uuidOcr || 'No detectado';
                 const mensajeBase = ocrParsed.fueReutilizado
-                    ? `OCR ya leído para este documento. Folio fiscal detectado: ${uuidOcr}. Confirma el folio para poder añadir el gasto.`
-                    : `OCR completado. Folio fiscal detectado: ${uuidOcr}. Confirma el folio para poder añadir el gasto.`;
+                    ? `OCR ya leído para este documento. Folio sugerido: ${folioDetectado}. Puedes cambiarlo y confirmar el folio que quieres guardar.`
+                    : `OCR completado. Folio sugerido: ${folioDetectado}. Puedes cambiarlo y confirmar el folio que quieres guardar.`;
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
             }
@@ -315,15 +312,15 @@ function AnadirGasto() {
                     alert(mensaje);
                     return;
                 }
-                if (!ocrValidadoParaDatosActuales(ocrParsed, facturaFile, monto, folio)) {
-                    const mensaje = 'El monto o folio cambió después de validar. Presiona "Validar Gasto" para revisarlo contra la factura.';
+                if (!ocrValidadoParaDatosActuales(ocrParsed, facturaFile, monto)) {
+                    const mensaje = 'El monto cambió después de validar. Presiona "Validar Gasto" para revisarlo contra la factura.';
                     setEstadoValidacion('error');
                     setMensajeValidacion(mensaje);
                     alert(mensaje);
                     return;
                 }
                 advertencias = await validarResultadoFacturaPdf(ocrParsed, monto, fecha, `Gasto - ${categoria}`, folio);
-                cfdiParsed = cfdiDesdeOcr(ocrParsed);
+                cfdiParsed = cfdiDesdeOcr(ocrParsed, folio);
             } catch (error) {
                 const mensaje = apiErrorMessage(error);
                 setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
@@ -345,7 +342,7 @@ function AnadirGasto() {
             tipo: categoria,
             tipoDocumento: tipoDocumento,
             folio: tipoDocumento === 'factura'
-                ? (facturaEsPdf ? normalizarUuidLocal(ocrParsed?.suggested_cfdi_uuid) : folio)
+                ? (facturaEsPdf ? normalizarUuidLocal(folio) : folio)
                 : 'N/A',
             fecha: fecha,
             areaAutoriza: esTransporte ? areaAutoriza : null, // Guardamos la selección si aplica
@@ -1275,6 +1272,7 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     const advertencias = [];
     const uuid = normalizarUuidLocal(parsed.suggested_cfdi_uuid);
     const uuidCapturado = normalizarUuidLocal(folioCapturado);
+    const uuidParaGuardar = uuidCapturado || uuid;
     const montoGasto = Number(monto);
     const totalOcr = parsed.extracted_total === null || parsed.extracted_total === undefined
         ? null
@@ -1282,12 +1280,8 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     const fechaGasto = normalizarFechaCapturada(fecha);
     const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
 
-    if (!uuid) {
+    if (!uuidParaGuardar) {
         errores.push('El OCR no encontró folio fiscal en el PDF.');
-    }
-
-    if (uuidCapturado && uuid && uuidCapturado !== uuid) {
-        errores.push(`El folio confirmado (${uuidCapturado}) no coincide con el folio detectado en el PDF (${uuid}).`);
     }
 
     if (totalOcr === null || Number.isNaN(totalOcr)) {
@@ -1304,11 +1298,11 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
         advertencias.push(`La fecha del PDF (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
     }
 
-    if (uuid) {
-        if (uuidYaExisteEnSolicitud(uuid)) {
+    if (uuidParaGuardar) {
+        if (uuidYaExisteEnSolicitud(uuidParaGuardar)) {
             errores.push('El folio fiscal del PDF ya está agregado en otro gasto de esta solicitud.');
         } else {
-            const disponibilidad = await checkCfdiUuidAvailability(uuid);
+            const disponibilidad = await checkCfdiUuidAvailability(uuidParaGuardar);
             if (!disponibilidad.is_available) {
                 errores.push('El folio fiscal del PDF ya está registrado en otro gasto.');
             }
@@ -1357,17 +1351,16 @@ function ocrCoincideConArchivoActual(ocr, file) {
     );
 }
 
-function ocrValidadoParaDatosActuales(ocr, file, monto, folio) {
+function ocrValidadoParaDatosActuales(ocr, file, monto) {
     return (
         ocrCoincideConArchivoActual(ocr, file)
         && ocr.validatedAmount === montoParaValidacion(monto)
-        && ocr.validatedCfdiUuid === normalizarUuidLocal(folio)
     );
 }
 
-function cfdiDesdeOcr(ocr) {
+function cfdiDesdeOcr(ocr, folioConfirmado = null) {
     return {
-        uuid: ocr?.suggested_cfdi_uuid || null,
+        uuid: normalizarUuidLocal(folioConfirmado) || ocr?.suggested_cfdi_uuid || null,
         subtotal: null,
         total: ocr?.extracted_total ?? null,
         currency: 'MXN',
