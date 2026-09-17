@@ -135,6 +135,42 @@ def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice(
     assert summary.ready_for_submission is True
 
 
+def test_summarize_reimbursement_request_uses_confirmed_pdf_ocr_uuid_without_date_block() -> None:
+    pdf_invoice = SimpleNamespace(
+        id=uuid4(),
+        amount=Decimal("100.00"),
+        category="papeleria",
+        requires_authorization=False,
+        authorized_at=None,
+        removed_at=None,
+        status="draft",
+        spent_on=date(2026, 9, 15),
+        cfdi_uuid="22222222-abcd-1234-abcd-1234567890ab",
+        attachments=[
+            SimpleNamespace(
+                attachment_type=AttachmentType.receipt,
+                ocr_extraction=SimpleNamespace(
+                    status="succeeded",
+                    suggested_cfdi_uuid="12345678-abcd-1234-abcd-1234567890ab",
+                    extracted_total=Decimal("100.00"),
+                    extracted_date=date(2026, 9, 14),
+                ),
+            )
+        ],
+        cfdi_validations=[],
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[pdf_invoice],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
+
+
 def test_summarize_reimbursement_request_blocks_pdf_ocr_invoice_mismatch() -> None:
     spent_on = date(2026, 9, 15)
     pdf_invoice = SimpleNamespace(

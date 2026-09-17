@@ -10,6 +10,7 @@ from app.schemas.reimbursement_request import (
     ReimbursementValidationIssue,
     ReimbursementValidationSummary,
 )
+from app.services.cfdi_validator import normalize_cfdi_uuid
 
 
 class AttachmentLike(Protocol):
@@ -265,14 +266,13 @@ def _valid_ocr_cfdi_uuid(expense: ExpenseLike) -> str | None:
         ocr_status = getattr(extraction, "status", None)
         if getattr(ocr_status, "value", ocr_status) != "succeeded":
             continue
-        suggested_uuid = getattr(extraction, "suggested_cfdi_uuid", None)
-        if not suggested_uuid:
-            continue
         if not _ocr_total_matches_expense(expense, extraction):
             continue
-        if not _ocr_date_matches_expense(expense, extraction):
-            continue
-        return str(suggested_uuid).upper()
+
+        confirmed_uuid = normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None))
+        suggested_uuid = normalize_cfdi_uuid(getattr(extraction, "suggested_cfdi_uuid", None))
+        if confirmed_uuid or suggested_uuid:
+            return confirmed_uuid or suggested_uuid
     return None
 
 
