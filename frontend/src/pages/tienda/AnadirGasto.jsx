@@ -1019,8 +1019,8 @@ function AnadirGasto() {
         color: 'var(--text-denegada)',
     },
     validationMessageWarning: {
-        backgroundColor: '#fffbeb',
-        borderColor: '#f59e0b',
+        backgroundColor: '#fff2be',
+        borderColor: '#eacf00',
         color: '#92400e',
     },
     fixedFooter: {
@@ -1170,7 +1170,7 @@ function mensajeCfdiBackendInvalido(gasto, resultado) {
 }
 
 function folioManualLocal(folio) {
-    if (!folio || folio === 'OCR pendiente' || folio === 'N/A') return null;
+    if (!folio || folio === '' || folio === 'N/A') return null;
     return folio;
 }
 
@@ -1210,45 +1210,45 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     const uuidCapturado = normalizarUuidLocal(folioCapturado);
 
     if (!parsed.uuid) {
-        errores.push('El XML no trae UUID fiscal.');
+        errores.push('- El XML no trae UUID fiscal.');
     }
 
     if (uuidCapturado && uuidXml && uuidCapturado !== uuidXml) {
-        errores.push(`El folio confirmado (${uuidCapturado}) no coincide con el folio fiscal del XML (${uuidXml}).`);
+        errores.push(`- El folio confirmado (${uuidCapturado}) no coincide con el folio fiscal del XML (${uuidXml}).`);
     }
 
     if (totalCfdi === null || Number.isNaN(totalCfdi)) {
-        errores.push('El XML no trae total fiscal.');
+        errores.push('- El XML no trae total fiscal.');
     } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
-        errores.push(`El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+        errores.push(`- El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
     }
 
     if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
-        errores.push(`La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
+        errores.push(`- La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
     }
 
     if (!fechaGasto) {
-        advertencias.push('No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
+        advertencias.push('- No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
     } else if (!fechaCfdi) {
-        advertencias.push('El XML no trae fecha fiscal para comparar.');
+        advertencias.push('- El XML no trae fecha fiscal para comparar.');
     } else if (fechaCfdi !== fechaGasto) {
-        advertencias.push(`La fecha del XML (${formatoFecha(fechaCfdi)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
+        advertencias.push(`- La fecha del XML (${formatoFecha(fechaCfdi)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
     }
 
     if (uuidXml) {
         if (uuidYaExisteEnSolicitud(uuidXml)) {
-            errores.push('El UUID fiscal del XML ya está agregado en otro gasto de esta solicitud.');
+            errores.push('- El UUID fiscal del XML ya está agregado en otro gasto de esta solicitud.');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(parsed.uuid);
             if (!disponibilidad.is_available) {
-                errores.push('El UUID fiscal del XML ya está registrado en otro gasto.');
+                errores.push('- El UUID fiscal del XML ya está registrado en otro gasto.');
             }
         }
     }
 
     if (errores.length) {
         throw new Error([
-            `El CFDI XML del gasto "${nombreGasto}" no coincide con el gasto capturado:`,
+            `- El CFDI XML del gasto no coincide con el gasto capturado:`,
             ...errores,
         ].join('\n'));
     }
@@ -1281,37 +1281,37 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
 
     if (!uuidParaGuardar) {
-        errores.push('El OCR no encontró folio fiscal en el PDF.');
+        errores.push('- El OCR no encontró folio fiscal en el PDF, favor de ingresarlo manualmente y dar click en "Confirmar".');
     }
 
     if (totalOcr === null || Number.isNaN(totalOcr)) {
-        errores.push('El OCR no encontró total en el PDF.');
+        errores.push('- El OCR no encontró total en el PDF.');
     } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
-        errores.push(`El total del PDF (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+        errores.push(`- El total del PDF (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
     }
 
     if (!fechaGasto) {
-        advertencias.push('No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
+        advertencias.push('- No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
     } else if (!fechaOcr) {
-        advertencias.push('El OCR no encontró fecha en el PDF para comparar.');
+        advertencias.push('- El OCR no encontró fecha en el PDF para comparar.');
     } else if (fechaOcr !== fechaGasto) {
-        advertencias.push(`La fecha del PDF (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
+        advertencias.push(`- La fecha del PDF (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
     }
 
     if (uuidParaGuardar) {
         if (uuidYaExisteEnSolicitud(uuidParaGuardar)) {
-            errores.push('El folio fiscal del PDF ya está agregado en otro gasto de esta solicitud.');
+            errores.push('- El folio fiscal del PDF ya está agregado en otro gasto de esta solicitud.');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(uuidParaGuardar);
             if (!disponibilidad.is_available) {
-                errores.push('El folio fiscal del PDF ya está registrado en otro gasto.');
+                errores.push('- El folio fiscal del PDF ya está registrado en otro gasto.');
             }
         }
     }
 
     if (errores.length) {
         throw new Error([
-            `La factura PDF del gasto "${nombreGasto}" no coincide con el gasto capturado:`,
+            `La factura PDF del gasto no coincide con el gasto capturado:`,
             ...errores,
         ].join('\n'));
     }
