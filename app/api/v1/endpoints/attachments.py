@@ -27,7 +27,11 @@ from app.services.textract_ocr import TextractOcrError, TextractOcrResult, Textr
 
 router = APIRouter()
 
-OCR_ATTACHMENT_TYPES = {AttachmentType.receipt, AttachmentType.cash_box_format}
+OCR_ATTACHMENT_TYPES = {
+    AttachmentType.receipt,
+    AttachmentType.cash_box_format,
+    AttachmentType.other,
+}
 
 
 @router.post(

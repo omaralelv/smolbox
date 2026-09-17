@@ -34,13 +34,14 @@ function AnadirGasto() {
 
     const [folioValidado, setFolioValidado] = useState(false);
     const [ocrFactura, setOcrFactura] = useState(null);
+    const [ocrVale, setOcrVale] = useState(null);
+    const [ocrRecibo, setOcrRecibo] = useState(null);
     const [mensajeValidacion, setMensajeValidacion] = useState('');
 
 
     // Cambio dinámico de tipo de documento
     const handleTipoDocumentoChange = (nuevoTipo) => {
         setTipoDocumento(nuevoTipo);
-        setOcrFactura(null);
         setMensajeValidacion('');
         if (nuevoTipo === 'vale' || nuevoTipo === 'recibo') {
             setFolio('N/A');
@@ -82,6 +83,8 @@ function AnadirGasto() {
 
     const handleMontoChange = (nuevoMonto) => {
         setMonto(nuevoMonto);
+        const archivoDocumento = archivoParaTipoDocumento(tipoDocumento, { facturaFile, valeFile, reciboFile });
+        const ocrDocumento = ocrParaTipoDocumento(tipoDocumento, { ocrFactura, ocrVale, ocrRecibo });
         if (
             tipoDocumento === 'factura'
             && esPdf(facturaFile)
@@ -90,6 +93,15 @@ function AnadirGasto() {
         ) {
             setEstadoValidacion(null);
             setMensajeValidacion('El monto cambió. Presiona "Validar Gasto" para revisar que coincida con la factura.');
+        }
+        if (
+            tipoDocumento !== 'factura'
+            && ocrCoincideConArchivoActual(ocrDocumento, archivoDocumento)
+            && ocrDocumento.validatedAmount !== montoParaValidacion(nuevoMonto)
+        ) {
+            const etiqueta = etiquetaDocumento(tipoDocumento).toLowerCase();
+            setEstadoValidacion(null);
+            setMensajeValidacion(`El monto cambió. Presiona "Validar Gasto" para revisar que coincida con el ${etiqueta}.`);
         }
     };
 
@@ -104,6 +116,38 @@ function AnadirGasto() {
             setEstadoValidacion(null);
             setMensajeValidacion('El folio cambió. Presiona "Confirmar" para usar este folio en el gasto.');
         }
+    };
+
+    const handleValeFileChange = (file) => {
+        const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrVale, file);
+        setValeFile(file || null);
+        setEstadoValidacion(null);
+        setMensajeValidacion(file ? 'Vale cargado. Presiona "Validar Gasto" para revisar monto y fecha.' : '');
+        if (!ocrDelMismoArchivo) {
+            setOcrVale(null);
+        }
+    };
+
+    const handleReciboFileChange = (file) => {
+        const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrRecibo, file);
+        setReciboFile(file || null);
+        setEstadoValidacion(null);
+        setMensajeValidacion(file ? 'Recibo cargado. Presiona "Validar Gasto" para revisar monto y fecha.' : '');
+        if (!ocrDelMismoArchivo) {
+            setOcrRecibo(null);
+        }
+    };
+
+    const guardarOcrDocumento = (tipo, ocr) => {
+        if (tipo === 'vale') {
+            setOcrVale(ocr);
+            return;
+        }
+        if (tipo === 'recibo') {
+            setOcrRecibo(ocr);
+            return;
+        }
+        setOcrFactura(ocr);
     };
 
     const handleFacturaFileChange = async (file) => {
@@ -195,9 +239,31 @@ function AnadirGasto() {
         }
 
         if (tipoDocumento !== 'factura') {
+            const archivoDocumento = archivoParaTipoDocumento(tipoDocumento, { facturaFile, valeFile, reciboFile });
+            const ocrDocumento = ocrParaTipoDocumento(tipoDocumento, { ocrFactura, ocrVale, ocrRecibo });
             const etiqueta = etiquetaDocumento(tipoDocumento);
-            setEstadoValidacion('listo');
-            setMensajeValidacion(`${etiqueta} cargado. El gasto está listo para añadirse.`);
+            setCargandoValidacion(true);
+            setMensajeValidacion('');
+
+            try {
+                const ocrParsed = await leerDocumentoConOcr(archivoDocumento, ocrDocumento);
+                const advertencias = validarResultadoDocumentoSimpleOcr(ocrParsed, monto, fecha, etiqueta);
+                const ocrActualizado = datosOcrParaBorrador(ocrParsed, archivoDocumento, { monto });
+                guardarOcrDocumento(tipoDocumento, ocrActualizado);
+                const etiquetaMinuscula = etiqueta.toLowerCase();
+                const mensajeBase = ocrParsed.fueReutilizado
+                    ? `OCR ya leído para este ${etiquetaMinuscula}. El monto coincide.`
+                    : `OCR completado para el ${etiquetaMinuscula}. El monto coincide.`;
+                setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
+                setEstadoValidacion(estadoParaAdvertencias(advertencias));
+            } catch (error) {
+                const mensaje = apiErrorMessage(error);
+                setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
+                setMensajeValidacion(mensaje);
+                alert(mensaje);
+            } finally {
+                setCargandoValidacion(false);
+            }
             return;
         }
 
@@ -296,7 +362,7 @@ function AnadirGasto() {
         }
 
         let cfdiParsed = null;
-        let ocrParsed = ocrFactura;
+        let ocrParsed = ocrParaTipoDocumento(tipoDocumento, { ocrFactura, ocrVale, ocrRecibo });
         let advertencias = [];
         if (facturaEsXml) {
             try {
@@ -335,6 +401,34 @@ function AnadirGasto() {
                 alert(mensaje);
                 return;
             }
+        } else if (tipoDocumento !== 'factura') {
+            const archivoDocumento = archivoParaTipoDocumento(tipoDocumento, { facturaFile, valeFile, reciboFile });
+            const etiqueta = etiquetaDocumento(tipoDocumento);
+            const etiquetaMinuscula = etiqueta.toLowerCase();
+
+            try {
+                if (!ocrCoincideConArchivoActual(ocrParsed, archivoDocumento)) {
+                    const mensaje = `Primero presiona "Validar Gasto" para leer el ${etiquetaMinuscula} con OCR.`;
+                    setEstadoValidacion('error');
+                    setMensajeValidacion(mensaje);
+                    alert(mensaje);
+                    return;
+                }
+                if (!ocrValidadoParaDatosActuales(ocrParsed, archivoDocumento, monto)) {
+                    const mensaje = `El monto cambió después de validar. Presiona "Validar Gasto" para revisarlo contra el ${etiquetaMinuscula}.`;
+                    setEstadoValidacion('error');
+                    setMensajeValidacion(mensaje);
+                    alert(mensaje);
+                    return;
+                }
+                advertencias = validarResultadoDocumentoSimpleOcr(ocrParsed, monto, fecha, etiqueta);
+            } catch (error) {
+                const mensaje = apiErrorMessage(error);
+                setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
+                setMensajeValidacion(mensaje);
+                alert(mensaje);
+                return;
+            }
         }
 
 
@@ -365,7 +459,7 @@ function AnadirGasto() {
             cfdiTaxAmount: cfdiParsed ? numeroOculto(cfdiParsed.tax_amount) : null,
             cfdiTaxRate: cfdiParsed ? numeroOculto(cfdiParsed.tax_rate) : null,
             facturaRequiereOcr: tipoDocumento === 'factura' && esPdf(facturaFile),
-            ocrValidado: tipoDocumento === 'factura' && esPdf(facturaFile),
+            ocrValidado: (tipoDocumento === 'factura' && esPdf(facturaFile)) || tipoDocumento !== 'factura',
             ocrPreviewToken: ocrParsed?.verification_token || null,
             ocrChecksumSha256: ocrParsed?.checksum_sha256 || null,
 
@@ -590,7 +684,7 @@ function AnadirGasto() {
                                         accept=".pdf,application/pdf" 
                                         disabled={tipoDocumento !== 'vale'}
                                         style={{ display: 'none' }} 
-                                        onChange={(e) => setValeFile(e.target.files?.[0] || null)} 
+                                        onChange={(e) => handleValeFileChange(e.target.files?.[0] || null)}
                                     />
                                 </label>
                             </div>
@@ -628,7 +722,7 @@ function AnadirGasto() {
                                         accept=".pdf,application/pdf" 
                                         disabled={tipoDocumento !== 'recibo'}
                                         style={{ display: 'none' }} 
-                                        onChange={(e) => setReciboFile(e.target.files?.[0] || null)} 
+                                        onChange={(e) => handleReciboFileChange(e.target.files?.[0] || null)}
                                     />
                                 </label>
                             </div>
@@ -1143,11 +1237,15 @@ function gastoAgregadoDesdeRespuesta(solicitud, gastosPreviosBackendIds, gastoLo
 
 async function subirDocumentoGastoBackend(expenseId, gasto) {
     if (gasto.valeFile) {
-        await uploadExpenseAttachment(expenseId, gasto.valeFile, 'other');
+        await uploadExpenseAttachment(expenseId, gasto.valeFile, 'other', {
+            ocrPreviewToken: gasto.ocrPreviewToken,
+        });
     }
 
     if (gasto.reciboFile) {
-        await uploadExpenseAttachment(expenseId, gasto.reciboFile, 'receipt');
+        await uploadExpenseAttachment(expenseId, gasto.reciboFile, 'receipt', {
+            ocrPreviewToken: gasto.ocrPreviewToken,
+        });
     }
 
     if (!gasto.facturaFile) return;
@@ -1207,6 +1305,19 @@ function validarDocumentoRequerido(tipoDocumento, archivos) {
     }
 
     return null;
+}
+
+function archivoParaTipoDocumento(tipoDocumento, archivos) {
+    if (tipoDocumento === 'factura') return archivos.facturaFile;
+    if (tipoDocumento === 'vale') return archivos.valeFile;
+    if (tipoDocumento === 'recibo') return archivos.reciboFile;
+    return null;
+}
+
+function ocrParaTipoDocumento(tipoDocumento, ocrs) {
+    if (tipoDocumento === 'vale') return ocrs.ocrVale;
+    if (tipoDocumento === 'recibo') return ocrs.ocrRecibo;
+    return ocrs.ocrFactura;
 }
 
 function etiquetaDocumento(tipoDocumento) {
@@ -1285,7 +1396,7 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     return { parsed, advertencias };
 }
 
-async function leerFacturaPdfConOcr(file, ocrActual = null) {
+async function leerDocumentoConOcr(file, ocrActual = null) {
     if (ocrCoincideConArchivoActual(ocrActual, file)) {
         return {
             ...ocrActual,
@@ -1294,6 +1405,10 @@ async function leerFacturaPdfConOcr(file, ocrActual = null) {
     }
 
     return previewInvoiceOcr(file);
+}
+
+async function leerFacturaPdfConOcr(file, ocrActual = null) {
+    return leerDocumentoConOcr(file, ocrActual);
 }
 
 async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, folioCapturado = null) {
@@ -1337,6 +1452,41 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     if (errores.length) {
         throw new Error([
             `La factura PDF del gasto no coincide con el gasto capturado:`,
+            ...errores,
+        ].join('\n'));
+    }
+
+    return advertencias;
+}
+
+function validarResultadoDocumentoSimpleOcr(parsed, monto, fecha, etiquetaDocumento) {
+    const etiqueta = etiquetaDocumento.toLowerCase();
+    const errores = [];
+    const advertencias = [];
+    const montoGasto = Number(monto);
+    const totalOcr = parsed.extracted_total === null || parsed.extracted_total === undefined
+        ? null
+        : Number(parsed.extracted_total);
+    const fechaGasto = normalizarFechaCapturada(fecha);
+    const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
+
+    if (totalOcr === null || Number.isNaN(totalOcr)) {
+        errores.push(`- El OCR no encontró total en el ${etiqueta}.`);
+    } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
+        errores.push(`- El total del ${etiqueta} (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+    }
+
+    if (!fechaGasto) {
+        advertencias.push('- No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
+    } else if (!fechaOcr) {
+        advertencias.push(`- El OCR no encontró fecha en el ${etiqueta} para comparar.`);
+    } else if (fechaOcr !== fechaGasto) {
+        advertencias.push(`- La fecha del ${etiqueta} (${formatoFecha(fechaOcr)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
+    }
+
+    if (errores.length) {
+        throw new Error([
+            `El ${etiqueta} no coincide con el gasto capturado:`,
             ...errores,
         ].join('\n'));
     }

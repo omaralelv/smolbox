@@ -131,6 +131,41 @@ def test_summarize_reimbursement_request_allows_submission_with_voucher_only_exp
     assert summary.ready_for_submission is True
 
 
+def test_summarize_reimbursement_request_allows_submission_with_ocr_voucher() -> None:
+    voucher_expense = SimpleNamespace(
+        id=uuid4(),
+        amount=Decimal("100.00"),
+        category="papeleria",
+        requires_authorization=False,
+        authorized_at=None,
+        removed_at=None,
+        status="draft",
+        spent_on=date(2026, 9, 15),
+        attachments=[
+            SimpleNamespace(
+                attachment_type=AttachmentType.other,
+                ocr_extraction=SimpleNamespace(
+                    status="succeeded",
+                    suggested_cfdi_uuid="12345678-abcd-1234-abcd-1234567890ab",
+                    extracted_total=Decimal("100.00"),
+                    extracted_date=date(2026, 9, 15),
+                ),
+            )
+        ],
+        cfdi_validations=[],
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[voucher_expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
+
+
 def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice() -> None:
     spent_on = date(2026, 9, 15)
     pdf_invoice = SimpleNamespace(
@@ -167,7 +202,7 @@ def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice(
     assert summary.ready_for_submission is True
 
 
-def test_summarize_reimbursement_request_blocks_pdf_ocr_date_mismatch() -> None:
+def test_summarize_reimbursement_request_allows_pdf_ocr_date_mismatch() -> None:
     pdf_invoice = SimpleNamespace(
         id=uuid4(),
         amount=Decimal("100.00"),
@@ -199,8 +234,8 @@ def test_summarize_reimbursement_request_blocks_pdf_ocr_date_mismatch() -> None:
 
     summary = summarize_reimbursement_request(request)
 
-    assert summary.missing_cfdi_expense_ids == [pdf_invoice.id]
-    assert summary.ready_for_submission is False
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
 
 
 def test_summarize_reimbursement_request_blocks_pdf_ocr_invoice_mismatch() -> None:

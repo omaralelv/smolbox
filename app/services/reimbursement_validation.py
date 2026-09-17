@@ -256,25 +256,13 @@ def _has_valid_invoice_evidence(
 ) -> bool:
     if _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml):
         return _has_current_cfdi_validation(cfdi_validations)
-
-    has_ocr_invoice = False
-    for attachment in getattr(expense, "attachments", []):
-        if _attachment_type_value(attachment) not in {
-            AttachmentType.receipt.value,
-            AttachmentType.other.value,
-        }:
-            continue
-        extraction = getattr(attachment, "ocr_extraction", None)
-        if extraction is None or not normalize_cfdi_uuid(
-            getattr(extraction, "suggested_cfdi_uuid", None)
-        ):
-            continue
-        has_ocr_invoice = True
-        status = getattr(getattr(extraction, "status", None), "value", extraction.status)
-        if status == "succeeded" and _ocr_matches_expense(expense, extraction):
-            return True
-
-    if normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None)) or has_ocr_invoice:
+    if _valid_ocr_cfdi_uuid(expense) is not None:
+        return True
+    if normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None)):
+        return False
+    if _has_attachment_type(expense.attachments, AttachmentType.other):
+        return True
+    if _has_ocr_invoice_hint(expense):
         return False
     return _has_non_invoice_expense_evidence(expense)
 

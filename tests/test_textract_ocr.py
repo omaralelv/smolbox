@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.services.textract_ocr import (
     TextractOcrResult,
     TextractOcrService,
@@ -103,7 +105,9 @@ def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_s
     assert body["verification_token"].startswith("v1.")
 
 
-def test_attachment_upload_reuses_invoice_ocr_preview_token(
+@pytest.mark.parametrize("attachment_type", ["receipt", "other"])
+def test_attachment_upload_reuses_ocr_preview_token(
+    attachment_type,
     client,
     base_records,
     monkeypatch,
@@ -155,7 +159,7 @@ def test_attachment_upload_reuses_invoice_ocr_preview_token(
     uploaded = client.post(
         f"/api/v1/expenses/{expense.json()['id']}/attachments",
         data={
-            "attachment_type": "receipt",
+            "attachment_type": attachment_type,
             "ocr_preview_token": preview.json()["verification_token"],
         },
         files={"file": ("factura.pdf", pdf_content, "application/pdf")},
