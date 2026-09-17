@@ -72,7 +72,13 @@ def summarize_reimbursement_request(
         category_totals[category] += amount
         category_counts[category] += 1
 
-        if not _has_attachment_type(expense.attachments, AttachmentType.receipt):
+        if (
+            not _has_attachment_type(expense.attachments, AttachmentType.receipt)
+            and not _has_attachment_type(
+                expense.attachments,
+                AttachmentType.other,
+            )
+        ):
             missing_receipt_expense_ids.append(expense.id)
 
         if _requires_authorization(expense) and not getattr(expense, "authorized_at", None):
@@ -153,7 +159,7 @@ def summarize_reimbursement_request(
         issues.append(
             ReimbursementValidationIssue(
                 code="missing_cfdi_xml",
-                message="One or more expenses do not have valid CFDI XML or OCR invoice evidence.",
+                message="One or more expenses do not have valid invoice, receipt, or voucher evidence.",
                 severity="warning",
             )
         )
@@ -250,7 +256,38 @@ def _has_valid_invoice_evidence(
 ) -> bool:
     if _has_attachment_type(expense.attachments, AttachmentType.cfdi_xml):
         return _has_current_cfdi_validation(cfdi_validations)
-    return _valid_ocr_cfdi_uuid(expense) is not None
+    if _valid_ocr_cfdi_uuid(expense) is not None:
+        return True
+    if normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None)):
+        return False
+    if _has_ocr_invoice_hint(expense):
+        return False
+    return _has_non_invoice_expense_evidence(expense)
+
+
+def _has_non_invoice_expense_evidence(expense: ExpenseLike) -> bool:
+    return _has_attachment_type(
+        expense.attachments,
+        AttachmentType.receipt,
+    ) or _has_attachment_type(
+        expense.attachments,
+        AttachmentType.other,
+    )
+
+
+def _has_ocr_invoice_hint(expense: ExpenseLike) -> bool:
+    for attachment in getattr(expense, "attachments", []):
+        if _attachment_type_value(attachment) not in {
+            AttachmentType.receipt.value,
+            AttachmentType.other.value,
+        }:
+            continue
+        extraction = getattr(attachment, "ocr_extraction", None)
+        if extraction is None:
+            continue
+        if normalize_cfdi_uuid(getattr(extraction, "suggested_cfdi_uuid", None)):
+            return True
+    return False
 
 
 def _valid_ocr_cfdi_uuid(expense: ExpenseLike) -> str | None:

@@ -186,16 +186,23 @@ function AnadirGasto() {
     const handleValidarGasto = async () => {
         if (cargandoValidacion) return;
 
-        const errorCfdi = validarCfdiXmlRequerido(facturaFile);
-        if (errorCfdi) {
+        const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
+        if (errorDocumento) {
             setEstadoValidacion('error');
-            setMensajeValidacion(errorCfdi);
-            alert(errorCfdi);
+            setMensajeValidacion(errorDocumento);
+            alert(errorDocumento);
             return;
         }
-        
-        const facturaEsXml = esXml(facturaFile);
-        const facturaEsPdf = esPdf(facturaFile);
+
+        if (tipoDocumento !== 'factura') {
+            const etiqueta = etiquetaDocumento(tipoDocumento);
+            setEstadoValidacion('listo');
+            setMensajeValidacion(`${etiqueta} cargado. El gasto está listo para añadirse.`);
+            return;
+        }
+
+        const facturaEsXml = tipoDocumento === 'factura' && esXml(facturaFile);
+        const facturaEsPdf = tipoDocumento === 'factura' && esPdf(facturaFile);
 
         if (tipoDocumento === 'factura' && facturaEsXml && !folioValidado) {
             const mensaje = "Por favor, confirma el Folio Fiscal antes de validar.";
@@ -270,16 +277,16 @@ function AnadirGasto() {
         e.preventDefault();
         if (guardandoGasto) return;
 
-        const errorCfdi = validarCfdiXmlRequerido(facturaFile);
-        if (errorCfdi) {
+        const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
+        if (errorDocumento) {
             setEstadoValidacion('error');
-            setMensajeValidacion(errorCfdi);
-            alert(errorCfdi);
+            setMensajeValidacion(errorDocumento);
+            alert(errorDocumento);
             return;
         }
 
-        const facturaEsXml = esXml(facturaFile);
-        const facturaEsPdf = esPdf(facturaFile);
+        const facturaEsXml = tipoDocumento === 'factura' && esXml(facturaFile);
+        const facturaEsPdf = tipoDocumento === 'factura' && esPdf(facturaFile);
         if (tipoDocumento === 'factura' && !folioValidado) {
             const mensaje = 'Confirma el Folio Fiscal antes de añadir el gasto.';
             setEstadoValidacion('error');
@@ -1186,6 +1193,28 @@ function validarCfdiXmlRequerido(file) {
     return null;
 }
 
+function validarDocumentoRequerido(tipoDocumento, archivos) {
+    if (tipoDocumento === 'factura') {
+        return validarCfdiXmlRequerido(archivos.facturaFile);
+    }
+
+    if (tipoDocumento === 'vale' && !archivos.valeFile) {
+        return 'Debes cargar el vale antes de añadir el gasto.';
+    }
+
+    if (tipoDocumento === 'recibo' && !archivos.reciboFile) {
+        return 'Debes cargar el recibo antes de añadir el gasto.';
+    }
+
+    return null;
+}
+
+function etiquetaDocumento(tipoDocumento) {
+    if (tipoDocumento === 'vale') return 'Vale';
+    if (tipoDocumento === 'recibo') return 'Recibo';
+    return 'Factura';
+}
+
 function esXml(file) {
     const nombre = file?.name?.toLowerCase() || '';
     const tipo = file?.type?.toLowerCase() || '';
@@ -1415,9 +1444,10 @@ function crearGastoParaValidacion({
 
 function validarSolicitudDespuesDeAnadir(gastos) {
     const activos = gastos.filter(esGastoActivo);
+    const gastosConCfdi = activos.filter(gastoRequiereCfdi);
     const errores = [];
 
-    const sinCfdiValido = activos.filter((gasto) => !gastoTieneCfdiValido(gasto));
+    const sinCfdiValido = gastosConCfdi.filter((gasto) => !gastoTieneCfdiValido(gasto));
     if (sinCfdiValido.length) {
         errores.push(`Todos los gastos activos deben tener factura XML válida o PDF validado con OCR. Falta evidencia válida en ${sinCfdiValido.length} gasto(s).`);
     }
@@ -1427,10 +1457,10 @@ function validarSolicitudDespuesDeAnadir(gastos) {
         errores.push(`No debe haber CFDI duplicado. UUID repetido: ${cfdisDuplicados.join(', ')}.`);
     }
 
-    const totalGastos = activos.reduce((sum, gasto) => sum + (Number(gasto.monto) || 0), 0);
-    const totalCfdis = activos.reduce((sum, gasto) => sum + (cfdiTotalDesdeGasto(gasto) || 0), 0);
-    if (redondearMonto(totalGastos) !== redondearMonto(totalCfdis)) {
-        errores.push(`El total de gastos (${formatoMonto(totalGastos)}) no coincide con el total fiscal de los CFDI (${formatoMonto(totalCfdis)}).`);
+    const totalGastosConCfdi = gastosConCfdi.reduce((sum, gasto) => sum + (Number(gasto.monto) || 0), 0);
+    const totalCfdis = gastosConCfdi.reduce((sum, gasto) => sum + (cfdiTotalDesdeGasto(gasto) || 0), 0);
+    if (gastosConCfdi.length && redondearMonto(totalGastosConCfdi) !== redondearMonto(totalCfdis)) {
+        errores.push(`El total de gastos con factura (${formatoMonto(totalGastosConCfdi)}) no coincide con el total fiscal de los CFDI (${formatoMonto(totalCfdis)}).`);
     }
 
     if (errores.length) {
@@ -1439,6 +1469,17 @@ function validarSolicitudDespuesDeAnadir(gastos) {
             ...errores,
         ].join('\n'));
     }
+}
+
+function gastoRequiereCfdi(gasto) {
+    const tipo = String(gasto?.tipoDocumento || gasto?.documentType || gasto?.tipo_documento || '')
+        .trim()
+        .toLowerCase();
+
+    if (tipo === 'vale' || tipo === 'recibo') return false;
+    if (tipo === 'factura') return true;
+
+    return Boolean(gasto?.facturaFile || cfdiUuidDesdeGasto(gasto) || cfdiTotalDesdeGasto(gasto) !== null);
 }
 
 function esGastoActivo(gasto) {

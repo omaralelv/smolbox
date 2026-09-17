@@ -81,8 +81,8 @@ def test_summarize_reimbursement_request_reports_missing_evidence() -> None:
     }
 
 
-def test_summarize_reimbursement_request_blocks_submission_without_cfdi() -> None:
-    missing_cfdi_expense = _expense("100.00", "papeleria", [AttachmentType.receipt])
+def test_summarize_reimbursement_request_blocks_submission_without_document_evidence() -> None:
+    missing_cfdi_expense = _expense("100.00", "papeleria", [])
     request = SimpleNamespace(
         id=uuid4(),
         reported_total=Decimal("100.00"),
@@ -92,11 +92,43 @@ def test_summarize_reimbursement_request_blocks_submission_without_cfdi() -> Non
     summary = summarize_reimbursement_request(request)
 
     assert summary.is_balanced is True
-    assert summary.missing_receipt_expense_ids == []
+    assert summary.missing_receipt_expense_ids == [missing_cfdi_expense.id]
     assert summary.missing_cfdi_expense_ids == [missing_cfdi_expense.id]
     assert summary.ready_for_submission is False
     assert summary.ready_for_authorization_approval is False
     assert summary.ready_for_accounting_approval is False
+
+
+def test_summarize_reimbursement_request_allows_submission_with_receipt_only_expense() -> None:
+    receipt_expense = _expense("100.00", "papeleria", [AttachmentType.receipt])
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[receipt_expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.is_balanced is True
+    assert summary.missing_receipt_expense_ids == []
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
+
+
+def test_summarize_reimbursement_request_allows_submission_with_voucher_only_expense() -> None:
+    voucher_expense = _expense("100.00", "papeleria", [AttachmentType.other])
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[voucher_expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.is_balanced is True
+    assert summary.missing_receipt_expense_ids == []
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
 
 
 def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice() -> None:
