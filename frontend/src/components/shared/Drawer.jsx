@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { apiFileUrl, currentToken } from '../../lib/api';
 
 export default function Drawer({ 
-    documentoActivo,      // 'factura' | 'vale' | null
+    documentoActivo,      // 'factura' | 'vale' | 'recibo' | 'documento' | null
     observacionesAbiertas, // true | false
     gasto,                // Objeto del gasto seleccionado
     onCloseDocumento,     // Función para cerrar factura/vale
@@ -22,7 +22,8 @@ export default function Drawer({
     const tituloDocumento =
         documentoActivo === 'factura' ? 'Factura' :
         documentoActivo === 'vale' ? 'Vale' :
-        documentoActivo === 'recibo' ? 'Gasto' : '';
+        documentoActivo === 'recibo' ? 'Gasto' :
+        documentoActivo === 'documento' ? 'Documento' : '';
 
 
     return (
@@ -259,6 +260,28 @@ function documentoKey(tipoDocumento, documento) {
 
 function obtenerDocumento(gasto, tipoDocumento) {
     if (!gasto) return null;
+
+    if (tipoDocumento === 'documento') {
+        return primerValor(
+            gasto.facturaFile,
+            gasto.urlFactura,
+            gasto.facturaUrl,
+            gasto.url_factura,
+            gasto.valeFile,
+            gasto.urlVale,
+            gasto.valeUrl,
+            gasto.url_vale,
+            gasto.reciboFile,
+            gasto.urlRecibo,
+            gasto.reciboUrl,
+            gasto.urlGasto,
+            gasto.gastoUrl,
+            gasto.url_recibo,
+            gasto.url_gasto,
+            gasto.downloadUrl,
+            gasto.download_url
+        );
+    }
 
     if (tipoDocumento === 'factura') {
         return primerValor(

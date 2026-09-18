@@ -275,19 +275,9 @@ function AutorizacionBandeja( { currentRole } ) {
 
 
     // HANDLERS PARA ABRIR Y CERRAR PANELES
-        const handleVerVale = (gasto) => {
+        const handleVerDocumento = (gasto) => {
             setGastoSeleccionado(gasto);
-            setDocumentoActivo('vale'); // Si había factura, se cambia a vale automáticamente
-        };
-    
-        const handleVerFactura = (gasto) => {
-            setGastoSeleccionado(gasto);
-            setDocumentoActivo('factura'); // Si había vale, se cambia a factura automáticamente
-        };
-
-        const handleVerRecibo = (gasto) => {
-            setGastoSeleccionado(gasto);
-            setDocumentoActivo('recibo'); // nuevo tipo de documento
+            setDocumentoActivo('documento');
         };
     
         const handleToggleObservaciones = (gasto) => {
@@ -408,18 +398,9 @@ function AutorizacionBandeja( { currentRole } ) {
                                         <div style={{ minWidth: ocultarTienda ? '70px' : '220px' }}></div>
                                     )}
 
-                                {/* ICONO DE DOCUMENTO / COMPROBANTE */}
-                                <button style={styles.iconBtn} title="Ver Factura" onClick={() => handleVerFactura(gasto)}>
-                                    <img src="/Factura.png" alt="Factura" style={styles.iconImg} />
+                                <button style={styles.iconBtn} title="Ver Documento" onClick={() => handleVerDocumento(gasto)}>
+                                    <img src="/Factura.png" alt="Documento" style={styles.iconImg} />
                                 </button>
-                                
-                                <button style={styles.iconBtn} title="Ver Vale" onClick={() => handleVerVale(gasto)}>
-                                    <img src="/Vale.png" alt="Vale" style={styles.iconImg} />
-                                </button>
-
-                                <button style={styles.iconBtn} title="Ver Gasto" onClick={() => handleVerRecibo(gasto)}>
-                                        <img src="/Recibo.png" alt="Gasto" style={styles.iconImg} />
-                                    </button>
 
                                 <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
                                     <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
