@@ -100,8 +100,8 @@ function AnadirGasto() {
             && ocrDocumento.validatedAmount !== montoParaValidacion(nuevoMonto)
         ) {
             const etiqueta = etiquetaDocumento(tipoDocumento).toLowerCase();
-            setEstadoValidacion(null);
-            setMensajeValidacion(`El monto cambió. Presiona "Validar Gasto" para revisar que coincida con el ${etiqueta}.`);
+            setEstadoValidacion('advertencia');
+            setMensajeValidacion(`El monto cambió. Revisa que sea correcto; se guardará el monto capturado para el ${etiqueta}.`);
         }
     };
 
@@ -251,9 +251,12 @@ function AnadirGasto() {
                 const ocrActualizado = datosOcrParaBorrador(ocrParsed, archivoDocumento, { monto });
                 guardarOcrDocumento(tipoDocumento, ocrActualizado);
                 const etiquetaMinuscula = etiqueta.toLowerCase();
-                const mensajeBase = ocrParsed.fueReutilizado
-                    ? `OCR ya leído para este ${etiquetaMinuscula}. El monto coincide.`
-                    : `OCR completado para el ${etiquetaMinuscula}. El monto coincide.`;
+                const resultadoMonto = resultadoMontoDocumentoSimpleOcr(ocrParsed, monto);
+                const mensajeBase = mensajeBaseDocumentoSimpleOcr(
+                    etiquetaMinuscula,
+                    resultadoMonto,
+                    Boolean(ocrParsed.fueReutilizado),
+                );
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
             } catch (error) {
@@ -409,13 +412,6 @@ function AnadirGasto() {
             try {
                 if (!ocrCoincideConArchivoActual(ocrParsed, archivoDocumento)) {
                     const mensaje = `Primero presiona "Validar Gasto" para leer el ${etiquetaMinuscula} con OCR.`;
-                    setEstadoValidacion('error');
-                    setMensajeValidacion(mensaje);
-                    alert(mensaje);
-                    return;
-                }
-                if (!ocrValidadoParaDatosActuales(ocrParsed, archivoDocumento, monto)) {
-                    const mensaje = `El monto cambió después de validar. Presiona "Validar Gasto" para revisarlo contra el ${etiquetaMinuscula}.`;
                     setEstadoValidacion('error');
                     setMensajeValidacion(mensaje);
                     alert(mensaje);
@@ -1471,9 +1467,9 @@ function validarResultadoDocumentoSimpleOcr(parsed, monto, fecha, etiquetaDocume
     const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
 
     if (totalOcr === null || Number.isNaN(totalOcr)) {
-        errores.push(`- El OCR no encontró total en el ${etiqueta}.`);
+        advertencias.push(`- El OCR no encontró total en el ${etiqueta}. Se usará el monto capturado por el usuario.`);
     } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
-        errores.push(`- El total del ${etiqueta} (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+        advertencias.push(`- El total del ${etiqueta} (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}). Revisa el dato capturado; se guardará el monto que ingresó el usuario.`);
     }
 
     if (!fechaGasto) {
@@ -1492,6 +1488,36 @@ function validarResultadoDocumentoSimpleOcr(parsed, monto, fecha, etiquetaDocume
     }
 
     return advertencias;
+}
+
+function resultadoMontoDocumentoSimpleOcr(parsed, monto) {
+    const totalOcr = parsed?.extracted_total === null || parsed?.extracted_total === undefined
+        ? null
+        : Number(parsed.extracted_total);
+    if (totalOcr === null || Number.isNaN(totalOcr)) {
+        return 'no_detectado';
+    }
+    if (redondearMonto(totalOcr) !== redondearMonto(Number(monto))) {
+        return 'diferente';
+    }
+    return 'coincide';
+}
+
+function mensajeBaseDocumentoSimpleOcr(etiquetaMinuscula, resultadoMonto, fueReutilizado) {
+    if (resultadoMonto === 'no_detectado') {
+        return fueReutilizado
+            ? `OCR ya leído para este ${etiquetaMinuscula}. No encontró monto; se usará el monto capturado.`
+            : `OCR completado para el ${etiquetaMinuscula}. No encontró monto; se usará el monto capturado.`;
+    }
+    if (resultadoMonto === 'diferente') {
+        return fueReutilizado
+            ? `OCR ya leído para este ${etiquetaMinuscula}. Detectó un monto diferente; revisa el dato capturado.`
+            : `OCR completado para el ${etiquetaMinuscula}. Detectó un monto diferente; revisa el dato capturado.`;
+    }
+
+    return fueReutilizado
+        ? `OCR ya leído para este ${etiquetaMinuscula}. El monto coincide.`
+        : `OCR completado para el ${etiquetaMinuscula}. El monto coincide.`;
 }
 
 function esErrorDeLecturaOcr(mensaje) {
