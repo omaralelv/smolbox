@@ -74,12 +74,16 @@ def obtener_contexto_periodo_reembolso(
     )
 
     if solicitud_anterior is not None:
+        misma_fecha_del_folio = (
+            solicitud_anterior.reimbursement_ends_on == fecha_fin_actual
+        )
         inicio_actual = (
-            solicitud_anterior.reimbursement_ends_on
-            + timedelta(days=1)
+            solicitud_anterior.reimbursement_starts_on
+            if misma_fecha_del_folio
+            else solicitud_anterior.reimbursement_ends_on + timedelta(days=1)
         )
 
-        if fecha_fin_actual < inicio_actual:
+        if not misma_fecha_del_folio and fecha_fin_actual < inicio_actual:
             raise ValueError(
                 "La fecha final del reembolso no puede ser "
                 "anterior al inicio calculado desde la "

@@ -33,6 +33,21 @@ from app.services.tax_rules import (
 
 router = APIRouter()
 
+
+def _resaltar_uidd_necesario(ws_sap, fila: int, uidd: str) -> None:
+    if uidd == "DATO NECESARIO":
+        ws_sap.cell(row=fila, column=8).fill = PatternFill(
+            start_color="FFFF00",
+            end_color="FFFF00",
+            fill_type="solid",
+        )
+
+
+def _formatear_fecha_ultimo_gasto(gastos_db) -> str:
+    """Devuelve la fecha más reciente de los gastos ya filtrados de la solicitud."""
+    return max(gasto["spent_on"] for gasto in gastos_db).strftime("%d/%m/%Y")
+
+
 # 2. Configurar las rutas absolutas para leer tus archivos (para que no falle al ejecutarlo)
 # Esto calcula la ruta basándose en dónde está este archivo macro_sap.py
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -249,6 +264,7 @@ def generar_polizas(
             detail="La solicitud no tiene gastos activos asociados.",
         )
 
+    str_ultimo_gasto = _formatear_fecha_ultimo_gasto(gastos_db)
 
     # ========================================================
     # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA
@@ -280,7 +296,7 @@ def generar_polizas(
         uidd_factura = (
             str(gasto["cfdi_uuid"]).strip()
             if gasto["cfdi_uuid"]
-            else "Sin Folio"
+            else "DATO NECESARIO"
         )
 
         monto_total = Decimal(str(gasto["amount"]))
@@ -408,6 +424,7 @@ def generar_polizas(
 
         col_h = f'{numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' if es_k else mov['UIDD']
         ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, "", f'{numero_tienda} CAJA CHICA', col_h])
+        _resaltar_uidd_necesario(ws_sap, ws_sap.max_row, col_h)
 
 
     # E) Creación del Archivo 2: Solicitud (En memoria)
@@ -439,7 +456,7 @@ def generar_polizas(
     ws_solicitud['D18'] = float(total_gran_factura)
     ws_solicitud['D20'] = fondo
     ws_solicitud['F29'] = str_inicio_caja
-    ws_solicitud['I29'] = str_fin_caja
+    ws_solicitud['I29'] = str_ultimo_gasto
     ws_solicitud['F31'] = str_inicio_ant
     ws_solicitud['I31'] = str_fin_ant
     ws_solicitud['H34'] = responsable
