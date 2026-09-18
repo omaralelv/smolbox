@@ -12,6 +12,13 @@ const SOLICITUDES_BASE = [
 ];
 
 
+function formatearMonto(monto) {
+    const valor = Number(monto) || 0;
+    return new Intl.NumberFormat('es-MX', {
+        style: 'currency',
+        currency: 'MXN',
+    }).format(valor);
+}
 
 function obtenerEstadoAlerta(solicitud, currentRole) {
     const solicitudBackendId = solicitud?.backendId || solicitud?.reimbursementRequestId || solicitud?.id;
@@ -215,18 +222,19 @@ function Bandeja({currentRole}) {
             </div>
 
         {/* ENCABEZADOS DE LA TABLA */}
-            <div style={styles.tableHeader}>
-                <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
-                <span style={{ flex: 1, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px' }}>
-                    TIENDA 
-                    <svg width="12" height="12" viewBox="0 0 25 24" fill="currentColor">
-                        <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-                    </svg>
-                </span>
-                <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
-                <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
-                <span style={{ width: '100px' }}></span>
-            </div>
+        <div style={styles.tableHeader}>
+            <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
+            <span style={{ flex: 1, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px' }}>
+                TIENDA 
+                <svg width="12" height="12" viewBox="0 0 25 24" fill="currentColor">
+                    <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+                </svg>
+            </span>
+            <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
+            <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
+            <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
+            <span style={{ width: '100px' }}></span>
+        </div>
 
 
         {/* LISTA DE FILAS DE SOLICITUDES */}
@@ -309,6 +317,8 @@ function Bandeja({currentRole}) {
                             
                         }
                     };
+
+                    const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
                     
                     return (
                         <div key={sol.id} style={rowStyle}>
@@ -327,7 +337,12 @@ function Bandeja({currentRole}) {
                                 {sol.fecha || new Date().toLocaleDateString()}
                             </span>
 
-                            {/* 4. Pill / Badge de Estatus */}
+                            {/* 4. Monto Total */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#333', fontWeight: '700' }}>
+                                {formatearMonto(montoTotal)}
+                            </span>
+
+                            {/* 5. Pill / Badge de Estatus */}
                             <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
                                 <span style={{ 
                                     ...styles.statusBadge, 
@@ -361,7 +376,7 @@ function Bandeja({currentRole}) {
 // 🎨 ESTILOS ALINEADOS A LA NUEVA MAQUETA
 const styles = {
     container: {
-        maxWidth: '1250px',
+        maxWidth: '1450px',
         margin: '0 auto',
         padding: '30px 20px',
         textAlign: 'left',

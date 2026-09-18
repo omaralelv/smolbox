@@ -12,6 +12,14 @@ const SOLICITUDES_BASE = [
     { id: 'Solicitud 1', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' }
 ];
 
+function formatearMonto(monto) {
+    const valor = Number(monto) || 0;
+    return new Intl.NumberFormat('es-MX', {
+        style: 'currency',
+        currency: 'MXN',
+    }).format(valor);
+}
+
 function Historico({currentRole}) {
     const navigate = useNavigate();
     const [solicitudes, setSolicitudes] = useState(() => {
@@ -71,10 +79,10 @@ function Historico({currentRole}) {
 
     // Filtrado de seguridad en render
     const solicitudesHistoricas = solicitudes.filter(esSolicitudHistorica);
-
-
+    
+    
     return (
-    <div style={styles.container}>
+        <div style={styles.container}>
 
         {/* ENCABEZADOS DE LA TABLA */}
             <div style={styles.tableHeader}>
@@ -86,6 +94,7 @@ function Historico({currentRole}) {
                     </svg>
                 </span>
                 <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
+                <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
                 <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
                 <span style={{ width: '100px' }}></span>
             </div>
@@ -97,41 +106,49 @@ function Historico({currentRole}) {
                     <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
                         No hay solicitudes registradas en el histórico.
                     </div>
-                ) : (solicitudesHistoricas.map((sol) => (
-                    <div key={sol.id} style={styles.row}>
-                        {/* 1. Nombre / ID Solicitud */}
-                        <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
-                            {sol.id}
-                        </span>
-
-                        {/* 2. Tienda */}
-                        <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
-                            {sol.tienda || 'T-001'}
-                        </span>
-
-                        {/* 3. Fecha de Envío */}
-                        <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
-                            {sol.fecha || new Date().toLocaleDateString()}
-                        </span>
-
-                        {/* 4. Pill / Badge de Estatus */}
-                        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-                            <span style={{ ...styles.statusBadge, ...getBadgeStyle(sol.status || sol.estatus) }}>
-                                {sol.status}
+                ) : (solicitudesHistoricas.map((sol) => {
+                    const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
+                    return (
+                        <div key={sol.id} style={styles.row}>
+                            {/* 1. Nombre / ID Solicitud */}
+                            <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
+                                {sol.id}
                             </span>
-                        </div>
 
-                        {/* 5. Botón / Acción Abrir */}
-                        <div style={{ width: '100px', textAlign: 'center' }}>
-                            <button 
-                                style={styles.abrirBtn}
-                                onClick={() => navigate('/acumulado', { state: { solicitud: sol } })}
-                            >
-                                Abrir
-                            </button>
+                            {/* 2. Tienda */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
+                                {sol.tienda || 'T-001'}
+                            </span>
+
+                            {/* 3. Fecha de Envío */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
+                                {sol.fecha || new Date().toLocaleDateString()}
+                            </span>
+
+                            {/* 4. Monto Total */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#333', fontWeight: '700' }}>
+                                {formatearMonto(montoTotal)}
+                            </span>
+
+                            {/* 5. Pill / Badge de Estatus */}
+                            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                                <span style={{ ...styles.statusBadge, ...getBadgeStyle(sol.status || sol.estatus) }}>
+                                    {sol.status}
+                                </span>
+                            </div>
+
+                            {/* 6. Botón / Acción Abrir */}
+                            <div style={{ width: '100px', textAlign: 'center' }}>
+                                <button 
+                                    style={styles.abrirBtn}
+                                    onClick={() => navigate('/acumulado', { state: { solicitud: sol } })}
+                                >
+                                    Abrir
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                ))
+                    );
+                })
             )}
             </div>
 
@@ -142,7 +159,7 @@ function Historico({currentRole}) {
 // 🎨 ESTILOS ALINEADOS A LA NUEVA MAQUETA
 const styles = {
     container: {
-        maxWidth: '1250px',
+        maxWidth: '1450px',
         margin: '0 auto',
         padding: '30px 20px',
         textAlign: 'left',
