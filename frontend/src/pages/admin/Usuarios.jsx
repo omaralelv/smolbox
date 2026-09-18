@@ -111,7 +111,7 @@ async function cargarAsignacionesPorUsuario(usuarios, tiendas) {
                 if (asignacion.role && asignacion.role !== usuario.role) return;
                 asignaciones[asignacion.user_id].storeIds.push(tienda.id);
                 asignaciones[asignacion.user_id].storeId ||= tienda.id;
-                asignaciones[asignacion.user_id].tiendas.push(`${tienda.code} - ${tienda.name}`);
+                asignaciones[asignacion.user_id].tiendas.push(`${tienda.code}-${tienda.name}`);
             });
     });
 
@@ -121,6 +121,22 @@ async function cargarAsignacionesPorUsuario(usuarios, tiendas) {
 function mostrarListaAsignada(valores, textoVacio = 'Sin asignar') {
     if (!Array.isArray(valores) || valores.length === 0) return textoVacio;
     return valores.join(', ');
+}
+
+function normalizarTexto(valor) {
+    return String(valor || '').trim().toLocaleLowerCase('es');
+}
+
+function obtenerNombreMostrado(usuario, asignaciones, tiendas) {
+    if (usuario.role !== 'store') return usuario.full_name;
+    if (asignaciones.tiendas?.length) return asignaciones.tiendas[0];
+
+    const tiendaPorNombre = tiendas.find(
+        (tienda) => normalizarTexto(tienda.name) === normalizarTexto(usuario.full_name)
+    );
+    return tiendaPorNombre
+        ? `${tiendaPorNombre.code}-${tiendaPorNombre.name}`
+        : usuario.full_name;
 }
 
 function Usuarios() {
@@ -529,7 +545,6 @@ function Usuarios() {
                                             <span>CORREO</span>
                                             <span>ROL</span>
                                             <span>ÁREA</span>
-                                            <span>TIENDA</span>
                                             <span>ESTATUS</span>
                                             <span>HERRAMIENTAS</span>
                                         </div>
@@ -544,17 +559,18 @@ function Usuarios() {
                                                 const areaAsignada = usuario.role === 'authorizer'
                                                     ? mostrarListaAsignada(asignaciones.areas, 'Sin área')
                                                     : 'No aplica';
-                                                const tiendaAsignada = usuario.role === 'store'
-                                                    ? mostrarListaAsignada(asignaciones.tiendas, 'Sin tienda')
-                                                    : 'No aplica';
+                                                const nombreMostrado = obtenerNombreMostrado(
+                                                    usuario,
+                                                    asignaciones,
+                                                    tiendas
+                                                );
 
                                                 return(
                                                     <div key={usuario.id} style={styles.row}>
-                                                        <span>{usuario.full_name}</span>
+                                                        <span>{nombreMostrado}</span>
                                                         <span>{usuario.email}</span>
                                                         <span>{rolesPorValor[usuario.role] || usuario.role}</span>
                                                         <span>{areaAsignada}</span>
-                                                        <span>{tiendaAsignada}</span>
                                                         <span>{usuario.is_active ? 'Activo' : 'Inactivo'}</span>
                                                         <div style={styles.toolsCell}>
                                                             <button
@@ -909,7 +925,7 @@ const styles = {
     },
     tableHeader: {
         display: 'grid',
-        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
+        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 0.5fr 0.5fr',
         gap: '12px',
         padding: '8px 16px',
         backgroundColor: '#fef2f2',
@@ -920,7 +936,7 @@ const styles = {
     },
     row: {
         display: 'grid',
-        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 1fr 0.5fr 0.5fr',
+        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 0.5fr 0.5fr',
         gap: '12px',
         padding: '10px 16px',
         borderTop: '1px solid var(--border)',
