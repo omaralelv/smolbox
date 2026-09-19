@@ -122,8 +122,10 @@ def test_cfdi_and_receipt_test_data_are_accepted(
         },
     )
     assert mismatch_cfdi.status_code == 200, mismatch_cfdi.text
-    assert mismatch_cfdi.json()["is_valid"] is False
-    assert "total_mismatch" in {issue["code"] for issue in mismatch_cfdi.json()["issues"]}
+    mismatch_payload = mismatch_cfdi.json()
+    assert mismatch_payload["is_valid"] is True
+    mismatch_issues = {issue["code"]: issue for issue in mismatch_payload["issues"]}
+    assert mismatch_issues["total_mismatch"]["severity"] == "warning"
 
 
 def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:

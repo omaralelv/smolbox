@@ -23,7 +23,12 @@ from app.services.storage import (
     UploadTooLarge,
     read_upload_limited,
 )
-from app.services.textract_ocr import TextractOcrError, TextractOcrResult, TextractOcrService
+from app.services.textract_ocr import (
+    OCR_UNREADABLE_DOCUMENT_MESSAGE,
+    TextractOcrError,
+    TextractOcrResult,
+    TextractOcrService,
+)
 
 router = APIRouter()
 
@@ -184,14 +189,14 @@ def _maybe_extract_attachment_ocr(
                 attachment_id=attachment.id,
                 expense_id=expense.id,
                 status=OcrExtractionStatus.failed,
-                error_message=str(exc),
+                error_message=OCR_UNREADABLE_DOCUMENT_MESSAGE,
             )
         )
         _add_ocr_audit_event(
             expense,
             action="expense_ocr_failed",
-            message=str(exc),
-            payload={"provider": "aws_textract"},
+            message=OCR_UNREADABLE_DOCUMENT_MESSAGE,
+            payload={"provider": "aws_textract", "technical_error": str(exc)},
             db=db,
         )
         return

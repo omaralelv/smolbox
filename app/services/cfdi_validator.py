@@ -55,6 +55,7 @@ def validate_cfdi_for_expense(
             CfdiValidationIssue(
                 code="missing_total",
                 message="CFDI total is required to compare against the expense amount.",
+                severity="warning",
             )
         )
     elif _money(parsed.total) != _money(expense.amount):
@@ -62,6 +63,7 @@ def validate_cfdi_for_expense(
             CfdiValidationIssue(
                 code="total_mismatch",
                 message="CFDI total does not match the expense amount.",
+                severity="warning",
             )
         )
 
@@ -97,6 +99,7 @@ def validate_cfdi_for_expense(
             CfdiValidationIssue(
                 code="missing_issued_at",
                 message="CFDI issue date is required.",
+                severity="warning",
             )
         )
 

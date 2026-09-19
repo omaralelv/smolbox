@@ -32,7 +32,11 @@ from app.services.storage import (
     UploadTooLarge,
     read_upload_limited,
 )
-from app.services.textract_ocr import TextractOcrError, TextractOcrService
+from app.services.textract_ocr import (
+    OCR_UNREADABLE_DOCUMENT_MESSAGE,
+    TextractOcrError,
+    TextractOcrService,
+)
 
 router = APIRouter()
 
@@ -126,7 +130,10 @@ async def preview_invoice_ocr(
     except TextractOcrError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail={
+                "code": "OCR_UNREADABLE_DOCUMENT",
+                "message": OCR_UNREADABLE_DOCUMENT_MESSAGE,
+            },
         ) from exc
 
     if result is None:
@@ -134,7 +141,7 @@ async def preview_invoice_ocr(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "OCR_NOT_AVAILABLE",
-                "message": "OCR no pudo leer la factura PDF. Revisa que el archivo sea legible.",
+                "message": OCR_UNREADABLE_DOCUMENT_MESSAGE,
             },
         )
 

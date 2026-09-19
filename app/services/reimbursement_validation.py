@@ -305,9 +305,6 @@ def _valid_ocr_cfdi_uuid(expense: ExpenseLike) -> str | None:
         ocr_status = getattr(extraction, "status", None)
         if getattr(ocr_status, "value", ocr_status) != "succeeded":
             continue
-        if not _ocr_total_matches_expense(expense, extraction):
-            continue
-
         confirmed_uuid = normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None))
         suggested_uuid = normalize_cfdi_uuid(getattr(extraction, "suggested_cfdi_uuid", None))
         if confirmed_uuid or suggested_uuid:
@@ -321,32 +318,6 @@ def _attachment_type_value(attachment: AttachmentLike) -> str:
         attachment_type.value
         if isinstance(attachment_type, AttachmentType)
         else str(attachment_type)
-    )
-
-
-def _ocr_total_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
-    extracted_total = getattr(extraction, "extracted_total", None)
-    if extracted_total is None:
-        return False
-    return _money(extracted_total) == _money(expense.amount)
-
-
-def _ocr_date_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
-    extracted_date = getattr(extraction, "extracted_date", None)
-    spent_on = getattr(expense, "spent_on", None)
-    if extracted_date is None or spent_on is None:
-        return False
-    if isinstance(extracted_date, datetime):
-        extracted_date = extracted_date.date()
-    if isinstance(spent_on, datetime):
-        spent_on = spent_on.date()
-    return extracted_date == spent_on
-
-
-def _ocr_matches_expense(expense: ExpenseLike, extraction: object) -> bool:
-    return _ocr_total_matches_expense(expense, extraction) and _ocr_date_matches_expense(
-        expense,
-        extraction,
     )
 
 

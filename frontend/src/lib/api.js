@@ -300,7 +300,28 @@ export async function rejectAuthorizationExpense(expenseId, reason = 'Gasto no a
 
 export function apiErrorMessage(error) {
     if (!error) return 'No se pudo completar la operación.';
-    return error.message || 'No se pudo completar la operación.';
+    return friendlyErrorMessage(error.message) || 'No se pudo completar la operación.';
+}
+
+function friendlyErrorMessage(message) {
+    if (!message) return '';
+
+    const text = String(message);
+    const normalized = text.toLowerCase();
+    if (
+        normalized.includes('textract')
+        || normalized.includes('analyzeexpense')
+        || normalized.includes('unsupporteddocument')
+        || normalized.includes('unsupported document')
+    ) {
+        return [
+            'No se pudo leer el documento con OCR.',
+            'El archivo cargado no tiene un formato compatible o no puede ser procesado.',
+            'Por favor, carga nuevamente el archivo en formato PDF válido o sube el XML si se trata de una factura.',
+        ].join('\n');
+    }
+
+    return text;
 }
 
 export function apiFileUrl(path) {

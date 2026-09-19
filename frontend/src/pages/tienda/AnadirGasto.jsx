@@ -91,8 +91,8 @@ function AnadirGasto() {
             && ocrCoincideConArchivoActual(ocrFactura, facturaFile)
             && ocrFactura.validatedAmount !== montoParaValidacion(nuevoMonto)
         ) {
-            setEstadoValidacion(null);
-            setMensajeValidacion('El monto cambió. Presiona "Validar Gasto" para revisar que coincida con la factura.');
+            setEstadoValidacion('advertencia');
+            setMensajeValidacion('El monto cambió. Revisa que sea correcto; se guardará el monto capturado para la factura.');
         }
         if (
             tipoDocumento !== 'factura'
@@ -383,13 +383,6 @@ function AnadirGasto() {
             try {
                 if (!ocrCoincideConArchivoActual(ocrParsed, facturaFile)) {
                     const mensaje = 'Primero presiona "Validar Gasto" para leer la factura PDF con OCR.';
-                    setEstadoValidacion('error');
-                    setMensajeValidacion(mensaje);
-                    alert(mensaje);
-                    return;
-                }
-                if (!ocrValidadoParaDatosActuales(ocrParsed, facturaFile, monto)) {
-                    const mensaje = 'El monto cambió después de validar. Presiona "Validar Gasto" para revisarlo contra la factura.';
                     setEstadoValidacion('error');
                     setMensajeValidacion(mensaje);
                     alert(mensaje);
@@ -784,7 +777,7 @@ function AnadirGasto() {
                 <div style={{...styles.iconCircle, backgroundColor: 'var(--sb-denegadaBg)', color: 'var(--sb-errorDatos)'}}>⚠️</div>
                 <div>
                 <h4 style={{margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text-h)'}}>Corrección de datos</h4>
-                <p style={styles.valText}>El monto o folio no coincide con la factura. Corrija y valide nuevamente.</p>
+                <p style={styles.valText}>El documento no se pudo validar o tiene un problema que bloquea el gasto.</p>
                 </div>
             </div>
 
@@ -1350,13 +1343,13 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     }
 
     if (uuidCapturado && uuidXml && uuidCapturado !== uuidXml) {
-        errores.push(`- El folio confirmado (${uuidCapturado}) no coincide con el folio fiscal del XML (${uuidXml}).`);
+        advertencias.push(`- El folio confirmado (${uuidCapturado}) no coincide con el folio fiscal del XML (${uuidXml}). Se guardará el folio de la factura XML.`);
     }
 
     if (totalCfdi === null || Number.isNaN(totalCfdi)) {
-        errores.push('- El XML no trae total fiscal.');
+        advertencias.push('- El XML no trae total fiscal. Se usará el monto capturado por el usuario.');
     } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
-        errores.push(`- El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+        advertencias.push(`- El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}). Revisa el dato capturado; se guardará el monto que ingresó el usuario.`);
     }
 
     if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
@@ -1421,9 +1414,9 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
 
     if (totalOcr === null || Number.isNaN(totalOcr)) {
-        errores.push('- El OCR no encontró total en el PDF.');
+        advertencias.push('- El OCR no encontró total en el PDF. Se usará el monto capturado por el usuario.');
     } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
-        errores.push(`- El total del PDF (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+        advertencias.push(`- El total del PDF (${formatoMonto(totalOcr)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}). Revisa el dato capturado; se guardará el monto que ingresó el usuario.`);
     }
 
     if (!fechaGasto) {
@@ -1552,13 +1545,6 @@ function ocrCoincideConArchivoActual(ocr, file) {
     );
 }
 
-function ocrValidadoParaDatosActuales(ocr, file, monto) {
-    return (
-        ocrCoincideConArchivoActual(ocr, file)
-        && ocr.validatedAmount === montoParaValidacion(monto)
-    );
-}
-
 function cfdiDesdeOcr(ocr, folioConfirmado = null) {
     return {
         uuid: normalizarUuidLocal(folioConfirmado) || ocr?.suggested_cfdi_uuid || null,
@@ -1628,14 +1614,6 @@ function validarSolicitudDespuesDeAnadir(gastos) {
         errores.push(`No debe haber CFDI duplicado. UUID repetido: ${cfdisDuplicados.join(', ')}.`);
     }
 
-    const totalGastos = activos.reduce((sum, gasto) => sum + (Number(gasto.monto) || 0), 0);
-    const totalComprobantes = activos.reduce((sum, gasto) => (
-        sum + (esGastoConFactura(gasto) ? (cfdiTotalDesdeGasto(gasto) || 0) : (Number(gasto.monto) || 0))
-    ), 0);
-    if (redondearMonto(totalGastos) !== redondearMonto(totalComprobantes)) {
-        errores.push(`El total de gastos (${formatoMonto(totalGastos)}) no coincide con el total de sus comprobantes (${formatoMonto(totalComprobantes)}).`);
-    }
-
     if (errores.length) {
         throw new Error([
             'No se puede añadir el gasto porque la solicitud quedaría con errores:',
@@ -1656,16 +1634,12 @@ function esGastoActivo(gasto) {
 
 function gastoTieneCfdiValido(gasto) {
     const uuid = cfdiUuidDesdeGasto(gasto);
-    const total = cfdiTotalDesdeGasto(gasto);
     const moneda = String(gasto.cfdiCurrency || gasto.cfdi_currency || 'MXN').trim().toUpperCase();
     const archivoFacturaValida = gasto.facturaFile
         ? esXml(gasto.facturaFile) || (esPdf(gasto.facturaFile) && Boolean(gasto.ocrValidado))
-        : Boolean(uuid && total !== null);
+        : Boolean(uuid);
 
-    if (gasto.facturaFile && esPdf(gasto.facturaFile)) {
-        return total !== null && moneda === 'MXN' && archivoFacturaValida;
-    }
-    return Boolean(uuid) && total !== null && moneda === 'MXN' && archivoFacturaValida;
+    return Boolean(uuid) && moneda === 'MXN' && archivoFacturaValida;
 }
 
 function esGastoConFactura(gasto) {
@@ -1702,10 +1676,6 @@ function cfdiUuidDesdeGasto(gasto) {
     return normalizarUuidLocal(
         gasto?.cfdiUuid || gasto?.cfdi_uuid || gasto?.folioFiscal || gasto?.folio_fiscal
     );
-}
-
-function cfdiTotalDesdeGasto(gasto) {
-    return numeroOculto(gasto?.cfdiTotal ?? gasto?.cfdi_total ?? gasto?.totalCfdi ?? gasto?.total_cfdi);
 }
 
 function normalizarUuidLocal(value) {

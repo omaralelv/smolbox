@@ -14,6 +14,12 @@ SUPPORTED_TEXTRACT_CONTENT_TYPES = {
     "image/png",
 }
 
+OCR_UNREADABLE_DOCUMENT_MESSAGE = (
+    "No se pudo leer el documento con OCR.\n"
+    "El archivo cargado no tiene un formato compatible o no puede ser procesado.\n"
+    "Por favor, carga nuevamente el archivo en formato PDF válido o sube el XML si se trata de una factura."
+)
+
 
 class TextractOcrError(RuntimeError):
     pass

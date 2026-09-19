@@ -238,7 +238,7 @@ def test_summarize_reimbursement_request_allows_pdf_ocr_date_mismatch() -> None:
     assert summary.ready_for_submission is True
 
 
-def test_summarize_reimbursement_request_blocks_pdf_ocr_invoice_mismatch() -> None:
+def test_summarize_reimbursement_request_allows_pdf_ocr_invoice_total_mismatch() -> None:
     spent_on = date(2026, 9, 15)
     pdf_invoice = SimpleNamespace(
         id=uuid4(),
@@ -270,8 +270,8 @@ def test_summarize_reimbursement_request_blocks_pdf_ocr_invoice_mismatch() -> No
 
     summary = summarize_reimbursement_request(request)
 
-    assert summary.missing_cfdi_expense_ids == [pdf_invoice.id]
-    assert summary.ready_for_submission is False
+    assert summary.missing_cfdi_expense_ids == []
+    assert summary.ready_for_submission is True
 
 
 def test_summarize_reimbursement_request_allows_submission_without_receipt() -> None:
