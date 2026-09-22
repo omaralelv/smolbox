@@ -1601,9 +1601,9 @@ function gastoTieneCfdiValido(gasto) {
     const moneda = String(gasto.cfdiCurrency || gasto.cfdi_currency || 'MXN').trim().toUpperCase();
     const archivoFacturaValida = gasto.facturaFile
         ? esXml(gasto.facturaFile) || (esPdf(gasto.facturaFile) && Boolean(gasto.ocrValidado))
-        : Boolean(uuid);
+        : Boolean(uuid || gastoTieneDocumentoGuardado(gasto, 'factura'));
 
-    return Boolean(uuid) && moneda === 'MXN' && archivoFacturaValida;
+    return Boolean(uuid || gastoTieneDocumentoGuardado(gasto, 'factura')) && moneda === 'MXN' && archivoFacturaValida;
 }
 
 function esGastoConFactura(gasto) {
@@ -1614,10 +1614,23 @@ function esGastoConFactura(gasto) {
 
 function gastoTieneEvidenciaValida(gasto) {
     if (!esGastoConFactura(gasto)) {
-        const archivo = gasto.tipoDocumento === 'vale' ? gasto.valeFile : gasto.reciboFile;
-        return Boolean(archivo && esPdf(archivo));
+        const tipoDocumento = String(gasto.tipoDocumento || gasto.tipo_documento || '').trim().toLowerCase();
+        const archivo = tipoDocumento === 'vale' ? gasto.valeFile : gasto.reciboFile;
+        return Boolean((archivo && esPdf(archivo)) || gastoTieneDocumentoGuardado(gasto, tipoDocumento));
     }
     return gastoTieneCfdiValido(gasto);
+}
+
+function gastoTieneDocumentoGuardado(gasto, tipoDocumento) {
+    const tipo = String(tipoDocumento || '').trim().toLowerCase();
+    const urlFactura = gasto.urlFactura || gasto.url_factura;
+    const urlVale = gasto.urlVale || gasto.url_vale;
+    const urlRecibo = gasto.urlRecibo || gasto.url_recibo;
+    const urlDescarga = gasto.downloadUrl || gasto.download_url || gasto.urlGasto || gasto.url_gasto;
+
+    if (tipo === 'vale') return Boolean(urlVale || gasto.documentoGuardadoEnBackend);
+    if (tipo === 'recibo') return Boolean(urlRecibo || gasto.documentoGuardadoEnBackend);
+    return Boolean(urlFactura || urlDescarga || gasto.documentoGuardadoEnBackend);
 }
 
 function obtenerCfdisDuplicados(gastos) {
@@ -1637,9 +1650,15 @@ function obtenerCfdisDuplicados(gastos) {
 }
 
 function cfdiUuidDesdeGasto(gasto) {
-    return normalizarUuidLocal(
+    const uuidFiscal = normalizarUuidLocal(
         gasto?.cfdiUuid || gasto?.cfdi_uuid || gasto?.folioFiscal || gasto?.folio_fiscal
     );
+    if (uuidFiscal) return uuidFiscal;
+    if (!esGastoConFactura(gasto)) return null;
+
+    const folioManual = normalizarUuidLocal(gasto?.folio);
+    if (!folioManual || ['N/A', 'OCR PENDIENTE'].includes(folioManual)) return null;
+    return folioManual;
 }
 
 function normalizarUuidLocal(value) {
