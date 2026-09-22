@@ -18,6 +18,10 @@ function TabsNav({ currentRole }) {
                     { label: 'Autorización', path: '/autorizacion' }
                 ];
             case 'contabilidad':
+                return [
+                    { label: 'Bandeja', path: '/bandeja' },
+                    { label: 'Historico', path: '/historico' }
+                ];
             case 'gerencia':
             case 'tesoreria':
             case 'direccion':
