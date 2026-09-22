@@ -46,6 +46,17 @@ export function updateDraftGasto(gastoId, updater) {
     return draftGastos;
 }
 
+export function removeDraftGasto(gastoId) {
+    const gastos = loadDraftGastos();
+    draftGastos = gastos.filter((item) => {
+        const itemId = item.backendId ?? item.backend_id ?? item.id;
+        return String(itemId) !== String(gastoId);
+    });
+
+    persistDraftMetadata();
+    return draftGastos;
+}
+
 export function clearDraftGastos() {
     draftGastos = [];
     localStorage.removeItem(DRAFT_GASTOS_KEY);

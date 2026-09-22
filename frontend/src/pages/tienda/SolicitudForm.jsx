@@ -10,6 +10,7 @@ import {
     apiErrorMessage,
     createFrontendSolicitud,
     currentToken,
+    deleteDraftExpense,
     executeRequestAction,
     getFrontendContext,
     getFrontendSolicitud,
@@ -22,6 +23,7 @@ import {
     clearDraftGastos,
     loadDraftGastos,
     loadDraftRequest,
+    removeDraftGasto,
     replaceDraftGastos,
     saveDraftRequest,
     updateDraftGasto,
@@ -160,6 +162,7 @@ function SolicitudForm({ currentRole }) {
     const location = useLocation();
     const [datosIniciales, setDatosIniciales] = useState(DATOS_INICIALES);
     const [enviando, setEnviando] = useState(false);
+    const [borrandoGastoId, setBorrandoGastoId] = useState(null);
 
     // 2. ESTADOS PARA LA LISTA DE GASTOS Y FORMULARIO
     const [gastos, setGastos] = useState(() => loadDraftGastos());
@@ -211,20 +214,24 @@ function SolicitudForm({ currentRole }) {
 
     // Calcular el TOTAL dinámicamente basándose en la lista actual
     const calcularTotal = () => {
-        return gastos.reduce((sum, item) => sum + item.monto, 0).toFixed(2);
+        return gastos
+            .filter(gastoActivoEnBorrador)
+            .reduce((sum, item) => sum + Number(item.monto || 0), 0)
+            .toFixed(2);
     };
 
     const handleEnviarSolicitud = async () => {
         const borradorBackend = loadDraftRequest();
+        const gastosActivos = gastos.filter(gastoActivoEnBorrador);
 
-        if (gastos.length === 0 && !borradorBackend?.backendId) {
+        if (gastosActivos.length === 0 && !borradorBackend?.backendId) {
             alert("Debes añadir al menos un gasto antes de enviar.");
             return;
         }
 
         const errorEvidencia = borradorBackend?.backendId
             ? null
-            : validarEvidenciaAntesDeEnviar(gastos);
+            : validarEvidenciaAntesDeEnviar(gastosActivos);
         if (errorEvidencia) {
             alert(errorEvidencia);
             return;
@@ -235,7 +242,8 @@ function SolicitudForm({ currentRole }) {
         try {
             if (borradorBackend?.backendId) {
                 const solicitudBorrador = await getFrontendSolicitud(borradorBackend.backendId);
-                if (!solicitudBorrador.gastos?.length) {
+                const gastosBackendActivos = (solicitudBorrador.gastos || []).filter(gastoActivoEnBorrador);
+                if (!gastosBackendActivos.length) {
                     throw new Error('El borrador no tiene gastos guardados.');
                 }
 
@@ -250,12 +258,12 @@ function SolicitudForm({ currentRole }) {
                 return;
             }
 
-            await validarCfdisAntesDeCrearSolicitud(gastos);
+            await validarCfdisAntesDeCrearSolicitud(gastosActivos);
 
             const nuevaSolicitud = await createFrontendSolicitud({
                 tienda: datosIniciales.tienda,
                 montoTotal: calcularTotal(),
-                gastos: gastos.map((gasto) => ({
+                gastos: gastosActivos.map((gasto) => ({
                     fecha: gasto.fecha,
                     categoria: gasto.tipo || gasto.type,
                     monto: String(gasto.monto),
@@ -278,7 +286,7 @@ function SolicitudForm({ currentRole }) {
                 })),
             });
 
-            await subirArchivosPendientes(nuevaSolicitud, gastos);
+            await subirArchivosPendientes(nuevaSolicitud, gastosActivos);
             await executeRequestAction(nuevaSolicitud.backendId, 'submit_request');
             const solicitudActualizada = await getFrontendSolicitud(nuevaSolicitud.backendId);
 
@@ -316,7 +324,7 @@ function SolicitudForm({ currentRole }) {
                     return;
                 }
 
-                const gastosBackend = solicitud.gastos || [];
+                const gastosBackend = (solicitud.gastos || []).filter(gastoActivoEnBorrador);
                 saveDraftRequest(solicitud);
                 replaceDraftGastos(gastosBackend);
                 setGastos(gastosBackend);
@@ -401,6 +409,39 @@ function SolicitudForm({ currentRole }) {
     const handleToggleObservaciones = (gasto) => {
         setGastoSeleccionado(gasto);
         setObservacionesAbiertas(!observacionesAbiertas);
+    };
+
+    const handleEliminarGasto = async (gasto) => {
+        const gastoId = gastoHistorialId(gasto);
+        if (!gastoId) return;
+
+        const nombreGasto = gasto.nombre || gasto.tipo || gasto.type || 'este gasto';
+        const confirmar = window.confirm(`¿Eliminar ${nombreGasto} de la solicitud?`);
+        if (!confirmar) return;
+
+        setBorrandoGastoId(gastoId);
+
+        try {
+            const backendId = gasto.backendId || gasto.backend_id;
+            const borradorBackend = loadDraftRequest();
+            if (backendId && borradorBackend?.backendId) {
+                await deleteDraftExpense(borradorBackend.backendId, backendId);
+            }
+
+            const gastosActualizados = removeDraftGasto(gastoId).filter(gastoActivoEnBorrador);
+            setGastos(gastosActualizados);
+            setHistorial(historialBorradorDesdeGastos(gastosActualizados));
+
+            if (idsIguales(gastoHistorialId(gastoSeleccionado), gastoId)) {
+                setGastoSeleccionado(null);
+                setDocumentoActivo(null);
+                setObservacionesAbiertas(false);
+            }
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setBorrandoGastoId(null);
+        }
     };
 
     const handleEnviarObservacion = async (e) => {
@@ -496,36 +537,54 @@ function SolicitudForm({ currentRole }) {
                 </div>
 
                 {/* FILAS DE GASTOS */}
-                {gastos.map((gasto) => (
-                    <div key={gasto.id} style={styles.tableRow}>
-                        {/* 1. CONCEPTO (flex: 2) */}
-                        <span style={{ flex: 1.5, textAlign: 'left', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {gasto.nombre}
-                        </span>
-                        
-                        {/* 2. MONTO (flex: 1) */}
-                        <span style={{ flex: 1.5, textAlign: 'center' }}>
-                            $ {gasto.monto.toFixed(2)}
-                        </span>
-                        
-                        {/* 3. TIPO DE GASTO (flex: 1.5) */}
-                        <span style={{ flex: 1.5, textAlign: 'center' }}>
-                            {gasto.type || gasto.tipo}
-                        </span>
+                {gastos.filter(gastoActivoEnBorrador).map((gasto) => {
+                    const gastoId = gastoHistorialId(gasto);
+                    const borrandoEsteGasto = idsIguales(borrandoGastoId, gastoId);
+                    return (
+                        <div key={gasto.id} style={styles.tableRow}>
+                            {/* 1. CONCEPTO (flex: 2) */}
+                            <span style={{ flex: 1.5, textAlign: 'left', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {gasto.nombre}
+                            </span>
 
-                        
-                        {/* 4. HERRAMIENTAS (flex: 1.5) */}
-                        <div style={{ ...styles.herramientasContainer, flex: 1.5, display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                            <button style={styles.iconBtn} title="Ver Documento" onClick={() => handleVerDocumento(gasto)}>
-                                <img src="/Factura.png" alt="Documento" style={styles.iconImg} />
-                            </button>
+                            {/* 2. MONTO (flex: 1) */}
+                            <span style={{ flex: 1.5, textAlign: 'center' }}>
+                                $ {Number(gasto.monto || 0).toFixed(2)}
+                            </span>
 
-                            <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
-                                <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
-                            </button>
+                            {/* 3. TIPO DE GASTO (flex: 1.5) */}
+                            <span style={{ flex: 1.5, textAlign: 'center' }}>
+                                {gasto.type || gasto.tipo}
+                            </span>
+
+                            {/* 4. HERRAMIENTAS (flex: 1.5) */}
+                            <div style={{ ...styles.herramientasContainer, flex: 1.5, display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                                <button style={styles.iconBtn} title="Ver Documento" onClick={() => handleVerDocumento(gasto)}>
+                                    <img src="/Factura.png" alt="Documento" style={styles.iconImg} />
+                                </button>
+
+                                <button style={styles.iconBtn} title="Observaciones" onClick={() => handleToggleObservaciones(gasto)}>
+                                    <img src="/Observacion.png" alt="Observaciones" style={styles.iconImg} />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    style={{
+                                        ...styles.deleteIconBtn,
+                                        opacity: borrandoEsteGasto || enviando ? 0.5 : 1,
+                                        cursor: borrandoEsteGasto || enviando ? 'not-allowed' : 'pointer',
+                                    }}
+                                    title="Eliminar gasto"
+                                    aria-label="Eliminar gasto"
+                                    disabled={borrandoEsteGasto || enviando}
+                                    onClick={() => handleEliminarGasto(gasto)}
+                                >
+                                    X
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* FOOTER DE TOTALES */}
@@ -893,6 +952,21 @@ const styles = {
         height: '18px',
         objectFit: 'contain'
     },
+    deleteIconBtn: {
+        width: '22px',
+        height: '22px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '50%',
+        backgroundColor: 'var(--sb-WBtnBg)',
+        color: 'var(--text-denegada, #c73b3b)',
+        fontSize: '18px',
+        fontWeight: 'bold',
+        lineHeight: 1,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: 'var(--shadow)',
+    },
 
     totalRow: {
         display: 'flex',
@@ -952,6 +1026,16 @@ function gastoHistorialId(gasto) {
 function idsIguales(uno, dos) {
     if (uno === null || uno === undefined || dos === null || dos === undefined) return false;
     return String(uno) === String(dos);
+}
+
+function gastoActivoEnBorrador(gasto) {
+    if (!gasto) return false;
+    if (gasto.deletedAt || gasto.deleted_at || gasto.removedAt || gasto.removed_at) return false;
+
+    const estado = String(gasto.backendStatus || gasto.backend_status || gasto.status || gasto.estado || '')
+        .toLowerCase()
+        .trim();
+    return !['deleted', 'removed', 'rejected', 'eliminado', 'no autorizado', 'no_autorizado'].includes(estado);
 }
 
 function combinarHistorialObservaciones(obsIniciales = [], obsEventos = []) {

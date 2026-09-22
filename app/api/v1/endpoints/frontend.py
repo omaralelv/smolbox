@@ -483,6 +483,93 @@ def add_frontend_expense(
     return _request_payload(request, current_user, db)
 
 
+@router.delete(
+    "/solicitudes/{request_identifier}/gastos/{expense_id}/me",
+    response_model=FrontendSolicitudRead,
+)
+def delete_frontend_draft_expense(
+    request_identifier: str,
+    expense_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendSolicitudRead:
+    request = _get_request_by_frontend_identifier(request_identifier, db)
+    _ensure_request_visible(request, current_user, db)
+    if current_user.role not in {UserRole.store, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Only store or admin users can delete draft expenses from the frontend",
+            },
+        )
+    if request.status not in {
+        ReimbursementRequestStatus.draft,
+        ReimbursementRequestStatus.correction_required,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_EDITABLE",
+                "message": "Expenses can only be deleted before submission",
+            },
+        )
+
+    expense = next((item for item in request.expenses if item.id == expense_id), None)
+    if expense is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "EXPENSE_NOT_FOUND",
+                "message": "Expense not found in this request",
+            },
+        )
+
+    if expense.status != ExpenseStatus.removed or expense.removed_at is None:
+        previous_expense_status = expense.status
+        expense.status = ExpenseStatus.removed
+        expense.removed_at = datetime.now(UTC)
+        expense.removed_by_user_id = current_user.id
+        expense.removal_reason = "Gasto eliminado por tienda antes de enviar la solicitud."
+        request.reported_total = _active_frontend_expense_total(request)
+        db.add(
+            AuditLog(
+                reimbursement_request_id=request.id,
+                expense_id=expense.id,
+                actor_user_id=current_user.id,
+                actor_type=AuditActorType.user,
+                action="expense_removed_from_request",
+                message=expense.removal_reason,
+                event_payload={
+                    "actor_role": current_user.role.value,
+                    "request_status": request.status.value,
+                    "previous_expense_status": previous_expense_status.value,
+                    "reported_total": str(request.reported_total),
+                    "authenticated": True,
+                    "draft_delete": True,
+                },
+            )
+        )
+
+    db.commit()
+    request = _get_request_by_id(request.id, db)
+    return _request_payload(request, current_user, db)
+
+
+def _active_frontend_expense_total(request: ReimbursementRequest) -> Decimal:
+    return _money(
+        sum(
+            (
+                expense.amount
+                for expense in request.expenses
+                if expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
+                and expense.removed_at is None
+            ),
+            Decimal("0.00"),
+        )
+    )
+
+
 def _request_detail_statement():
     return select(ReimbursementRequest).options(
         selectinload(ReimbursementRequest.store),

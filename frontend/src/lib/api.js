@@ -296,6 +296,13 @@ export async function removeExpense(expenseId, reason) {
     });
 }
 
+export async function deleteDraftExpense(requestIdOrFolio, expenseId) {
+    return request(
+        `/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/gastos/${encodeURIComponent(expenseId)}/me`,
+        { method: 'DELETE' }
+    );
+}
+
 export async function updateExpenseForReview(expenseId, payload) {
     return request(`/expenses/${expenseId}/review/me`, {
         method: 'PATCH',
