@@ -87,12 +87,13 @@ def parse_access_token(token: str, settings: Settings) -> UUID:
     return user_id
 
 
-def parse_cognito_token(token: str, settings: Settings) -> str:
+def parse_cognito_token_claims(token: str, settings: Settings) -> dict:
     if not settings.cognito_enabled:
         raise InvalidToken("Cognito authentication is disabled")
-    if not settings.cognito_issuer or not settings.cognito_app_client_id:
+    issuer = cognito_issuer(settings)
+    if not issuer or not settings.cognito_app_client_id:
         raise CognitoConfigurationError(
-            "Cognito requires cognito_issuer and cognito_app_client_id"
+            "Cognito requires cognito_issuer or cognito_user_pool_id, and cognito_app_client_id"
         )
 
     try:
@@ -102,14 +103,14 @@ def parse_cognito_token(token: str, settings: Settings) -> str:
             "PyJWT is required when Cognito authentication is enabled"
         ) from exc
 
-    jwks_url = settings.cognito_jwks_url or f"{settings.cognito_issuer}/.well-known/jwks.json"
+    jwks_url = settings.cognito_jwks_url or f"{issuer}/.well-known/jwks.json"
     try:
         signing_key = _cognito_jwk_client(jwks_url).get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
-            issuer=settings.cognito_issuer,
+            issuer=issuer,
             options={"verify_aud": False},
         )
     except (jwt.PyJWTError, ValueError) as exc:
@@ -124,7 +125,26 @@ def parse_cognito_token(token: str, settings: Settings) -> str:
     subject = payload.get("sub")
     if not isinstance(subject, str) or not subject:
         raise InvalidToken("Cognito token has no subject")
+    return payload
+
+
+def parse_cognito_token(token: str, settings: Settings) -> str:
+    payload = parse_cognito_token_claims(token, settings)
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise InvalidToken("Cognito token has no subject")
     return subject
+
+
+def cognito_issuer(settings: Settings) -> str | None:
+    if settings.cognito_issuer:
+        return settings.cognito_issuer.rstrip("/")
+    if settings.cognito_user_pool_id:
+        return (
+            f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
+            f"{settings.cognito_user_pool_id}"
+        )
+    return None
 
 
 @lru_cache(maxsize=8)

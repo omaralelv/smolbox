@@ -1,6 +1,11 @@
 import { useState } from 'react';
 
-import { apiErrorMessage, login, currentStoredRole } from '../lib/api';
+import {
+    apiErrorMessage,
+    completeNewPasswordLogin,
+    currentStoredRole,
+    login,
+} from '../lib/api';
 
 import Grainient from './Grainient';
 
@@ -8,8 +13,22 @@ import Grainient from './Grainient';
 function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+    const [cognitoChallenge, setCognitoChallenge] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const redirectByRole = (response) => {
+        const rolBackend = response?.context?.currentRole || response?.user?.role || response?.role || currentStoredRole() || '';
+        const rolActual = String(rolBackend).toLowerCase().trim();
+
+        if (rolActual === 'supervisor') {
+            window.location.href = '/autorizacion';
+        } else {
+            window.location.href = '/bandeja';
+        }
+    };
 
     const handleSubmit = async (event) => {
         event.preventDefault();
@@ -17,27 +36,28 @@ function Login() {
         setLoading(true);
 
         try {
-            // 1. Autenticar usuario
-            const response = await login(email, password);
-
-            // 2. Imprimir en consola sin navegar
-            console.log("1. Respuesta directa de login():", response);
-            console.log("2. Resultado de currentStoredRole():", currentStoredRole());
-            console.log("3. localStorage currentRole:", localStorage.getItem('currentRole'));
-            
-            
-            // 2. Extraer el rol directamente de la respuesta o del storage
-            const rolBackend = response?.user?.role || response?.role || currentStoredRole() || '';
-            const rolActual = String(rolBackend).toLowerCase().trim();
-
-            console.log("Rol detectado al loguear:", rolActual);
-
-            // 3. Redirigir según el rol
-            if (rolActual === 'supervisor') {
-                window.location.href = '/autorizacion';
-            } else {
-                window.location.href = '/bandeja';
+            if (cognitoChallenge) {
+                if (newPassword !== newPasswordConfirm) {
+                    setError('Las contraseñas no coinciden.');
+                    return;
+                }
+                const response = await completeNewPasswordLogin(
+                    cognitoChallenge.email,
+                    newPassword,
+                    cognitoChallenge.session,
+                );
+                redirectByRole(response);
+                return;
             }
+
+            const response = await login(email, password);
+            if (response?.challengeName === 'NEW_PASSWORD_REQUIRED') {
+                setCognitoChallenge(response);
+                setPassword('');
+                setError('');
+                return;
+            }
+            redirectByRole(response);
         } catch (err) {
             setError(apiErrorMessage(err));
         } finally {
@@ -83,7 +103,14 @@ function Login() {
                     alt="Logo" 
                     style={styles.logo} 
                 />
-                <h2 style={styles.title}>Iniciar sesión</h2>
+                <h2 style={styles.title}>
+                    {cognitoChallenge ? 'Crear nueva contraseña' : 'Iniciar sesión'}
+                </h2>
+                {cognitoChallenge && (
+                    <div style={styles.info}>
+                        Tu usuario requiere una nueva contraseña para continuar.
+                    </div>
+                )}
                 <div style={styles.inputGroup}>
                     <label style={styles.label}>Correo</label>
                     <input
@@ -91,22 +118,52 @@ function Login() {
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         style={styles.input}
+                        disabled={Boolean(cognitoChallenge)}
                         required
                     />
                 </div>
-                <div style={styles.inputGroup}>
-                    <label style={styles.label}>Contraseña</label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        style={styles.input}
-                        required
-                    />
-                </div>
+                {cognitoChallenge ? (
+                    <>
+                        <div style={styles.inputGroup}>
+                            <label style={styles.label}>Nueva contraseña</label>
+                            <input
+                                type="password"
+                                value={newPassword}
+                                onChange={(event) => setNewPassword(event.target.value)}
+                                style={styles.input}
+                                required
+                            />
+                        </div>
+                        <div style={styles.inputGroup}>
+                            <label style={styles.label}>Confirmar contraseña</label>
+                            <input
+                                type="password"
+                                value={newPasswordConfirm}
+                                onChange={(event) => setNewPasswordConfirm(event.target.value)}
+                                style={styles.input}
+                                required
+                            />
+                        </div>
+                    </>
+                ) : (
+                    <div style={styles.inputGroup}>
+                        <label style={styles.label}>Contraseña</label>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(event) => setPassword(event.target.value)}
+                            style={styles.input}
+                            required
+                        />
+                    </div>
+                )}
                 {error && <div style={styles.error}>{error}</div>}
                 <button type="submit" style={styles.button} disabled={loading}>
-                    {loading ? 'Entrando...' : 'Entrar'}
+                    {loading
+                        ? 'Procesando...'
+                        : cognitoChallenge
+                            ? 'Guardar contraseña'
+                            : 'Entrar'}
                 </button>
             </form>
         </div>
@@ -198,6 +255,12 @@ const styles = {
     error: {
         color: 'var(--text-denegada, #cc3030)',
         fontSize: '13px',
+        textAlign: 'center',
+    },
+    info: {
+        color: 'var(--text-muted, #5f5f5f)',
+        fontSize: '13px',
+        lineHeight: 1.4,
         textAlign: 'center',
     },
     button: {

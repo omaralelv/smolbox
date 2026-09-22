@@ -1,3 +1,9 @@
+import {
+    cognitoLogin,
+    completeCognitoNewPassword,
+    isCognitoLoginEnabled,
+} from './cognito';
+
 const API_BASE_URL = (
     import.meta.env.DEV
         ? '/api/v1'
@@ -39,6 +45,21 @@ export function clearSession() {
 }
 
 export async function login(email, password) {
+    if (isCognitoLoginEnabled()) {
+        const cognitoSession = await cognitoLogin(email, password);
+        if (cognitoSession.challengeName === 'NEW_PASSWORD_REQUIRED') {
+            return {
+                challengeName: cognitoSession.challengeName,
+                session: cognitoSession.session,
+                email: cognitoSession.email,
+            };
+        }
+        localStorage.setItem(TOKEN_KEY, cognitoSession.idToken);
+        const context = await getFrontendContext();
+        localStorage.setItem(ROLE_KEY, context.currentRole);
+        return { token: cognitoSession.idToken, context };
+    }
+
     const body = await request('/auth/login', {
         method: 'POST',
         skipAuth: true,
@@ -48,6 +69,14 @@ export async function login(email, password) {
     const context = await getFrontendContext();
     localStorage.setItem(ROLE_KEY, context.currentRole);
     return { token: body.access_token, context };
+}
+
+export async function completeNewPasswordLogin(email, newPassword, session) {
+    const cognitoSession = await completeCognitoNewPassword(email, newPassword, session);
+    localStorage.setItem(TOKEN_KEY, cognitoSession.idToken);
+    const context = await getFrontendContext();
+    localStorage.setItem(ROLE_KEY, context.currentRole);
+    return { token: cognitoSession.idToken, context };
 }
 
 export async function getFrontendContext() {

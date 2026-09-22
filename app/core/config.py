@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     auth_token_secret: str = "local-dev-secret-change-me"
     auth_token_ttl_minutes: int = 8 * 60
     cognito_enabled: bool = False
+    cognito_user_pool_id: str | None = None
     cognito_issuer: str | None = None
     cognito_app_client_id: str | None = None
     cognito_jwks_url: str | None = None

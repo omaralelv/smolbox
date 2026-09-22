@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.user import User, UserRole
-from app.services.security import InvalidToken, parse_access_token, parse_cognito_token
+from app.services.security import InvalidToken, parse_access_token, parse_cognito_token_claims
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -31,13 +31,22 @@ def get_current_user(
     except InvalidToken:
         if settings.cognito_enabled:
             try:
-                cognito_sub = parse_cognito_token(token, settings)
+                claims = parse_cognito_token_claims(token, settings)
             except (InvalidToken, ValueError) as exc:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail={"code": "INVALID_TOKEN", "message": str(exc)},
                 ) from exc
+            cognito_sub = claims["sub"]
             user = db.scalar(select(User).where(User.cognito_sub == cognito_sub))
+            if user is None:
+                email = claims.get("email")
+                if isinstance(email, str) and email:
+                    user = db.scalar(select(User).where(User.email == email.lower()))
+                    if user is not None and not user.cognito_sub:
+                        user.cognito_sub = cognito_sub
+                        db.commit()
+                        db.refresh(user)
 
     if user is None or not user.is_active:
         raise HTTPException(
