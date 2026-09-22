@@ -312,7 +312,7 @@ function Detalle({ currentRole }) {
 
         setGastoParaEditar(gasto);
         setCategoriaEditada(gasto.tipo || gasto.type || categoria || 'Gasto General');
-        setImpuestoEditado(String(gasto.cfdiTaxRate ?? gasto.cfdi_tax_rate ?? 16));
+        setImpuestoEditado(tasaImpuestoParaEdicion(gasto));
     };
 
     const cancelarEdicion = () => {
@@ -1070,6 +1070,41 @@ function calcularImpuesto(monto, impuesto) {
         iva,
         subtotal: total - iva,
     };
+}
+
+function tasaImpuestoParaEdicion(gasto) {
+    const tasaDirecta = tasaImpuestoNormalizada(
+        gasto?.cfdiTaxRate ?? gasto?.cfdi_tax_rate
+    );
+    if (tasaDirecta !== null) return tasaDirecta;
+
+    const tasaInferida = tasaImpuestoDesdeMontos(gasto);
+    if (tasaInferida !== null) return tasaInferida;
+
+    return '16';
+}
+
+function tasaImpuestoNormalizada(value) {
+    if (value === null || value === undefined || value === '') return null;
+
+    let tasa = Number(value);
+    if (Number.isNaN(tasa)) return null;
+    if (tasa > 0 && tasa < 1) tasa *= 100;
+
+    const tasaRedondeada = Number(tasa.toFixed(2));
+    if (Math.abs(tasaRedondeada - 0) < 0.01) return '0';
+    if (Math.abs(tasaRedondeada - 8) < 0.01) return '8';
+    if (Math.abs(tasaRedondeada - 16) < 0.01) return '16';
+
+    return String(tasaRedondeada);
+}
+
+function tasaImpuestoDesdeMontos(gasto) {
+    const subtotal = Number(gasto?.cfdiSubtotal ?? gasto?.cfdi_subtotal);
+    const iva = Number(gasto?.cfdiTaxAmount ?? gasto?.cfdi_tax_amount);
+    if (!subtotal || Number.isNaN(subtotal) || Number.isNaN(iva)) return null;
+
+    return tasaImpuestoNormalizada((iva / subtotal) * 100);
 }
 
 function formatoMonto(value) {
