@@ -54,7 +54,7 @@ function AnadirGasto() {
 
     const handleValidarFolio = () => {
         const folioNormalizado = normalizarUuidLocal(folio);
-        if (!folioNormalizado || folioNormalizado === 'OCR PENDIENTE') {
+        if (!folioNormalizado || folioNormalizado === '') {
             const mensaje = 'Primero captura o valida un folio fiscal.';
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
@@ -64,7 +64,7 @@ function AnadirGasto() {
 
         if (tipoDocumento === 'factura' && esPdf(facturaFile)) {
             if (!ocrCoincideConArchivoActual(ocrFactura, facturaFile)) {
-                const mensaje = 'Primero presiona "Validar Gasto" para leer la factura PDF con OCR.';
+                const mensaje = 'Primero presiona "Validar Gasto" para extraer la información faltante de la factura.';
                 setEstadoValidacion('error');
                 setMensajeValidacion(mensaje);
                 alert(mensaje);
@@ -114,7 +114,7 @@ function AnadirGasto() {
             && ocrCoincideConArchivoActual(ocrFactura, facturaFile)
         ) {
             setEstadoValidacion(null);
-            setMensajeValidacion('El folio cambió. Presiona "Confirmar" para usar este folio en el gasto.');
+            setMensajeValidacion('El folio cambió. Presiona "Confirmar" para guardar el nuevo folio.');
         }
     };
 
@@ -180,7 +180,7 @@ function AnadirGasto() {
             setMensajeValidacion(
                 folioOcr
                     ? 'Esta factura PDF ya fue leída. Confirma el folio para poder añadir el gasto.'
-                    : 'Factura PDF cargada. Presiona "Validar Gasto" para leer el folio fiscal con OCR.'
+                    : 'Factura PDF cargada. Presiona "Validar Gasto" para extraer el folio fiscal.'
             );
             return;
         }
@@ -324,8 +324,8 @@ function AnadirGasto() {
                 ]);
                 const folioDetectado = uuidOcr || 'No detectado';
                 const mensajeBase = ocrParsed.fueReutilizado
-                    ? `OCR ya leído para este documento. Folio sugerido: ${folioDetectado}. Puedes cambiarlo y confirmar el folio que quieres guardar.`
-                    : `OCR completado. Folio sugerido: ${folioDetectado}. Puedes cambiarlo y confirmar el folio que quieres guardar.`;
+                    ? `Extracción de texto finalizada. Folio sugerido: ${folioDetectado}. Revisa que el Folio coincida con tu factura y presiona "Confirmar" para guardarlo.`
+                    : `Extracción de texto finalizada. Folio sugerido: ${folioDetectado}. Revisa que el Folio coincida con tu factura y presiona "Confirmar" para guardarlo.`;
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
             }
@@ -755,45 +755,6 @@ function AnadirGasto() {
                 </div>
             )}
 
-            {/* TARJETA 1: GASTO LISTO */}
-            <div style={{
-                ...styles.valCard, 
-                borderColor: 'var(--sb-gastoListo)',
-                opacity: estadoValidacion === 'listo' || estadoValidacion === 'advertencia' || estadoValidacion === null ? 1 : 0.4
-            }}>
-                <div style={{...styles.iconCircle, backgroundColor: 'var(--sb-pagadaBg)', color: 'var(--sb-gastoListo)'}}>✓</div>
-                <div>
-                <h4 style={{margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text-h)'}}>Gasto listo para añadirse</h4>
-                <p style={styles.valText}>No se encontraron errores ni discrepancias fiscales.</p>
-                </div>
-            </div>
-
-            {/* TARJETA 2: CORRECCIÓN DE DATOS */}
-            <div style={{
-                ...styles.valCard, 
-                borderColor: 'var(--sb-errorDatos)',
-                opacity: estadoValidacion === 'error' || estadoValidacion === null ? 1 : 0.4
-            }}>
-                <div style={{...styles.iconCircle, backgroundColor: 'var(--sb-denegadaBg)', color: 'var(--sb-errorDatos)'}}>⚠️</div>
-                <div>
-                <h4 style={{margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text-h)'}}>Corrección de datos</h4>
-                <p style={styles.valText}>El documento no se pudo validar o tiene un problema que bloquea el gasto.</p>
-                </div>
-            </div>
-
-            {/* TARJETA 3: VERIFICAR LEGIBILIDAD */}
-            <div style={{
-                ...styles.valCard, 
-                borderColor: 'var(--sb-errorLegibilidad)',
-                opacity: estadoValidacion === 'legibilidad' || estadoValidacion === null ? 1 : 0.4
-            }}>
-                <div style={{...styles.iconCircle, backgroundColor: '#fffde6', color: '#b39200'}}>🔍</div>
-                <div>
-                <h4 style={{margin: '0 0 4px 0', fontSize: '14px', color: 'var(--text-h)'}}>Verificar legibilidad</h4>
-                <p style={styles.valText}>El documento no se pudo leer correctamente. Vuelva a cargar el documento y valide nuevamente.</p>
-                </div>
-            </div>
-
             </div>
 
         </div>
@@ -1102,16 +1063,19 @@ function AnadirGasto() {
         backgroundColor: 'var(--sb-pagadaBg)',
         borderColor: 'var(--sb-gastoListo)',
         color: 'var(--text-pagada)',
+        fontWeight: '500',
     },
     validationMessageError: {
         backgroundColor: 'var(--sb-denegadaBg)',
         borderColor: 'var(--sb-errorDatos)',
         color: 'var(--text-denegada)',
+        fontWeight: '500',
     },
     validationMessageWarning: {
         backgroundColor: '#fff2be',
         borderColor: '#eacf00',
         color: '#92400e',
+        fontWeight: '500',
     },
     fixedFooter: {
         position: 'fixed',
