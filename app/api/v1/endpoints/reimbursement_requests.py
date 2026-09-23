@@ -840,6 +840,97 @@ async def upload_reimbursement_request_attachment(
     return attachment
 
 
+@router.post(
+    "/{request_id}/reimbursement-excel/me",
+    response_model=AttachmentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_reimbursement_excel_as_current_user(
+    request_id: UUID,
+    file: Annotated[UploadFile, File()],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Attachment:
+    reimbursement_request = db.get(ReimbursementRequest, request_id)
+    if reimbursement_request is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reimbursement request not found",
+        )
+
+    if not user_can_transition_store_request(db, current_user, reimbursement_request.store_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store",
+            },
+        )
+
+    try:
+        content = await read_upload_limited(file, settings.max_upload_bytes)
+    except EmptyUpload as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UploadTooLarge as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        content_type = detect_attachment_content_type(
+            file.filename or "reembolso.xlsx",
+            content,
+            AttachmentType.cash_box_format,
+        )
+    except InvalidAttachment as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=str(exc),
+        ) from exc
+
+    storage = StorageService(settings.upload_dir, settings.max_upload_bytes)
+    stored = storage.save_bytes(
+        content,
+        filename=file.filename or "reembolso.xlsx",
+        reimbursement_request_id=request_id,
+    )
+    attachment = Attachment(
+        reimbursement_request_id=reimbursement_request.id,
+        attachment_type=AttachmentType.cash_box_format,
+        filename=stored.filename,
+        content_type=content_type,
+        storage_path=stored.storage_path,
+        size_bytes=stored.size_bytes,
+        checksum_sha256=stored.checksum_sha256,
+    )
+    db.add(attachment)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="reimbursement_excel_uploaded",
+            message=f"Excel de reembolso cargado: {stored.filename}",
+            event_payload={
+                "attachment_type": AttachmentType.cash_box_format.value,
+                "filename": stored.filename,
+                "size_bytes": stored.size_bytes,
+                "checksum_sha256": stored.checksum_sha256,
+            },
+        )
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        storage.delete(stored.storage_path)
+        raise
+    db.refresh(attachment)
+    return attachment
+
+
 def _transition_request_with_actor(
     request_id: UUID,
     *,

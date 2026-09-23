@@ -4,9 +4,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
     apiErrorMessage,
     currentToken,
+    downloadProtectedFile,
     executeRequestAction,
     getFrontendSolicitud,
-    runAutomatedReview,
+    uploadReimbursementExcel,
 } from '../lib/api';
 
 function Acumulado( {currentRole} ) {
@@ -14,12 +15,16 @@ function Acumulado( {currentRole} ) {
     const navigate = useNavigate();
     const location = useLocation();
     const autoTransitionRef = useRef(new Set());
+    const reembolsoInputRef = useRef(null);
 
 
     // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
     const [solicitudActual, setSolicitudActual] = useState(location.state?.solicitud || null);
+    const [subiendoReembolso, setSubiendoReembolso] = useState(false);
     const solicitudSeleccionada = solicitudActual || location.state?.solicitud || null;
     const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.reimbursementRequestId || solicitudSeleccionada?.id;
+    const reembolsoDownloadUrl = solicitudSeleccionada?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolso_download_url || null;
+    const reembolsoFileName = solicitudSeleccionada?.reembolsoFileName || solicitudSeleccionada?.reembolso_file_name || 'Reembolso.xlsx';
 
 
     // ESTADOS PARA EL MODAL DE DEVOLUCIÓN Y BANNER AMARILLO
@@ -257,12 +262,45 @@ function Acumulado( {currentRole} ) {
 
 
 
-    async function ejecutarRevisionAutomatica() {
-        if (!solicitudSeleccionada?.backendId) return;
+    function abrirCargaReembolso() {
+        if (!solicitudBackendId) {
+            alert("No se encontró el UUID interno de la solicitud.");
+            return;
+        }
+        reembolsoInputRef.current?.click();
+    }
+
+    async function cargarReembolsoExcel(event) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) return;
+
+        if (!esArchivoExcel(file)) {
+            alert("Selecciona un archivo Excel válido (.xlsx o .xls).");
+            return;
+        }
 
         try {
-            await runAutomatedReview(solicitudSeleccionada.backendId);
-            alert('Revisión automática ejecutada.');
+            setSubiendoReembolso(true);
+            await uploadReimbursementExcel(solicitudBackendId, file);
+            const solicitud = await getFrontendSolicitud(solicitudBackendId);
+            setSolicitudActual(solicitud);
+            alert("Reembolso cargado correctamente.");
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setSubiendoReembolso(false);
+        }
+    }
+
+    async function descargarReembolso() {
+        if (!reembolsoDownloadUrl) {
+            alert("Todavía no hay un Excel de reembolso cargado para esta solicitud.");
+            return;
+        }
+
+        try {
+            await downloadProtectedFile(reembolsoDownloadUrl, reembolsoFileName);
         } catch (error) {
             alert(apiErrorMessage(error));
         }
@@ -377,7 +415,14 @@ function Acumulado( {currentRole} ) {
                             style={styles.btnOutline}
                             onClick={() => handleDescargarPoliza(solicitudBackendId)}>
                         Póliza y Reembolso</button>
-                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
+                        <button
+                            style={subiendoReembolso ? styles.btnOutlineDisabled : styles.btnOutline}
+                            onClick={abrirCargaReembolso}
+                            disabled={subiendoReembolso}
+                        >
+                            {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
+                        </button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
                             onClick={() => ejecutarAcciones(
@@ -396,7 +441,7 @@ function Acumulado( {currentRole} ) {
                             onClick={() => abrirModalDevolucion('return_to_accounting')}
                         >Regresar Acumulado</button>
 
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
                             onClick={() => ejecutarAcciones(
@@ -421,7 +466,7 @@ function Acumulado( {currentRole} ) {
                             style={styles.btnOutline}
                             onClick={() => abrirModalDevolucion('return_to_manager')}
                         >Regresar acumulado</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
                         <button
                             style={styles.btnBlue}
                             onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
@@ -435,7 +480,7 @@ function Acumulado( {currentRole} ) {
             case 'direccion':
                 return (
                     <>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
                     </>
                 );
 
@@ -452,8 +497,14 @@ function Acumulado( {currentRole} ) {
                             style={styles.btnOutline}
                             onClick={() => handleDescargarPoliza(solicitudBackendId)}>
                         Póliza y Reembolso</button>
-                        <button style={styles.btnOutline} onClick={ejecutarRevisionAutomatica}>Cargar Reembolso</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
+                        <button
+                            style={subiendoReembolso ? styles.btnOutlineDisabled : styles.btnOutline}
+                            onClick={abrirCargaReembolso}
+                            disabled={subiendoReembolso}
+                        >
+                            {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
+                        </button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
                             onClick={() => ejecutarAcciones(
@@ -461,7 +512,6 @@ function Acumulado( {currentRole} ) {
                                 'Solicitud enviada a gerencia.'
                             )}
                         >Enviar a Gerencia</button>
-                        <button style={styles.btnOutline}>Ver Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
                             onClick={() => ejecutarAcciones(
@@ -553,6 +603,14 @@ function Acumulado( {currentRole} ) {
 
     return (
         <div style={styles.container}>
+            <input
+                ref={reembolsoInputRef}
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                style={{ display: 'none' }}
+                onChange={cargarReembolsoExcel}
+            />
+
             {/* CABECERA DE LA SOLICITUD */}
             <div style={styles.headerRow}>
                 <h2 style={styles.title}> Solicitud {datosSolicitud.folio}</h2>
@@ -868,6 +926,16 @@ const styles = {
         fontWeight: '600',
         cursor: 'pointer',
     },
+    btnOutlineDisabled: {
+        backgroundColor: '#f7f7f7',
+        border: '1px solid var(--sb-btnBorder)',
+        color: '#999',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: '600',
+        cursor: 'not-allowed',
+    },
     btnFilledCoral: {
         backgroundColor: 'var(--sb-sendBtnBg)',
         border: 'none',
@@ -1022,4 +1090,9 @@ function accionInicialPorRol(currentRole, solicitud) {
         return 'start_treasury_review';
     }
     return null;
+}
+
+function esArchivoExcel(file) {
+    const name = String(file?.name || '').toLowerCase();
+    return name.endsWith('.xlsx') || name.endsWith('.xls');
 }

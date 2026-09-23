@@ -95,12 +95,13 @@ def determinar_iva_e_indice(
     descripcion: str,
     numero_tienda: str,
     porcentaje_iva: Decimal,
+    tiendas_iva_w6: set[str] | None = None,
 ) -> tuple[Decimal, str]:
     descripcion_normalizada = normalizar_texto(descripcion)
 
     # Tiendas incluidas en el archivo W6
-    # if normalizar_texto(numero_tienda) in tiendas_iva_w6:
-    #    return Decimal("8"), "W6"
+    if tiendas_iva_w6 and normalizar_texto(numero_tienda) in tiendas_iva_w6:
+        return Decimal("8"), "W6"
 
     # Pasajes y taxis siempre usa 0% y W2
     if descripcion_normalizada == normalizar_texto("Pasajes y taxis"):
@@ -109,13 +110,6 @@ def determinar_iva_e_indice(
     # Forzar No Deducibles a 0%: W0
     if descripcion_normalizada == normalizar_texto("No Deducibles"):
         return Decimal(0), "W0"
-
-    # Cualquier gasto que tenga 0% usa W0
-    if porcentaje_iva == Decimal(0):
-        return Decimal(0), "W0"
-
-    if porcentaje_iva == Decimal(16):
-        return Decimal(16), "W1"
 
     # Regla 4: Regla general
     return porcentaje_iva, "W1"

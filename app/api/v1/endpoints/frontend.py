@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -46,11 +48,17 @@ from app.services.reimbursement_periods import (
     obtener_contexto_periodo_reembolso,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.tax_rules import cargar_tiendas_iva_w6, determinar_iva_e_indice
 from app.utils.folio_dates import (
     obtener_fecha_desde_folio,
 )
 
 router = APIRouter()
+ASSETS_DIR = Path(__file__).resolve().parents[3] / "assets"
+TIENDAS_IVA_W6_FILES = (
+    "tiendas_iva_w6.xlsx",
+    "TDAS IVA W6.xlsx",
+)
 MEXICO_CITY_TZ = ZoneInfo(
     "America/Mexico_City"
 )
@@ -624,6 +632,7 @@ def _request_payload(
     folio = request.folio or f"Solicitud {str(request.id)[:8]}"
     calculated_total = _money(summary.calculated_total)
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
+    reembolso_attachment = _latest_reembolso_attachment(request)
     return FrontendSolicitudRead(
         id=folio,
         backend_id=request.id,
@@ -648,6 +657,9 @@ def _request_payload(
         reported_total=float(reported_total) if reported_total is not None else None,
         calculated_total=float(calculated_total),
         expense_count=summary.expense_count,
+        reembolso_attachment_id=reembolso_attachment.id if reembolso_attachment else None,
+        reembolso_file_name=reembolso_attachment.filename if reembolso_attachment else None,
+        reembolso_download_url=_attachment_download_url(reembolso_attachment),
         available_actions=actions,
         action_labels={action: ACTION_LABELS.get(action, action) for action in actions},
     )
@@ -804,6 +816,14 @@ def _expense_from_frontend(
         )
     category = expense_in.categoria or "Gasto General"
     merchant = expense_in.merchant or expense_in.proveedor or f"Gasto - {category}"
+    amount = _money(expense_in.monto)
+    store_code = _request_store_code(request, db)
+    tax_rate = _frontend_tax_rate_for_expense(
+        category=category,
+        store_code=store_code,
+        requested_tax_rate=expense_in.cfdi_tax_rate,
+    )
+    tax_amount, tax_subtotal = _tax_amounts_from_rate(amount, tax_rate)
     authorization_area = None
     if expense_in.authorization_area_name:
         try:
@@ -824,17 +844,17 @@ def _expense_from_frontend(
         reimbursement_request_id=request.id,
         period_id=period.id,
         merchant=merchant,
-        amount=_money(expense_in.monto),
+        amount=amount,
         currency=expense_in.moneda.upper(),
         spent_on=spent_on,
         category=category,
         description=expense_in.observaciones,
         cfdi_uuid=expense_in.cfdi_uuid or expense_in.folio,
-        cfdi_subtotal=_money_or_none(expense_in.cfdi_subtotal),
-        cfdi_total=_money_or_none(expense_in.cfdi_total),
+        cfdi_subtotal=tax_subtotal,
+        cfdi_total=amount,
         cfdi_currency=(expense_in.cfdi_currency or expense_in.moneda).upper(),
-        cfdi_tax_amount=_money_or_none(expense_in.cfdi_tax_amount),
-        cfdi_tax_rate=_rate_or_none(expense_in.cfdi_tax_rate),
+        cfdi_tax_amount=tax_amount,
+        cfdi_tax_rate=tax_rate,
         authorization_area_id=authorization_area.id if authorization_area else None,
         requires_authorization=expense_requires_authorization(
             explicit=expense_in.requiere_autorizacion,
@@ -843,6 +863,49 @@ def _expense_from_frontend(
             merchant=merchant,
         ),
     )
+
+
+def _frontend_tax_rate_for_expense(
+    *,
+    category: str,
+    store_code: str,
+    requested_tax_rate: Decimal | None,
+) -> Decimal:
+    base_tax_rate = _rate_or_none(requested_tax_rate) or Decimal("16.00")
+    tax_rate, _tax_index = determinar_iva_e_indice(
+        descripcion=category,
+        numero_tienda=store_code,
+        porcentaje_iva=base_tax_rate,
+        tiendas_iva_w6=_tiendas_iva_w6(),
+    )
+    return _rate_or_none(tax_rate) or Decimal("16.00")
+
+
+def _tax_amounts_from_rate(amount: Decimal, tax_rate: Decimal) -> tuple[Decimal, Decimal]:
+    rate = _rate_or_none(tax_rate) or Decimal("0.00")
+    if rate == Decimal("0.00"):
+        return Decimal("0.00"), amount
+
+    tax_amount = (
+        amount
+        / (Decimal(1) + rate / Decimal(100))
+        * (rate / Decimal(100))
+    ).quantize(Decimal("0.01"))
+    return tax_amount, (amount - tax_amount).quantize(Decimal("0.01"))
+
+
+def _request_store_code(request: ReimbursementRequest, db: Session) -> str:
+    store = request.store or db.get(Store, request.store_id)
+    return _frontend_store_code(store) if store else ""
+
+
+@lru_cache(maxsize=1)
+def _tiendas_iva_w6() -> set[str]:
+    for filename in TIENDAS_IVA_W6_FILES:
+        path = ASSETS_DIR / filename
+        if path.exists():
+            return cargar_tiendas_iva_w6(str(path))
+    return set()
 
 
 def _add_frontend_observation_events(
@@ -1259,6 +1322,21 @@ def _attachment_download_url(attachment: Attachment | None) -> str | None:
     if attachment is None:
         return None
     return f"/api/v1/attachments/{attachment.id}/download/me"
+
+
+def _latest_reembolso_attachment(request: ReimbursementRequest) -> Attachment | None:
+    return next(
+        (
+            attachment
+            for attachment in sorted(
+                request.attachments,
+                key=lambda item: item.uploaded_at,
+                reverse=True,
+            )
+            if attachment.attachment_type == AttachmentType.cash_box_format
+        ),
+        None,
+    )
 
 
 def _looks_like_invoice(attachment: Attachment) -> bool:

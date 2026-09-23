@@ -206,6 +206,15 @@ export async function runAutomatedReview(requestId) {
     });
 }
 
+export async function uploadReimbursementExcel(requestId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request(`/reimbursement-requests/${encodeURIComponent(requestId)}/reimbursement-excel/me`, {
+        method: 'POST',
+        body: formData,
+    });
+}
+
 export async function executeRequestAction(requestId, action) {
     if (action === 'prepare_sap_policy') {
         return request(`/reimbursement-requests/${requestId}/sap-policy/prepare/me`, {
@@ -388,6 +397,50 @@ export async function openProtectedFile(path) {
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);
     window.open(objectUrl, '_blank');
+}
+
+export async function downloadProtectedFile(path, fallbackFilename = 'archivo') {
+    const url = apiFileUrl(path);
+    const token = currentToken();
+    if (!url || !token) {
+        throw new Error('No hay sesión activa para descargar el archivo.');
+    }
+
+    const response = await fetch(url, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+
+    if (!response.ok) {
+        const detail = await readError(response);
+        throw new Error(detail);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = objectUrl;
+    link.download = filenameFromContentDisposition(response.headers.get('content-disposition'))
+        || fallbackFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(objectUrl);
+}
+
+function filenameFromContentDisposition(contentDisposition) {
+    if (!contentDisposition) return '';
+
+    const utfMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utfMatch?.[1]) {
+        return decodeURIComponent(utfMatch[1].replace(/"/g, ''));
+    }
+
+    const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+    return match?.[1] || '';
 }
 
 export async function request(path, options = {}) {

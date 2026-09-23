@@ -311,6 +311,7 @@ def generar_polizas(
             descripcion=gasto_descripcion,
             numero_tienda=numero_tienda,
             porcentaje_iva=tasa_iva_bd,
+            tiendas_iva_w6=tiendas_iva_w6,
         )
 
         if (gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None and porcentaje_iva not in {Decimal(0),}):

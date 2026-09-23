@@ -92,6 +92,9 @@ class FrontendSolicitudRead(BaseModel):
     reported_total: float | None = Field(default=None, alias="reportedTotal")
     calculated_total: float = Field(alias="calculatedTotal")
     expense_count: int = Field(alias="expenseCount")
+    reembolso_attachment_id: UUID | None = Field(default=None, alias="reembolsoAttachmentId")
+    reembolso_file_name: str | None = Field(default=None, alias="reembolsoFileName")
+    reembolso_download_url: str | None = Field(default=None, alias="reembolsoDownloadUrl")
     available_actions: list[str] = Field(default_factory=list, alias="availableActions")
     action_labels: dict[str, str] = Field(default_factory=dict, alias="actionLabels")
 
