@@ -45,7 +45,7 @@ from app.services.authorization_areas import (
     request_has_authorization_visible_to_user,
 )
 from app.services.automation_review import build_automated_review
-from app.services.expense_authorization_rules import expense_requires_authorization
+from app.services.expense_authorization_rules import resolve_expense_authorization
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.frontend_actions import available_actions_for_request
@@ -693,26 +693,31 @@ async def import_reimbursement_request_expenses(
         size_bytes=stored.size_bytes,
         checksum_sha256=stored.checksum_sha256,
     )
-    expenses = [
-        Expense(
-            period_id=reimbursement_request.period_id,
-            reimbursement_request_id=reimbursement_request.id,
-            merchant=row.merchant,
-            amount=row.amount,
-            currency=row.currency,
-            spent_on=row.spent_on,
+    expenses = []
+    for row in parsed_rows:
+        authorization_decision = resolve_expense_authorization(
+            db,
+            explicit=row.requires_authorization,
             category=row.category,
+            amount=row.amount,
             description=row.description,
-            supplier_tax_id=row.supplier_tax_id,
-            requires_authorization=expense_requires_authorization(
-                explicit=row.requires_authorization,
+            merchant=row.merchant,
+        )
+        expenses.append(
+            Expense(
+                period_id=reimbursement_request.period_id,
+                reimbursement_request_id=reimbursement_request.id,
+                merchant=row.merchant,
+                amount=row.amount,
+                currency=row.currency,
+                spent_on=row.spent_on,
                 category=row.category,
                 description=row.description,
-                merchant=row.merchant,
+                supplier_tax_id=row.supplier_tax_id,
+                requires_authorization=authorization_decision.requires_authorization,
+                authorization_area_id=authorization_decision.authorization_area_id,
             ),
         )
-        for row in parsed_rows
-    ]
 
     try:
         db.add(attachment)

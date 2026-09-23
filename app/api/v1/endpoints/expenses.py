@@ -31,7 +31,7 @@ from app.schemas.expense import (
     ExpenseUpdate,
 )
 from app.services.authorization_areas import user_can_authorize_expense_area
-from app.services.expense_authorization_rules import expense_requires_authorization
+from app.services.expense_authorization_rules import resolve_expense_authorization
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
@@ -141,12 +141,21 @@ def create_expense(
     if period.status == PeriodStatus.closed:
         raise HTTPException(...)
 
-    expense_data["requires_authorization"] = expense_requires_authorization(
+    authorization_decision = resolve_expense_authorization(
+        db,
         explicit=bool(expense_data.get("requires_authorization", False)),
         category=expense_data.get("category"),
+        amount=expense_data.get("amount"),
         description=expense_data.get("description"),
         merchant=expense_data.get("merchant"),
+        authorization_area_id=expense_data.get("authorization_area_id"),
     )
+    expense_data["requires_authorization"] = authorization_decision.requires_authorization
+    if (
+        expense_data.get("authorization_area_id") is None
+        and authorization_decision.authorization_area_id is not None
+    ):
+        expense_data["authorization_area_id"] = authorization_decision.authorization_area_id
     expense = Expense(**expense_data)
     db.add(expense)
     db.flush()
@@ -734,8 +743,6 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
                 "message": "The reimbursement period is closed",
             },
         )
-
-    spent_on = updates.get("spent_on", expense.spent_on)
 
     _apply_tax_rate_update(expense, updates)
 

@@ -12,6 +12,7 @@ from app.models import (  # noqa: F401
     audit_log,
     authorization_area,
     business_rule,
+    category_authorization_rule,
     cfdi_validation,
     expense,
     ocr_extraction,

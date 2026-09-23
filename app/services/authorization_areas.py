@@ -14,6 +14,7 @@ from app.models.user import User, UserRole
 
 DEFAULT_AUTHORIZATION_AREA_NAMES = (
     "Auditoría Interna",
+    "Contabilidad",
     "Gestoría",
     "Insumos",
     "Mantenimiento",

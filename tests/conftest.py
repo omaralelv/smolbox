@@ -122,7 +122,7 @@ def create_expense(
             "amount": amount,
             "currency": "MXN",
             "spent_on": spent_on,
-            "category": "papeleria",
+            "category": "Agua",
         },
     )
     assert response.status_code == 201, response.text

@@ -47,7 +47,7 @@ from app.services.authorization_areas import (
     request_has_authorization_area_for_user,
     request_has_authorization_visible_to_user,
 )
-from app.services.expense_authorization_rules import expense_requires_authorization
+from app.services.expense_authorization_rules import resolve_expense_authorization
 from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_periods import (
@@ -1023,6 +1023,16 @@ def _expense_from_frontend(
                 },
             ) from exc
 
+    authorization_decision = resolve_expense_authorization(
+        db,
+        explicit=expense_in.requiere_autorizacion,
+        category=category,
+        amount=amount,
+        description=expense_in.observaciones,
+        merchant=merchant,
+        authorization_area_id=authorization_area.id if authorization_area else None,
+    )
+
     return Expense(
         reimbursement_request_id=request.id,
         period_id=period.id,
@@ -1038,13 +1048,8 @@ def _expense_from_frontend(
         cfdi_currency=(expense_in.cfdi_currency or expense_in.moneda).upper(),
         cfdi_tax_amount=tax_amount,
         cfdi_tax_rate=tax_rate,
-        authorization_area_id=authorization_area.id if authorization_area else None,
-        requires_authorization=expense_requires_authorization(
-            explicit=expense_in.requiere_autorizacion,
-            category=category,
-            description=expense_in.observaciones,
-            merchant=merchant,
-        ),
+        authorization_area_id=authorization_decision.authorization_area_id,
+        requires_authorization=authorization_decision.requires_authorization,
     )
 
 

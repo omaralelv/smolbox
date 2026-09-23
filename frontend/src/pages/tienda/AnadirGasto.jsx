@@ -219,7 +219,7 @@ function AnadirGasto() {
         "Recolección de Basura", "Servicio de Agua", "Teléfono", "Trámites", "Trasportación", "Vigilancia", "Otros"];
 
     // Lista de áreas que autorizan
-    const areasAutorizan = ["Auditoría Interna", "Gestoría", "Insumos", "Mantenimiento",  "Operaciones", "Pago de Luz", "Recursos Humanos", "Servicio de Agua", "Sistemas", "Supervisores", "Tráfico"];
+    const areasAutorizan = ["Auditoría Interna", "Contabilidad", "Gestoría", "Insumos", "Mantenimiento",  "Operaciones", "Pago de Luz", "Recursos Humanos", "Servicio de Agua", "Sistemas", "Supervisores", "Tráfico"];
 
 
     // Condición para saber si la categoría seleccionada requiere habilitar el select
