@@ -172,7 +172,7 @@ function Login() {
                 </button>
                 {!cognitoChallenge && (
                     <Link to="/recuperar-contrasena" style={styles.link}>
-                        Olvidé mi contraseña
+                        ¿Olvidaste tu contraseña?
                     </Link>
                 )}
             </form>
@@ -274,8 +274,9 @@ const styles = {
         textAlign: 'center',
     },
     link: {
-        color: 'var(--text-h)',
-        fontSize: '13px',
+        color: 'var(--sb-btnBorder)',
+        fontSize: '12px',
+        fontWeight:'500',
         textAlign: 'center',
     },
     button: {

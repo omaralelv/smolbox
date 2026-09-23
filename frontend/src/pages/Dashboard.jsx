@@ -361,7 +361,15 @@ function productivityValue(row, day) {
 function heatmapColor(value, maxValue) {
     if (!value) return '#ffffff';
     const intensity = Math.min(value / Math.max(maxValue, 1), 1);
-    const alpha = 0.18 + intensity * 0.52;
+
+    // Rangos de opacidad deseados
+    const minAlpha = 0.10; // Opacidad mínima para valores bajos
+    const maxAlpha = 0.60; // Opacidad máxima para el valor más alto
+    
+    // Aplica la fórmula proporcional
+    const alpha = minAlpha + intensity * (maxAlpha - minAlpha);
+
+    //const alpha = 0.18 + intensity * 0.52;
     return `rgba(255, 122, 122, ${alpha})`;
 }
 

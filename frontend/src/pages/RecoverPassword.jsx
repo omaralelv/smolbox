@@ -63,7 +63,7 @@ function RecoverPassword() {
                         Te enviaremos un código al correo asociado a tu cuenta.
                     </p>
                     <label style={styles.inputGroup}>
-                        <span style={styles.label}>Correo</span>
+                        <span style={styles.label}>Ingresa tu correo</span>
                         <input
                             type="email"
                             value={email}
@@ -89,13 +89,21 @@ const styles = {
         position: 'relative',
         width: '100%',
         minHeight: '100vh',
+        
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
     },
     backgroundCanvas: { position: 'absolute', inset: 0, zIndex: 1 },
-    container: { maxWidth: '420px', zIndex: 10, width: '100%', padding: '100px', margin: '60px auto' },
+    
+    container: { 
+        maxWidth: '420px',
+        zIndex: 10, // Encima del canvas
+        width: '100%',
+        padding: '100px',margin: '60px auto', 
+    },
+
     form: {
         display: 'flex',
         flexDirection: 'column',
@@ -110,11 +118,16 @@ const styles = {
     title: { margin: 0, fontSize: '22px', color: 'var(--text-h)', textAlign: 'left' },
     info: { color: 'var(--text-muted, #5f5f5f)', fontSize: '13px', lineHeight: 1.4, textAlign: 'center' },
     inputGroup: { display: 'flex', flexDirection: 'column', gap: '10px' },
-    label: { fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)' },
+    label: { fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)', textAlign: 'left',},
     input: { border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: '#ffffff', color: 'var(--text-h)', padding: '8px', fontSize: '14px' },
     error: { color: 'var(--text-denegada, #cc3030)', fontSize: '13px', textAlign: 'center', whiteSpace: 'pre-line' },
     button: { backgroundColor: 'var(--sb-sendBtnBg)', color: 'var(--text-CBtn)', border: 'none', borderRadius: '10px', padding: '10px 25px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: 'var(--shadow)' },
-    link: { color: 'var(--text-h)', fontSize: '13px', textAlign: 'center' },
+    link: { 
+        color: 'var(--sb-btnBorder)',
+        fontSize: '12px',
+        fontWeight:'500',
+        textAlign: 'center', 
+    },
 };
 
 export default RecoverPassword;

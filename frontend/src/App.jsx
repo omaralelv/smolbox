@@ -15,11 +15,15 @@ function MainContent({ rolLogueado, setRolLogueado }) {
 
   // Evaluamos si la ruta actual es el login
   const esLogin = location.pathname === '/login' || location.pathname === '/';
+  const esRecup = location.pathname === '/recuperar-contrasena';
+  const esConfirm = location.pathname === '/confirmar-recuperacion';
+
+  const esPantallaAuth = esLogin || esRecup || esConfirm;
 
   return (
     <>
       {/* Solo mostramos Header y TabsNav si NO estamos en Login */}
-      {!esLogin && (
+      {!esPantallaAuth && (
         <>
           <Header currentRole={rolLogueado} onRoleChange={setRolLogueado} />
           <TabsNav currentRole={rolLogueado} />
