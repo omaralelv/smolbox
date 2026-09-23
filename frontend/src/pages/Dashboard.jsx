@@ -12,8 +12,19 @@ function Dashboard({ currentRole }) {
     if (currentRole === 'gerencia') {
         return <ManagementProductivityDashboard />;
     }
+    if (currentRole === 'tesoreria'){
+        return <TreasuryBudgetDashboard />;
+    }
+    if (currentRole === 'direccion' || currentRole === 'admin'){
+        return (
+            <>
+                <ManagementProductivityDashboard />
+                <TreasuryBudgetDashboard />
+            </>
+        );
+    }
 
-    return <TreasuryBudgetDashboard />;
+    return null;
 }
 
 function TreasuryBudgetDashboard() {
@@ -85,10 +96,10 @@ function TreasuryBudgetDashboard() {
 
     return (
         <div style={styles.container}>
-            <h1 style={styles.title}>Presupuestos (Tesorería)</h1>
+            <h1 style={styles.title}>Análisis de Presupuestos</h1>
 
             <div style={styles.filterRow}>
-                <label htmlFor="store-filter" style={styles.filterLabel}>Selecc. Tienda</label>
+                <label htmlFor="store-filter" style={styles.filterLabel}>Tienda: </label>
                 <select
                     id="store-filter"
                     value={selectedStoreId}
@@ -108,15 +119,15 @@ function TreasuryBudgetDashboard() {
                 <p style={styles.sectionLabel}>KPI&apos;s</p>
                 <div style={styles.kpiGrid}>
                     <KpiCard
-                        label={`Acum ${currentYearData.year}`}
+                        label={`Acumulado ${currentYearData.year}`}
                         value={formatCurrency(currentYearData.amount)}
                     />
                     <KpiCard
-                        label="% variación anual"
+                        label="% Variación anual"
                         value={annualVariance === null ? 'N/A' : formatPercent(annualVariance)}
                     />
                     <KpiCard
-                        label={`Acum ${previousYearData.year}`}
+                        label={`Acumulado ${previousYearData.year}`}
                         value={formatCurrency(previousYearData.amount)}
                     />
                 </div>
@@ -226,10 +237,10 @@ function ManagementProductivityDashboard() {
 
     return (
         <div style={styles.container}>
-            <h1 style={styles.title}>Productividad (Gerencia)</h1>
+            <h1 style={styles.title}>Análisis de Productividad</h1>
 
             <section style={styles.productivityHeader}>
-                <span style={styles.sectionLabel}>Tabla Heatmap</span>
+                <span style={styles.sectionLabel}>SEMANA ACTUAL</span>
                 <span style={styles.weekLabel}>
                     {formatDateShort(dashboard?.weekStartsOn)} - {formatDateShort(dashboard?.weekEndsOn)}
                 </span>
@@ -311,19 +322,30 @@ function BarChart({ totalsByYear }) {
     const maxAmount = Math.max(...totalsByYear.map((item) => item.amount), 1);
 
     return (
-        <div style={styles.chart}>
-            {totalsByYear.map((item) => {
-                const height = Math.max((item.amount / maxAmount) * 210, item.amount > 0 ? 18 : 6);
-                return (
-                    <div key={item.year} style={styles.barGroup}>
-                        <div style={styles.barWrap}>
-                            <span style={styles.barValue}>{formatCurrencyCompact(item.amount)}</span>
-                            <div style={{ ...styles.bar, height }} />
+        <div style={styles.chartContainer}>
+            {/* 🛠️ CAMBIO: Se agrega el contenedor de la cuadrícula / Grid horizontal */}
+            <div style={styles.gridOverlay}>
+                <div style={styles.gridLine} />
+                <div style={styles.gridLine} />
+                <div style={styles.gridLine} />
+                <div style={styles.gridLine} />
+            </div>
+            <div style={styles.chart}>
+                {totalsByYear.map((item) => {
+                    const height = Math.max((item.amount / maxAmount) * 210, item.amount > 0 ? 18 : 6);
+                    return (
+                        <div key={item.year} style={styles.barGroup}>
+                            <div style={styles.barWrap}>
+                                <span style={styles.barValue}>{formatCurrencyCompact(item.amount)}</span>
+                                <div style={{ ...styles.bar, height }} />
+                            </div>
+                            <div style={styles.barYearContainer}>
+                                <span style={styles.barYear}>{item.year}</span>
+                            </div>
                         </div>
-                        <span style={styles.barYear}>{item.year}</span>
-                    </div>
-                );
-            })}
+                    );
+                })} 
+            </div>
         </div>
     );
 }
@@ -380,13 +402,10 @@ const styles = {
         color: '#222',
     },
     title: {
-        margin: '0 auto 30px',
-        width: 'fit-content',
-        padding: '0 18px 8px',
-        borderBottom: '2px solid var(--sb-btnBorder)',
-        fontSize: '26px',
-        fontWeight: '800',
-        textAlign: 'center',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '30px',
     },
     filterRow: {
         display: 'flex',
@@ -416,9 +435,9 @@ const styles = {
     },
     sectionLabel: {
         margin: '0 0 12px',
-        fontSize: '15px',
-        fontWeight: '800',
-        color: '#333',
+        fontSize: '16px',
+        fontWeight: '700',
+        color: '#000000',
     },
     productivityHeader: {
         display: 'flex',
@@ -429,56 +448,89 @@ const styles = {
         flexWrap: 'wrap',
     },
     weekLabel: {
-        fontSize: '13px',
+        fontSize: '14px',
         fontWeight: '700',
-        color: '#666',
+        color: '#373737',
     },
     kpiGrid: {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '14px',
+        gap: '50px',
     },
     kpiCard: {
-        minHeight: '94px',
-        border: '1px solid var(--sb-btnBorder)',
-        borderRadius: '8px',
+        minHeight: '80px',
+        border: '2px solid var(--sb-btnBorder)',
+        borderRadius: '10px',
         background: '#fff',
         boxShadow: 'var(--shadow)',
-        padding: '18px',
+        padding: '20px',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
         gap: '10px',
     },
     kpiLabel: {
-        fontSize: '14px',
-        fontWeight: '800',
-        color: '#444',
+        fontSize: '18px',
+        fontWeight: '600',
+        color: '#555555',
     },
     kpiValue: {
-        fontSize: '27px',
+        fontSize: '35px',
         lineHeight: 1,
-        color: '#111',
+        color: '#000000',
     },
     chartSection: {
         margin: '34px 0',
-        borderLeft: '2px solid #333',
-        borderBottom: '2px solid #333',
+        borderLeft: '0px solid #333',
+        borderBottom: '0px solid #333',
         minHeight: '270px',
-        padding: '18px 20px 0',
+        padding: '30px 20px 0',
         overflowX: 'auto',
     },
+
+    chartContainer: {
+        position: 'relative',
+        minWidth: '500px',
+    },
+    gridOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: '232px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        pointerEvents: 'none',
+        zIndex: 1,
+    },
+    gridLine: {
+        width: '100%',
+        borderBottom: '1px dashed #c9c9c9',
+    },
+
+
+
     chart: {
-        minWidth: '520px',
-        minHeight: '252px',
+        position: 'relative',
+        zIndex: 2,
+        minWidth: '500px',
+        minHeight: '250px',
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'space-around',
         gap: '36px',
+        borderBottom: '2px solid #333',
+        //minWidth: '500px',
+        //minHeight: '250px',
+        //display: 'flex',
+        //alignItems: 'flex-end',
+        //justifyContent: 'space-around',
+        //gap: '36px',
     },
     barGroup: {
-        width: '120px',
-        minWidth: '90px',
+        width: '140px',
+        minWidth: '100px',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -490,27 +542,34 @@ const styles = {
         flexDirection: 'column',
         justifyContent: 'flex-end',
         alignItems: 'center',
-        gap: '8px',
+        gap: '10px',
     },
     barValue: {
         minHeight: '20px',
-        fontSize: '13px',
-        fontWeight: '800',
-        color: '#333',
+        fontSize: '15px',
+        fontWeight: '700',
+        color: '#3a3a3a',
     },
     bar: {
         width: '58px',
         border: '2px solid var(--sb-btnBorder)',
         borderRadius: '6px 6px 0 0',
         background: 'linear-gradient(180deg, #fff1f1 0%, #ffb6b6 100%)',
-        boxShadow: '0 8px 16px rgba(255, 119, 119, 0.18)',
     },
+
+
+    barYearContainer: {
+        paddingTop: '12px',
+        textAlign: 'center',
+    },
+
+
     barYear: {
-        fontSize: '15px',
-        fontWeight: '800',
+        fontSize: '18px',
+        fontWeight: '700',
     },
     tableSection: {
-        marginTop: '30px',
+        marginTop: '40px',
         overflowX: 'auto',
     },
     table: {
@@ -538,7 +597,7 @@ const styles = {
         borderRight: '1px solid var(--sb-btnBorder)',
         padding: '13px 16px',
         textAlign: 'center',
-        fontSize: '14px',
+        fontSize: '13px',
         background: '#fff8f8',
         minWidth: '88px',
     },
