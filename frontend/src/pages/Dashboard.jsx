@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { apiErrorMessage, currentToken, getTreasuryDashboard } from '../lib/api';
+import {
+    apiErrorMessage,
+    currentToken,
+    getManagementProductivityDashboard,
+    getTreasuryDashboard,
+} from '../lib/api';
 
-function Dashboard() {
+function Dashboard({ currentRole }) {
+    if (currentRole === 'gerencia') {
+        return <ManagementProductivityDashboard />;
+    }
+
+    return <TreasuryBudgetDashboard />;
+}
+
+function TreasuryBudgetDashboard() {
     const navigate = useNavigate();
     const [dashboard, setDashboard] = useState(null);
     const [selectedStoreId, setSelectedStoreId] = useState('all');
@@ -160,6 +173,140 @@ function KpiCard({ label, value }) {
     );
 }
 
+function ManagementProductivityDashboard() {
+    const navigate = useNavigate();
+    const [dashboard, setDashboard] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let active = true;
+
+        if (!currentToken()) {
+            navigate('/login');
+            return () => {
+                active = false;
+            };
+        }
+
+        getManagementProductivityDashboard()
+            .then((data) => {
+                if (!active) return;
+                setDashboard(data);
+                setError('');
+            })
+            .catch((requestError) => {
+                if (!active) return;
+                setError(apiErrorMessage(requestError));
+            })
+            .finally(() => {
+                if (active) setLoading(false);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [navigate]);
+
+    const days = dashboard?.days || ['Lu', 'Ma', 'Mi', 'Ju', 'Vi'];
+    const rows = dashboard?.rows || [];
+    const maxValue = Math.max(
+        1,
+        ...rows.flatMap((row) => days.map((day) => productivityValue(row, day))),
+        ...days.map((day) => Number(dashboard?.totals?.[day] || 0)),
+    );
+
+    if (loading) {
+        return <div style={styles.message}>Cargando dashboard...</div>;
+    }
+
+    if (error) {
+        return <div style={styles.errorBox}>{error}</div>;
+    }
+
+    return (
+        <div style={styles.container}>
+            <h1 style={styles.title}>Productividad (Gerencia)</h1>
+
+            <section style={styles.productivityHeader}>
+                <span style={styles.sectionLabel}>Tabla Heatmap</span>
+                <span style={styles.weekLabel}>
+                    {formatDateShort(dashboard?.weekStartsOn)} - {formatDateShort(dashboard?.weekEndsOn)}
+                </span>
+            </section>
+
+            <section style={styles.tableSection}>
+                <table style={styles.table}>
+                    <thead>
+                        <tr>
+                            <th style={{ ...styles.th, ...styles.storeTh }}>Contador</th>
+                            {days.map((day) => (
+                                <th key={day} style={styles.heatmapTh}>{day}</th>
+                            ))}
+                            <th style={styles.heatmapTh}>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row) => (
+                            <tr key={row.accountantId}>
+                                <td style={{ ...styles.td, ...styles.storeTd }}>
+                                    <strong>{row.accountantName}</strong>
+                                </td>
+                                {days.map((day) => {
+                                    const value = productivityValue(row, day);
+                                    return (
+                                        <td
+                                            key={day}
+                                            style={{
+                                                ...styles.heatmapCell,
+                                                background: heatmapColor(value, maxValue),
+                                            }}
+                                        >
+                                            {value || '-'}
+                                        </td>
+                                    );
+                                })}
+                                <td style={styles.heatmapTotalCell}>{row.total}</td>
+                            </tr>
+                        ))}
+                        {rows.length === 0 && (
+                            <tr>
+                                <td style={styles.emptyCell} colSpan={days.length + 2}>
+                                    No hay contadores activos para mostrar.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td style={{ ...styles.td, ...styles.storeTd }}>
+                                <strong>Total</strong>
+                            </td>
+                            {days.map((day) => {
+                                const value = Number(dashboard?.totals?.[day] || 0);
+                                return (
+                                    <td
+                                        key={day}
+                                        style={{
+                                            ...styles.heatmapFooterCell,
+                                            background: heatmapColor(value, maxValue),
+                                        }}
+                                    >
+                                        {value || '-'}
+                                    </td>
+                                );
+                            })}
+                            <td style={styles.heatmapGrandTotalCell}>
+                                {dashboard?.grandTotal || 0}
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </section>
+        </div>
+    );
+}
+
 function BarChart({ totalsByYear }) {
     const maxAmount = Math.max(...totalsByYear.map((item) => item.amount), 1);
 
@@ -183,6 +330,24 @@ function BarChart({ totalsByYear }) {
 
 function valueForYear(row, year) {
     return Number(row?.values?.[year] ?? row?.values?.[String(year)] ?? 0);
+}
+
+function productivityValue(row, day) {
+    return Number(row?.values?.[day] || 0);
+}
+
+function heatmapColor(value, maxValue) {
+    if (!value) return '#ffffff';
+    const intensity = Math.min(value / Math.max(maxValue, 1), 1);
+    const alpha = 0.18 + intensity * 0.52;
+    return `rgba(255, 122, 122, ${alpha})`;
+}
+
+function formatDateShort(value) {
+    if (!value) return '';
+    const [year, month, day] = String(value).split('-');
+    if (!year || !month || !day) return value;
+    return `${day}/${month}/${year}`;
 }
 
 function formatCurrency(value) {
@@ -254,6 +419,19 @@ const styles = {
         fontSize: '15px',
         fontWeight: '800',
         color: '#333',
+    },
+    productivityHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '16px',
+        margin: '4px 0 18px',
+        flexWrap: 'wrap',
+    },
+    weekLabel: {
+        fontSize: '13px',
+        fontWeight: '700',
+        color: '#666',
     },
     kpiGrid: {
         display: 'grid',
@@ -355,6 +533,15 @@ const styles = {
         textAlign: 'left',
         minWidth: '220px',
     },
+    heatmapTh: {
+        borderBottom: '1px solid var(--sb-btnBorder)',
+        borderRight: '1px solid var(--sb-btnBorder)',
+        padding: '13px 16px',
+        textAlign: 'center',
+        fontSize: '14px',
+        background: '#fff8f8',
+        minWidth: '88px',
+    },
     td: {
         borderTop: '1px solid #f1dada',
         borderRight: '1px solid #f1dada',
@@ -366,6 +553,41 @@ const styles = {
     storeTd: {
         textAlign: 'left',
         whiteSpace: 'normal',
+    },
+    heatmapCell: {
+        borderTop: '1px solid #f1dada',
+        borderRight: '1px solid #f1dada',
+        padding: '13px 16px',
+        textAlign: 'center',
+        fontSize: '14px',
+        fontWeight: '800',
+        color: '#3d2a2a',
+    },
+    heatmapTotalCell: {
+        borderTop: '1px solid #f1dada',
+        borderRight: '1px solid #f1dada',
+        padding: '13px 16px',
+        textAlign: 'center',
+        fontSize: '15px',
+        fontWeight: '900',
+        background: '#fff8f8',
+    },
+    heatmapFooterCell: {
+        borderTop: '2px solid var(--sb-btnBorder)',
+        borderRight: '1px solid #f1dada',
+        padding: '13px 16px',
+        textAlign: 'center',
+        fontSize: '15px',
+        fontWeight: '900',
+        color: '#3d2a2a',
+    },
+    heatmapGrandTotalCell: {
+        borderTop: '2px solid var(--sb-btnBorder)',
+        padding: '13px 16px',
+        textAlign: 'center',
+        fontSize: '16px',
+        fontWeight: '900',
+        background: '#ffeaea',
     },
     storeName: {
         display: 'block',

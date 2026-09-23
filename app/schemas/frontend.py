@@ -41,6 +41,26 @@ class FrontendTreasuryDashboardRead(BaseModel):
     rows: list[FrontendTreasuryDashboardRowRead] = Field(default_factory=list)
 
 
+class FrontendManagementProductivityRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    accountant_id: UUID = Field(alias="accountantId")
+    accountant_name: str = Field(alias="accountantName")
+    values: dict[str, int]
+    total: int
+
+
+class FrontendManagementProductivityDashboardRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    week_starts_on: date = Field(alias="weekStartsOn")
+    week_ends_on: date = Field(alias="weekEndsOn")
+    days: list[str]
+    rows: list[FrontendManagementProductivityRowRead] = Field(default_factory=list)
+    totals: dict[str, int]
+    grand_total: int = Field(alias="grandTotal")
+
+
 class FrontendUserRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

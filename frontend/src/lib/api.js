@@ -95,6 +95,10 @@ export async function getTreasuryDashboard() {
     return request('/frontend/tesoreria/dashboard/me');
 }
 
+export async function getManagementProductivityDashboard() {
+    return request('/frontend/gerencia/productividad/me');
+}
+
 export async function getFrontendSolicitud(requestIdOrFolio) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
 }

@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -29,6 +29,8 @@ from app.schemas.frontend import (
     FrontendContextRead,
     FrontendGastoCreate,
     FrontendGastoRead,
+    FrontendManagementProductivityDashboardRead,
+    FrontendManagementProductivityRowRead,
     FrontendObservationCreate,
     FrontendSolicitudCreate,
     FrontendSolicitudRead,
@@ -374,6 +376,93 @@ def get_treasury_dashboard(
             )
             for store in stores
         ],
+    )
+
+
+@router.get("/gerencia/productividad/me", response_model=FrontendManagementProductivityDashboardRead)
+def get_management_productivity_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendManagementProductivityDashboardRead:
+    if current_user.role not in {UserRole.accounting_manager, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Only management users can view the productivity dashboard",
+            },
+        )
+
+    day_labels = ["Lu", "Ma", "Mi", "Ju", "Vi"]
+    today = datetime.now(MEXICO_CITY_TZ).date()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=4)
+    window_start = datetime.combine(week_start, time.min, tzinfo=MEXICO_CITY_TZ)
+    window_end = datetime.combine(week_start + timedelta(days=7), time.min, tzinfo=MEXICO_CITY_TZ)
+
+    accountants = list(
+        db.scalars(
+            select(User)
+            .where(
+                User.role == UserRole.accountant,
+                User.is_active.is_(True),
+            )
+            .order_by(User.full_name)
+        )
+    )
+    values_by_accountant = {
+        accountant.id: {day: 0 for day in day_labels}
+        for accountant in accountants
+    }
+
+    event_rows = db.execute(
+        select(
+            AuditLog.actor_user_id,
+            AuditLog.created_at,
+        )
+        .join(User, AuditLog.actor_user_id == User.id)
+        .where(
+            AuditLog.action == "request_status_changed",
+            AuditLog.to_status == ReimbursementRequestStatus.accounting_reviewed.value,
+            AuditLog.created_at >= window_start,
+            AuditLog.created_at < window_end,
+            User.role == UserRole.accountant,
+        )
+    )
+
+    for accountant_id, created_at in event_rows:
+        if accountant_id not in values_by_accountant:
+            continue
+        event_timestamp = created_at
+        if event_timestamp.tzinfo is None:
+            event_timestamp = event_timestamp.replace(tzinfo=UTC)
+        weekday = event_timestamp.astimezone(MEXICO_CITY_TZ).weekday()
+        if 0 <= weekday < len(day_labels):
+            values_by_accountant[accountant_id][day_labels[weekday]] += 1
+
+    totals = {day: 0 for day in day_labels}
+    rows = []
+    for accountant in accountants:
+        values = values_by_accountant[accountant.id]
+        total = sum(values.values())
+        for day, value in values.items():
+            totals[day] += value
+        rows.append(
+            FrontendManagementProductivityRowRead(
+                accountant_id=accountant.id,
+                accountant_name=accountant.full_name,
+                values=values,
+                total=total,
+            )
+        )
+
+    return FrontendManagementProductivityDashboardRead(
+        week_starts_on=week_start,
+        week_ends_on=week_end,
+        days=day_labels,
+        rows=rows,
+        totals=totals,
+        grand_total=sum(totals.values()),
     )
 
 
