@@ -189,6 +189,9 @@ function ManagementProductivityDashboard() {
     const [dashboard, setDashboard] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [selectedWeekStart, setSelectedWeekStart] = useState(() => startOfWeekInput(todayInputDate()));
+    const [selectedMonth, setSelectedMonth] = useState(() => currentMonthInput());
+    const [selectedYear, setSelectedYear] = useState(() => currentYearInput());
 
     useEffect(() => {
         let active = true;
@@ -200,7 +203,12 @@ function ManagementProductivityDashboard() {
             };
         }
 
-        getManagementProductivityDashboard()
+        setLoading(true);
+        getManagementProductivityDashboard({
+            weekStart: selectedWeekStart,
+            month: selectedMonth,
+            year: selectedYear,
+        })
             .then((data) => {
                 if (!active) return;
                 setDashboard(data);
@@ -217,10 +225,11 @@ function ManagementProductivityDashboard() {
         return () => {
             active = false;
         };
-    }, [navigate]);
+    }, [navigate, selectedMonth, selectedWeekStart, selectedYear]);
 
     const days = dashboard?.days || ['Lu', 'Ma', 'Mi', 'Ju', 'Vi'];
     const rows = dashboard?.rows || [];
+    const monthlyRows = dashboard?.monthlyRows || [];
     const maxValue = Math.max(
         1,
         ...rows.flatMap((row) => days.map((day) => productivityValue(row, day))),
@@ -240,10 +249,34 @@ function ManagementProductivityDashboard() {
             <h1 style={styles.title}>Análisis de Productividad</h1>
 
             <section style={styles.productivityHeader}>
-                <span style={styles.sectionLabel}>SEMANA ACTUAL</span>
-                <span style={styles.weekLabel}>
-                    {formatDateShort(dashboard?.weekStartsOn)} - {formatDateShort(dashboard?.weekEndsOn)}
-                </span>
+                <div>
+                    <span style={styles.sectionLabel}>TABLA SEMANAL</span>
+                    <span style={styles.weekLabel}>
+                        {formatDateShort(dashboard?.weekStartsOn)} - {formatDateShort(dashboard?.weekEndsOn)}
+                    </span>
+                </div>
+                <div style={styles.periodControls}>
+                    <button
+                        type="button"
+                        style={styles.smallButton}
+                        onClick={() => setSelectedWeekStart(addDaysToInput(selectedWeekStart, -7))}
+                    >
+                        Semana anterior
+                    </button>
+                    <input
+                        type="date"
+                        value={selectedWeekStart}
+                        onChange={(event) => setSelectedWeekStart(startOfWeekInput(event.target.value))}
+                        style={styles.dateInput}
+                    />
+                    <button
+                        type="button"
+                        style={styles.smallButton}
+                        onClick={() => setSelectedWeekStart(addDaysToInput(selectedWeekStart, 7))}
+                    >
+                        Semana siguiente
+                    </button>
+                </div>
             </section>
 
             <section style={styles.tableSection}>
@@ -314,6 +347,75 @@ function ManagementProductivityDashboard() {
                     </tfoot>
                 </table>
             </section>
+
+            <section style={styles.monthlySection}>
+                <div style={styles.productivityHeader}>
+                    <div>
+                        <span style={styles.sectionLabel}>TOTAL MENSUAL POR CONTADOR</span>
+                        <span style={styles.weekLabel}>
+                            {formatMonthYear(dashboard?.month || selectedMonth, dashboard?.year || selectedYear)}
+                        </span>
+                    </div>
+                    <div style={styles.periodControls}>
+                        <select
+                            value={selectedMonth}
+                            onChange={(event) => setSelectedMonth(Number(event.target.value))}
+                            style={styles.monthSelect}
+                        >
+                            {MONTH_OPTIONS.map((monthOption) => (
+                                <option key={monthOption.value} value={monthOption.value}>
+                                    {monthOption.label}
+                                </option>
+                            ))}
+                        </select>
+                        <input
+                            type="number"
+                            min="2020"
+                            max="2100"
+                            value={selectedYear}
+                            onChange={(event) => setSelectedYear(Number(event.target.value) || currentYearInput())}
+                            style={styles.yearInput}
+                        />
+                    </div>
+                </div>
+                <MonthlyAccountantBarChart
+                    rows={monthlyRows}
+                    grandTotal={dashboard?.monthlyGrandTotal || 0}
+                />
+            </section>
+        </div>
+    );
+}
+
+function MonthlyAccountantBarChart({ rows, grandTotal }) {
+    const maxTotal = Math.max(1, ...rows.map((row) => Number(row.total || 0)));
+
+    return (
+        <div style={styles.monthlyChartContainer}>
+            <div style={styles.monthlyChartHeader}>
+                <span>Total del mes</span>
+                <strong>{grandTotal}</strong>
+            </div>
+            <div style={styles.monthlyChart}>
+                {rows.map((row) => {
+                    const total = Number(row.total || 0);
+                    const height = Math.max((total / maxTotal) * 220, total > 0 ? 18 : 6);
+                    return (
+                        <div key={row.accountantId} style={styles.monthlyBarGroup}>
+                            <div style={styles.monthlyBarWrap}>
+                                <span style={styles.monthlyBarValue}>{total}</span>
+                                <div style={{ ...styles.monthlyBar, height }} />
+                            </div>
+                            <span style={styles.monthlyBarName}>{row.accountantName}</span>
+                        </div>
+                    );
+                })}
+                {rows.length === 0 && (
+                    <div style={styles.emptyChart}>
+                        No hay contadores activos para mostrar.
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
@@ -350,6 +452,21 @@ function BarChart({ totalsByYear }) {
     );
 }
 
+const MONTH_OPTIONS = [
+    { value: 1, label: 'Enero' },
+    { value: 2, label: 'Febrero' },
+    { value: 3, label: 'Marzo' },
+    { value: 4, label: 'Abril' },
+    { value: 5, label: 'Mayo' },
+    { value: 6, label: 'Junio' },
+    { value: 7, label: 'Julio' },
+    { value: 8, label: 'Agosto' },
+    { value: 9, label: 'Septiembre' },
+    { value: 10, label: 'Octubre' },
+    { value: 11, label: 'Noviembre' },
+    { value: 12, label: 'Diciembre' },
+];
+
 function valueForYear(row, year) {
     return Number(row?.values?.[year] ?? row?.values?.[String(year)] ?? 0);
 }
@@ -378,6 +495,51 @@ function formatDateShort(value) {
     const [year, month, day] = String(value).split('-');
     if (!year || !month || !day) return value;
     return `${day}/${month}/${year}`;
+}
+
+function todayInputDate() {
+    return dateToInputValue(new Date());
+}
+
+function currentMonthInput() {
+    return new Date().getMonth() + 1;
+}
+
+function currentYearInput() {
+    return new Date().getFullYear();
+}
+
+function startOfWeekInput(value) {
+    const date = dateFromInputValue(value) || new Date();
+    const mondayOffset = (date.getDay() + 6) % 7;
+    date.setDate(date.getDate() - mondayOffset);
+    return dateToInputValue(date);
+}
+
+function addDaysToInput(value, days) {
+    const date = dateFromInputValue(value) || new Date();
+    date.setDate(date.getDate() + days);
+    return startOfWeekInput(dateToInputValue(date));
+}
+
+function dateFromInputValue(value) {
+    const [year, month, day] = String(value || '').split('-').map(Number);
+    if (!year || !month || !day) return null;
+    const date = new Date(year, month - 1, day);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+}
+
+function dateToInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function formatMonthYear(month, year) {
+    const monthName = MONTH_OPTIONS.find((item) => item.value === Number(month))?.label || '';
+    return `${monthName} ${year || ''}`.trim();
 }
 
 function formatCurrency(value) {
@@ -424,6 +586,58 @@ const styles = {
     },
     filterLabel: {
         fontSize: '17px',
+        fontWeight: '700',
+    },
+    periodControls: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        flexWrap: 'wrap',
+    },
+    smallButton: {
+        minHeight: '38px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#b85b65',
+        padding: '0 14px',
+        fontSize: '13px',
+        fontWeight: '800',
+        cursor: 'pointer',
+        boxShadow: 'var(--shadow)',
+    },
+    dateInput: {
+        width: '150px',
+        height: '38px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#222',
+        padding: '0 10px',
+        fontSize: '14px',
+        fontWeight: '700',
+    },
+    monthSelect: {
+        width: '150px',
+        height: '38px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#222',
+        padding: '0 10px',
+        fontSize: '14px',
+        fontWeight: '700',
+    },
+    yearInput: {
+        width: '96px',
+        height: '38px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#222',
+        padding: '0 10px',
+        fontSize: '14px',
         fontWeight: '700',
     },
     select: {
@@ -579,6 +793,84 @@ const styles = {
     tableSection: {
         marginTop: '40px',
         overflowX: 'auto',
+    },
+    monthlySection: {
+        marginTop: '42px',
+        paddingTop: '28px',
+        borderTop: '1px solid #f0d0d0',
+    },
+    monthlyChartContainer: {
+        marginTop: '22px',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        background: '#fff',
+        padding: '18px 20px 22px',
+        overflowX: 'auto',
+    },
+    monthlyChartHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '14px',
+        marginBottom: '16px',
+        fontSize: '15px',
+        fontWeight: '800',
+        color: '#3d2a2a',
+    },
+    monthlyChart: {
+        minWidth: '620px',
+        minHeight: '292px',
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: '22px',
+        borderBottom: '2px solid #333',
+        padding: '0 4px 14px',
+    },
+    monthlyBarGroup: {
+        width: '118px',
+        minWidth: '118px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: '10px',
+    },
+    monthlyBarWrap: {
+        height: '244px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: '8px',
+    },
+    monthlyBarValue: {
+        minHeight: '18px',
+        fontSize: '14px',
+        fontWeight: '900',
+        color: '#3a3a3a',
+    },
+    monthlyBar: {
+        width: '54px',
+        border: '2px solid var(--sb-btnBorder)',
+        borderRadius: '6px 6px 0 0',
+        background: 'linear-gradient(180deg, #fff8f8 0%, #ff9ca5 100%)',
+    },
+    monthlyBarName: {
+        width: '100%',
+        minHeight: '38px',
+        fontSize: '12px',
+        fontWeight: '800',
+        color: '#4f4f4f',
+        textAlign: 'center',
+        lineHeight: 1.25,
+        overflowWrap: 'anywhere',
+    },
+    emptyChart: {
+        width: '100%',
+        alignSelf: 'center',
+        textAlign: 'center',
+        color: '#666',
+        fontWeight: '700',
     },
     table: {
         width: '100%',

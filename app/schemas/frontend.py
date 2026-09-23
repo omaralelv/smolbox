@@ -50,15 +50,30 @@ class FrontendManagementProductivityRowRead(BaseModel):
     total: int
 
 
+class FrontendManagementMonthlyProductivityRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    accountant_id: UUID = Field(alias="accountantId")
+    accountant_name: str = Field(alias="accountantName")
+    total: int
+
+
 class FrontendManagementProductivityDashboardRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     week_starts_on: date = Field(alias="weekStartsOn")
     week_ends_on: date = Field(alias="weekEndsOn")
+    month: int
+    year: int
     days: list[str]
     rows: list[FrontendManagementProductivityRowRead] = Field(default_factory=list)
     totals: dict[str, int]
     grand_total: int = Field(alias="grandTotal")
+    monthly_rows: list[FrontendManagementMonthlyProductivityRowRead] = Field(
+        default_factory=list,
+        alias="monthlyRows",
+    )
+    monthly_grand_total: int = Field(alias="monthlyGrandTotal")
 
 
 class FrontendUserRead(BaseModel):

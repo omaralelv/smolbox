@@ -105,8 +105,13 @@ export async function getTreasuryDashboard() {
     return request('/frontend/tesoreria/dashboard/me');
 }
 
-export async function getManagementProductivityDashboard() {
-    return request('/frontend/gerencia/productividad/me');
+export async function getManagementProductivityDashboard(params = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.weekStart) searchParams.set('week_start', params.weekStart);
+    if (params.month) searchParams.set('month', String(params.month));
+    if (params.year) searchParams.set('year', String(params.year));
+    const query = searchParams.toString();
+    return request(`/frontend/gerencia/productividad/me${query ? `?${query}` : ''}`);
 }
 
 export async function getFrontendSolicitud(requestIdOrFolio) {

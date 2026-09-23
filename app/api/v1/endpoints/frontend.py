@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -29,6 +29,7 @@ from app.schemas.frontend import (
     FrontendContextRead,
     FrontendGastoCreate,
     FrontendGastoRead,
+    FrontendManagementMonthlyProductivityRowRead,
     FrontendManagementProductivityDashboardRead,
     FrontendManagementProductivityRowRead,
     FrontendObservationCreate,
@@ -383,6 +384,9 @@ def get_treasury_dashboard(
 def get_management_productivity_dashboard(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    week_start: Annotated[date | None, Query()] = None,
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    year: Annotated[int | None, Query(ge=2020, le=2100)] = None,
 ) -> FrontendManagementProductivityDashboardRead:
     if current_user.role not in {UserRole.accounting_manager, UserRole.admin}:
         raise HTTPException(
@@ -395,10 +399,25 @@ def get_management_productivity_dashboard(
 
     day_labels = ["Lu", "Ma", "Mi", "Ju", "Vi"]
     today = datetime.now(MEXICO_CITY_TZ).date()
-    week_start = today - timedelta(days=today.weekday())
-    week_end = week_start + timedelta(days=4)
-    window_start = datetime.combine(week_start, time.min, tzinfo=MEXICO_CITY_TZ)
-    window_end = datetime.combine(week_start + timedelta(days=7), time.min, tzinfo=MEXICO_CITY_TZ)
+    selected_week_start = (week_start or today) - timedelta(
+        days=(week_start or today).weekday()
+    )
+    selected_month = month or today.month
+    selected_year = year or today.year
+    week_end = selected_week_start + timedelta(days=4)
+    window_start = datetime.combine(selected_week_start, time.min, tzinfo=MEXICO_CITY_TZ)
+    window_end = datetime.combine(
+        selected_week_start + timedelta(days=7),
+        time.min,
+        tzinfo=MEXICO_CITY_TZ,
+    )
+    month_start = date(selected_year, selected_month, 1)
+    if selected_month == 12:
+        next_month_start = date(selected_year + 1, 1, 1)
+    else:
+        next_month_start = date(selected_year, selected_month + 1, 1)
+    month_window_start = datetime.combine(month_start, time.min, tzinfo=MEXICO_CITY_TZ)
+    month_window_end = datetime.combine(next_month_start, time.min, tzinfo=MEXICO_CITY_TZ)
 
     accountants = list(
         db.scalars(
@@ -412,6 +431,10 @@ def get_management_productivity_dashboard(
     )
     values_by_accountant = {
         accountant.id: {day: 0 for day in day_labels}
+        for accountant in accountants
+    }
+    monthly_totals_by_accountant = {
+        accountant.id: 0
         for accountant in accountants
     }
 
@@ -440,6 +463,23 @@ def get_management_productivity_dashboard(
         if 0 <= weekday < len(day_labels):
             values_by_accountant[accountant_id][day_labels[weekday]] += 1
 
+    monthly_event_rows = db.execute(
+        select(AuditLog.actor_user_id)
+        .join(User, AuditLog.actor_user_id == User.id)
+        .where(
+            AuditLog.action == "request_status_changed",
+            AuditLog.to_status == ReimbursementRequestStatus.accounting_reviewed.value,
+            AuditLog.created_at >= month_window_start,
+            AuditLog.created_at < month_window_end,
+            User.role == UserRole.accountant,
+        )
+    )
+
+    for (accountant_id,) in monthly_event_rows:
+        if accountant_id not in monthly_totals_by_accountant:
+            continue
+        monthly_totals_by_accountant[accountant_id] += 1
+
     totals = {day: 0 for day in day_labels}
     rows = []
     for accountant in accountants:
@@ -455,14 +495,26 @@ def get_management_productivity_dashboard(
                 total=total,
             )
         )
+    monthly_rows = [
+        FrontendManagementMonthlyProductivityRowRead(
+            accountant_id=accountant.id,
+            accountant_name=accountant.full_name,
+            total=monthly_totals_by_accountant[accountant.id],
+        )
+        for accountant in accountants
+    ]
 
     return FrontendManagementProductivityDashboardRead(
-        week_starts_on=week_start,
+        week_starts_on=selected_week_start,
         week_ends_on=week_end,
+        month=selected_month,
+        year=selected_year,
         days=day_labels,
         rows=rows,
         totals=totals,
         grand_total=sum(totals.values()),
+        monthly_rows=monthly_rows,
+        monthly_grand_total=sum(row.total for row in monthly_rows),
     )
 
 
