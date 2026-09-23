@@ -7,7 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -23,6 +23,7 @@ from app.models.reimbursement_request import (
     ReimbursementRequestStatus,
 )
 from app.models.store import Store, StoreUserAssignment
+from app.models.store_spending_baseline import StoreSpendingBaseline
 from app.models.user import User, UserRole
 from app.schemas.frontend import (
     FrontendContextRead,
@@ -32,6 +33,9 @@ from app.schemas.frontend import (
     FrontendSolicitudCreate,
     FrontendSolicitudRead,
     FrontendStoreRead,
+    FrontendTreasuryDashboardRead,
+    FrontendTreasuryDashboardRowRead,
+    FrontendTreasuryDashboardStoreRead,
     FrontendUserRead,
 )
 from app.services.accounting_queue import mark_accounting_request_taken_on_open
@@ -123,6 +127,13 @@ HISTORICAL_STATUSES = {
     ReimbursementRequestStatus.paid,
     ReimbursementRequestStatus.closed,
     ReimbursementRequestStatus.rejected,
+}
+
+TREASURY_DASHBOARD_SPENDING_STATUSES = {
+    ReimbursementRequestStatus.direction_approved,
+    ReimbursementRequestStatus.approved_for_payment,
+    ReimbursementRequestStatus.paid,
+    ReimbursementRequestStatus.closed,
 }
 
 GLOBAL_POST_ACCOUNTING_ROLES = {
@@ -281,6 +292,89 @@ def get_frontend_request_detail(
     _ensure_request_visible(request, current_user, db)
     request = _mark_accounting_request_taken_if_needed(request, current_user, db)
     return _request_payload(request, current_user, db)
+
+
+@router.get("/tesoreria/dashboard/me", response_model=FrontendTreasuryDashboardRead)
+def get_treasury_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendTreasuryDashboardRead:
+    if current_user.role not in {*GLOBAL_POST_ACCOUNTING_ROLES, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Only post-accounting roles can view the treasury dashboard",
+            },
+        )
+
+    current_year = datetime.now(MEXICO_CITY_TZ).year
+    years = [current_year - 2, current_year - 1, current_year]
+    stores = list(db.scalars(select(Store).order_by(Store.code)))
+    store_ids = [store.id for store in stores]
+    values_by_store = {
+        store.id: {year: Decimal("0.00") for year in years}
+        for store in stores
+    }
+
+    if store_ids:
+        baseline_rows = db.execute(
+            select(
+                StoreSpendingBaseline.store_id,
+                StoreSpendingBaseline.fiscal_year,
+                StoreSpendingBaseline.historical_amount,
+            )
+            .where(
+                StoreSpendingBaseline.store_id.in_(store_ids),
+                StoreSpendingBaseline.fiscal_year.in_(years),
+            )
+        )
+        for store_id, fiscal_year, historical_amount in baseline_rows:
+            values_by_store[store_id][int(fiscal_year)] += _money(historical_amount)
+
+        expense_year = func.extract("year", Expense.spent_on)
+        approved_rows = db.execute(
+            select(
+                ReimbursementRequest.store_id,
+                expense_year.label("expense_year"),
+                func.coalesce(func.sum(Expense.amount), Decimal("0.00")),
+            )
+            .join(Expense, Expense.reimbursement_request_id == ReimbursementRequest.id)
+            .where(
+                ReimbursementRequest.store_id.in_(store_ids),
+                ReimbursementRequest.status.in_(TREASURY_DASHBOARD_SPENDING_STATUSES),
+                Expense.status.not_in({ExpenseStatus.removed, ExpenseStatus.rejected}),
+                Expense.removed_at.is_(None),
+                expense_year.in_(years),
+            )
+            .group_by(ReimbursementRequest.store_id, expense_year)
+        )
+        for store_id, fiscal_year, approved_amount in approved_rows:
+            values_by_store[store_id][int(fiscal_year)] += _money(approved_amount)
+
+    return FrontendTreasuryDashboardRead(
+        years=years,
+        stores=[
+            FrontendTreasuryDashboardStoreRead(
+                id=store.id,
+                code=_frontend_store_code(store),
+                name=store.name,
+            )
+            for store in stores
+        ],
+        rows=[
+            FrontendTreasuryDashboardRowRead(
+                store_id=store.id,
+                store_code=_frontend_store_code(store),
+                store_name=store.name,
+                values={
+                    year: float(_money(values_by_store[store.id][year]))
+                    for year in years
+                },
+            )
+            for store in stores
+        ],
+    )
 
 
 @router.post(

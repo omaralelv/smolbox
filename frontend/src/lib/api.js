@@ -91,6 +91,10 @@ export async function getFrontendHistorico() {
     return request('/frontend/historico/me');
 }
 
+export async function getTreasuryDashboard() {
+    return request('/frontend/tesoreria/dashboard/me');
+}
+
 export async function getFrontendSolicitud(requestIdOrFolio) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
 }

@@ -16,6 +16,31 @@ class FrontendStoreRead(BaseModel):
     estado_region: str | None = Field(default=None, alias="estadoRegion")
 
 
+class FrontendTreasuryDashboardStoreRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    code: str
+    name: str
+
+
+class FrontendTreasuryDashboardRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    store_id: UUID = Field(alias="storeId")
+    store_code: str = Field(alias="storeCode")
+    store_name: str = Field(alias="storeName")
+    values: dict[int, float]
+
+
+class FrontendTreasuryDashboardRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    years: list[int]
+    stores: list[FrontendTreasuryDashboardStoreRead] = Field(default_factory=list)
+    rows: list[FrontendTreasuryDashboardRowRead] = Field(default_factory=list)
+
+
 class FrontendUserRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
