@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -7,7 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -23,15 +23,21 @@ from app.models.reimbursement_request import (
     ReimbursementRequestStatus,
 )
 from app.models.store import Store, StoreUserAssignment
+from app.models.store_spending_baseline import StoreSpendingBaseline
 from app.models.user import User, UserRole
 from app.schemas.frontend import (
     FrontendContextRead,
     FrontendGastoCreate,
     FrontendGastoRead,
+    FrontendManagementProductivityDashboardRead,
+    FrontendManagementProductivityRowRead,
     FrontendObservationCreate,
     FrontendSolicitudCreate,
     FrontendSolicitudRead,
     FrontendStoreRead,
+    FrontendTreasuryDashboardRead,
+    FrontendTreasuryDashboardRowRead,
+    FrontendTreasuryDashboardStoreRead,
     FrontendUserRead,
 )
 from app.services.accounting_queue import mark_accounting_request_taken_on_open
@@ -123,6 +129,13 @@ HISTORICAL_STATUSES = {
     ReimbursementRequestStatus.paid,
     ReimbursementRequestStatus.closed,
     ReimbursementRequestStatus.rejected,
+}
+
+TREASURY_DASHBOARD_SPENDING_STATUSES = {
+    ReimbursementRequestStatus.direction_approved,
+    ReimbursementRequestStatus.approved_for_payment,
+    ReimbursementRequestStatus.paid,
+    ReimbursementRequestStatus.closed,
 }
 
 GLOBAL_POST_ACCOUNTING_ROLES = {
@@ -281,6 +294,176 @@ def get_frontend_request_detail(
     _ensure_request_visible(request, current_user, db)
     request = _mark_accounting_request_taken_if_needed(request, current_user, db)
     return _request_payload(request, current_user, db)
+
+
+@router.get("/tesoreria/dashboard/me", response_model=FrontendTreasuryDashboardRead)
+def get_treasury_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendTreasuryDashboardRead:
+    if current_user.role not in {*GLOBAL_POST_ACCOUNTING_ROLES, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Only post-accounting roles can view the treasury dashboard",
+            },
+        )
+
+    current_year = datetime.now(MEXICO_CITY_TZ).year
+    years = [current_year - 2, current_year - 1, current_year]
+    stores = list(db.scalars(select(Store).order_by(Store.code)))
+    store_ids = [store.id for store in stores]
+    values_by_store = {
+        store.id: {year: Decimal("0.00") for year in years}
+        for store in stores
+    }
+
+    if store_ids:
+        baseline_rows = db.execute(
+            select(
+                StoreSpendingBaseline.store_id,
+                StoreSpendingBaseline.fiscal_year,
+                StoreSpendingBaseline.historical_amount,
+            )
+            .where(
+                StoreSpendingBaseline.store_id.in_(store_ids),
+                StoreSpendingBaseline.fiscal_year.in_(years),
+            )
+        )
+        for store_id, fiscal_year, historical_amount in baseline_rows:
+            values_by_store[store_id][int(fiscal_year)] += _money(historical_amount)
+
+        expense_year = func.extract("year", Expense.spent_on)
+        approved_rows = db.execute(
+            select(
+                ReimbursementRequest.store_id,
+                expense_year.label("expense_year"),
+                func.coalesce(func.sum(Expense.amount), Decimal("0.00")),
+            )
+            .join(Expense, Expense.reimbursement_request_id == ReimbursementRequest.id)
+            .where(
+                ReimbursementRequest.store_id.in_(store_ids),
+                ReimbursementRequest.status.in_(TREASURY_DASHBOARD_SPENDING_STATUSES),
+                Expense.status.not_in({ExpenseStatus.removed, ExpenseStatus.rejected}),
+                Expense.removed_at.is_(None),
+                expense_year.in_(years),
+            )
+            .group_by(ReimbursementRequest.store_id, expense_year)
+        )
+        for store_id, fiscal_year, approved_amount in approved_rows:
+            values_by_store[store_id][int(fiscal_year)] += _money(approved_amount)
+
+    return FrontendTreasuryDashboardRead(
+        years=years,
+        stores=[
+            FrontendTreasuryDashboardStoreRead(
+                id=store.id,
+                code=_frontend_store_code(store),
+                name=store.name,
+            )
+            for store in stores
+        ],
+        rows=[
+            FrontendTreasuryDashboardRowRead(
+                store_id=store.id,
+                store_code=_frontend_store_code(store),
+                store_name=store.name,
+                values={
+                    year: float(_money(values_by_store[store.id][year]))
+                    for year in years
+                },
+            )
+            for store in stores
+        ],
+    )
+
+
+@router.get("/gerencia/productividad/me", response_model=FrontendManagementProductivityDashboardRead)
+def get_management_productivity_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendManagementProductivityDashboardRead:
+    if current_user.role not in {UserRole.accounting_manager, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Only management users can view the productivity dashboard",
+            },
+        )
+
+    day_labels = ["Lu", "Ma", "Mi", "Ju", "Vi"]
+    today = datetime.now(MEXICO_CITY_TZ).date()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=4)
+    window_start = datetime.combine(week_start, time.min, tzinfo=MEXICO_CITY_TZ)
+    window_end = datetime.combine(week_start + timedelta(days=7), time.min, tzinfo=MEXICO_CITY_TZ)
+
+    accountants = list(
+        db.scalars(
+            select(User)
+            .where(
+                User.role == UserRole.accountant,
+                User.is_active.is_(True),
+            )
+            .order_by(User.full_name)
+        )
+    )
+    values_by_accountant = {
+        accountant.id: {day: 0 for day in day_labels}
+        for accountant in accountants
+    }
+
+    event_rows = db.execute(
+        select(
+            AuditLog.actor_user_id,
+            AuditLog.created_at,
+        )
+        .join(User, AuditLog.actor_user_id == User.id)
+        .where(
+            AuditLog.action == "request_status_changed",
+            AuditLog.to_status == ReimbursementRequestStatus.accounting_reviewed.value,
+            AuditLog.created_at >= window_start,
+            AuditLog.created_at < window_end,
+            User.role == UserRole.accountant,
+        )
+    )
+
+    for accountant_id, created_at in event_rows:
+        if accountant_id not in values_by_accountant:
+            continue
+        event_timestamp = created_at
+        if event_timestamp.tzinfo is None:
+            event_timestamp = event_timestamp.replace(tzinfo=UTC)
+        weekday = event_timestamp.astimezone(MEXICO_CITY_TZ).weekday()
+        if 0 <= weekday < len(day_labels):
+            values_by_accountant[accountant_id][day_labels[weekday]] += 1
+
+    totals = {day: 0 for day in day_labels}
+    rows = []
+    for accountant in accountants:
+        values = values_by_accountant[accountant.id]
+        total = sum(values.values())
+        for day, value in values.items():
+            totals[day] += value
+        rows.append(
+            FrontendManagementProductivityRowRead(
+                accountant_id=accountant.id,
+                accountant_name=accountant.full_name,
+                values=values,
+                total=total,
+            )
+        )
+
+    return FrontendManagementProductivityDashboardRead(
+        week_starts_on=week_start,
+        week_ends_on=week_end,
+        days=day_labels,
+        rows=rows,
+        totals=totals,
+        grand_total=sum(totals.values()),
+    )
 
 
 @router.post(

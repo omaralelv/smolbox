@@ -570,7 +570,7 @@ function SolicitudForm({ currentRole }) {
                                 <button
                                     type="button"
                                     style={{
-                                        ...styles.deleteIconBtn,
+                                        ...styles.iconBtn,
                                         opacity: borrandoEsteGasto || enviando ? 0.5 : 1,
                                         cursor: borrandoEsteGasto || enviando ? 'not-allowed' : 'pointer',
                                     }}
@@ -579,7 +579,7 @@ function SolicitudForm({ currentRole }) {
                                     disabled={borrandoEsteGasto || enviando}
                                     onClick={() => handleEliminarGasto(gasto)}
                                 >
-                                    X
+                                    <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
                                 </button>
                             </div>
                         </div>
@@ -951,21 +951,6 @@ const styles = {
         width: '18px',
         height: '18px',
         objectFit: 'contain'
-    },
-    deleteIconBtn: {
-        width: '22px',
-        height: '22px',
-        border: '1px solid var(--sb-btnBorder)',
-        borderRadius: '50%',
-        backgroundColor: 'var(--sb-WBtnBg)',
-        color: 'var(--text-denegada, #c73b3b)',
-        fontSize: '18px',
-        fontWeight: 'bold',
-        lineHeight: 1,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        boxShadow: 'var(--shadow)',
     },
 
     totalRow: {

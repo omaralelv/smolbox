@@ -16,6 +16,51 @@ class FrontendStoreRead(BaseModel):
     estado_region: str | None = Field(default=None, alias="estadoRegion")
 
 
+class FrontendTreasuryDashboardStoreRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    code: str
+    name: str
+
+
+class FrontendTreasuryDashboardRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    store_id: UUID = Field(alias="storeId")
+    store_code: str = Field(alias="storeCode")
+    store_name: str = Field(alias="storeName")
+    values: dict[int, float]
+
+
+class FrontendTreasuryDashboardRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    years: list[int]
+    stores: list[FrontendTreasuryDashboardStoreRead] = Field(default_factory=list)
+    rows: list[FrontendTreasuryDashboardRowRead] = Field(default_factory=list)
+
+
+class FrontendManagementProductivityRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    accountant_id: UUID = Field(alias="accountantId")
+    accountant_name: str = Field(alias="accountantName")
+    values: dict[str, int]
+    total: int
+
+
+class FrontendManagementProductivityDashboardRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    week_starts_on: date = Field(alias="weekStartsOn")
+    week_ends_on: date = Field(alias="weekEndsOn")
+    days: list[str]
+    rows: list[FrontendManagementProductivityRowRead] = Field(default_factory=list)
+    totals: dict[str, int]
+    grand_total: int = Field(alias="grandTotal")
+
+
 class FrontendUserRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
