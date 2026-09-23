@@ -201,12 +201,22 @@ def _ensure_cognito_user(
         return None
     try:
         return CognitoUserSync(settings).ensure_user(user, password=password)
-    except (BotoCoreError, ClientError, CognitoSyncError) as exc:
+    except ClientError as exc:
+        error = exc.response.get("Error", {})
+        error_code = str(error.get("Code") or "AWS_CLIENT_ERROR")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "code": "COGNITO_SYNC_FAILED",
-                "message": "No se pudo sincronizar el usuario con Cognito.",
+                "message": f"No se pudo sincronizar el usuario con Cognito ({error_code}).",
+            },
+        ) from exc
+    except (BotoCoreError, CognitoSyncError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "COGNITO_SYNC_FAILED",
+                "message": f"No se pudo sincronizar el usuario con Cognito: {exc}",
             },
         ) from exc
 
@@ -216,11 +226,21 @@ def _delete_cognito_user(settings: Settings, email: str) -> None:
         return
     try:
         CognitoUserSync(settings).delete_user(email)
-    except (BotoCoreError, ClientError, CognitoSyncError) as exc:
+    except ClientError as exc:
+        error = exc.response.get("Error", {})
+        error_code = str(error.get("Code") or "AWS_CLIENT_ERROR")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "code": "COGNITO_SYNC_FAILED",
-                "message": "No se pudo sincronizar el usuario con Cognito.",
+                "message": f"No se pudo sincronizar el usuario con Cognito ({error_code}).",
+            },
+        ) from exc
+    except (BotoCoreError, CognitoSyncError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "COGNITO_SYNC_FAILED",
+                "message": f"No se pudo sincronizar el usuario con Cognito: {exc}",
             },
         ) from exc

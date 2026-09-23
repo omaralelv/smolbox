@@ -666,10 +666,13 @@ function Usuarios() {
                                 value={form.password}
                                 onChange={(event) => actualizarCampo('password', event.target.value)}
                                 style={styles.input}
-                                minLength={usuarioEditarId ? undefined : 8}
-                                required={!usuarioEditarId}
-                                placeholder={usuarioEditarId ? 'Insertar Contraseña' : 'Inserte Contraseña'}
+                                minLength={8}
+                                placeholder="Opcional; Cognito enviará una contraseña temporal"
                             />
+                            <small>
+                                Déjala vacía para que Cognito envíe una invitación y solicite el cambio
+                                en el primer inicio de sesión.
+                            </small>
                         </label>
 
 

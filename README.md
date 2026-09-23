@@ -85,6 +85,12 @@ Fuera de esta etapa:
 La autenticación también puede delegarse a Amazon Cognito. Con `COGNITO_ENABLED=true`,
 FastAPI valida los tokens OIDC/JWT del User Pool y busca al usuario operativo por su
 `cognito_sub`; los roles, tiendas y permisos siguen siendo responsabilidad de Smolbox.
+Las contraseñas capturadas desde el panel de Usuarios se envian a Cognito como
+temporales (`Permanent=false`) y requieren cambio en el primer inicio de sesion.
+Si el administrador deja vacio el campo de contrasena, el backend genera una
+contrasena temporal segura y la envia explicitamente a Cognito para evitar que una
+configuracion passwordless del User Pool cree al usuario como `CONFIRMED`. Cognito
+envia la invitacion. Activar o desactivar un usuario no cambia su contrasena.
 Mientras permanezca desactivado, el login local existente continúa funcionando:
 
 ```env

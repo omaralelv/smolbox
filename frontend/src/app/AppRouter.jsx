@@ -7,6 +7,8 @@ import Acumulado from '../pages/Acumulado';
 import Detalle from '../pages/Detalle';
 import Dashboard from '../pages/Dashboard';
 import Login from '../pages/Login';
+import RecoverPassword from '../pages/RecoverPassword';
+import ConfirmPasswordReset from '../pages/ConfirmPasswordReset';
 import Historico from '../pages/Historico';
 import AutorizacionBandeja from '../pages/autorizacion/AutorizacionBandeja';
 import Usuarios from '../pages/admin/Usuarios';
@@ -39,6 +41,8 @@ function AppRouter({ currentRole }) {
         <Route path="/" element={<Navigate to="/login" replace />} />
 
         <Route path="/login" element={<Login />} />
+        <Route path="/recuperar-contrasena" element={<RecoverPassword />} />
+        <Route path="/confirmar-recuperacion" element={<ConfirmPasswordReset />} />
         <Route path="/solicitud/nueva" element={<RequireSession><SolicitudForm currentRole={currentRole} /></RequireSession>} />
         <Route path="/gasto/nuevo" element={<RequireSession><AnadirGasto /></RequireSession>} />
         <Route path="/autorizacion" element={<RequireSession><AutorizacionBandeja currentRole={currentRole}/></RequireSession>} />

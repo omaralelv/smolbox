@@ -1,6 +1,8 @@
 import {
     cognitoLogin,
     completeCognitoNewPassword,
+    confirmCognitoPassword,
+    forgotCognitoPassword,
     isCognitoLoginEnabled,
 } from './cognito';
 
@@ -77,6 +79,14 @@ export async function completeNewPasswordLogin(email, newPassword, session) {
     const context = await getFrontendContext();
     localStorage.setItem(ROLE_KEY, context.currentRole);
     return { token: cognitoSession.idToken, context };
+}
+
+export function requestPasswordReset(email) {
+    return forgotCognitoPassword(email);
+}
+
+export function confirmPasswordReset(email, confirmationCode, newPassword) {
+    return confirmCognitoPassword(email, confirmationCode, newPassword);
 }
 
 export async function getFrontendContext() {

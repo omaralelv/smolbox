@@ -49,6 +49,24 @@ export async function completeCognitoNewPassword(email, newPassword, session) {
     return tokensFromAuthenticationResult(response.AuthenticationResult);
 }
 
+export async function forgotCognitoPassword(email) {
+    ensureCognitoConfig();
+    return cognitoRequest('AWSCognitoIdentityProviderService.ForgotPassword', {
+        ClientId: COGNITO_APP_CLIENT_ID,
+        Username: normalizeUsername(email),
+    });
+}
+
+export async function confirmCognitoPassword(email, confirmationCode, newPassword) {
+    ensureCognitoConfig();
+    return cognitoRequest('AWSCognitoIdentityProviderService.ConfirmForgotPassword', {
+        ClientId: COGNITO_APP_CLIENT_ID,
+        Username: normalizeUsername(email),
+        ConfirmationCode: confirmationCode.trim(),
+        Password: newPassword,
+    });
+}
+
 async function cognitoRequest(target, body) {
     const response = await fetch(cognitoEndpoint(), {
         method: 'POST',
@@ -84,6 +102,10 @@ function ensureCognitoConfig() {
     }
 }
 
+function normalizeUsername(email) {
+    return email.trim().toLowerCase();
+}
+
 function cognitoErrorMessage(data) {
     const type = String(data.__type || data.code || '');
     const message = String(data.message || '');
@@ -102,6 +124,18 @@ function cognitoErrorMessage(data) {
     }
     if (type.includes('InvalidPasswordException')) {
         return 'La contraseña no cumple la política de seguridad configurada.';
+    }
+    if (type.includes('CodeMismatchException')) {
+        return 'El código no es válido. Verifica el correo o solicita uno nuevo.';
+    }
+    if (type.includes('ExpiredCodeException')) {
+        return 'El código expiró. Solicita un código nuevo.';
+    }
+    if (type.includes('LimitExceededException') || type.includes('TooManyRequestsException')) {
+        return 'Se alcanzó el límite de intentos. Espera unos minutos y vuelve a intentarlo.';
+    }
+    if (type.includes('UserLambdaValidationException')) {
+        return message || 'Cognito rechazó la solicitud de recuperación.';
     }
     if (type.includes('InvalidParameterException')) {
         return message || 'La configuración de Cognito no acepta esta solicitud.';

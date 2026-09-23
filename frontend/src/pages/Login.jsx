@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 
 import {
     apiErrorMessage,
@@ -11,6 +12,7 @@ import Grainient from './Grainient';
 
 
 function Login() {
+    const location = useLocation();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
@@ -106,6 +108,9 @@ function Login() {
                 <h2 style={styles.title}>
                     {cognitoChallenge ? 'Crear nueva contraseña' : 'Iniciar sesión'}
                 </h2>
+                {location.state?.passwordReset && !cognitoChallenge && (
+                    <div style={styles.info}>{location.state.passwordReset}</div>
+                )}
                 {cognitoChallenge && (
                     <div style={styles.info}>
                         Tu usuario requiere una nueva contraseña para continuar.
@@ -165,6 +170,11 @@ function Login() {
                             ? 'Guardar contraseña'
                             : 'Entrar'}
                 </button>
+                {!cognitoChallenge && (
+                    <Link to="/recuperar-contrasena" style={styles.link}>
+                        Olvidé mi contraseña
+                    </Link>
+                )}
             </form>
         </div>
 
@@ -261,6 +271,11 @@ const styles = {
         color: 'var(--text-muted, #5f5f5f)',
         fontSize: '13px',
         lineHeight: 1.4,
+        textAlign: 'center',
+    },
+    link: {
+        color: 'var(--text-h)',
+        fontSize: '13px',
         textAlign: 'center',
     },
     button: {

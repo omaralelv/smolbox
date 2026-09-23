@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
+import secrets
+import string
 
 from app.core.config import Settings
 from app.models.user import User
@@ -27,7 +29,7 @@ class CognitoUserSync:
         if existing_sub is None:
             existing_sub = self._create_user(user, temporary_password=password)
         elif password:
-            self.set_password(user.email, password)
+            self.set_password(user.email, password, temporary=True)
 
         if user.is_active:
             self.enable_user(user.email)
@@ -35,14 +37,14 @@ class CognitoUserSync:
             self.disable_user(user.email)
         return existing_sub
 
-    def set_password(self, email: str, password: str) -> None:
+    def set_password(self, email: str, password: str, *, temporary: bool = True) -> None:
         if not self.enabled:
             return
         self.client.admin_set_user_password(
             UserPoolId=self._user_pool_id(),
             Username=email,
             Password=password,
-            Permanent=True,
+            Permanent=not temporary,
         )
 
     def enable_user(self, email: str) -> None:
@@ -73,6 +75,7 @@ class CognitoUserSync:
             return
 
     def _create_user(self, user: User, *, temporary_password: str | None) -> str:
+        temporary_password = temporary_password or _generate_temporary_password()
         attributes = [
             {"Name": "email", "Value": user.email},
             {"Name": "email_verified", "Value": "true"},
@@ -83,9 +86,8 @@ class CognitoUserSync:
             "Username": user.email,
             "UserAttributes": attributes,
             "DesiredDeliveryMediums": ["EMAIL"],
+            "TemporaryPassword": temporary_password,
         }
-        if temporary_password:
-            payload["TemporaryPassword"] = temporary_password
 
         try:
             response = self.client.admin_create_user(**payload)
@@ -97,8 +99,6 @@ class CognitoUserSync:
 
         user_payload = response.get("User", {})
         subject = self._extract_sub(user_payload.get("Attributes", []))
-        if temporary_password:
-            self.set_password(user.email, temporary_password)
         if subject:
             return subject
 
@@ -106,7 +106,6 @@ class CognitoUserSync:
         if existing_sub:
             return existing_sub
         raise CognitoSyncError("Cognito did not return a user id")
-
     def _get_user_sub(self, email: str) -> str | None:
         try:
             response = self.client.admin_get_user(
@@ -142,3 +141,15 @@ class CognitoUserSync:
         if not self.settings.cognito_user_pool_id:
             raise CognitoSyncError("COGNITO_USER_POOL_ID is required when Cognito is enabled")
         return self.settings.cognito_user_pool_id
+
+
+def _generate_temporary_password() -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+    required = [
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.digits),
+        secrets.choice("!@#$%^&*()-_=+"),
+    ]
+    required.extend(secrets.choice(alphabet) for _ in range(20))
+    return "".join(secrets.SystemRandom().sample(required, len(required)))
