@@ -768,43 +768,55 @@ def delete_frontend_draft_expense(
             },
         )
 
-    if expense.status != ExpenseStatus.removed or expense.removed_at is None:
-        previous_expense_status = expense.status
-        expense.status = ExpenseStatus.removed
-        expense.removed_at = datetime.now(UTC)
-        expense.removed_by_user_id = current_user.id
-        expense.removal_reason = "Gasto eliminado por tienda antes de enviar la solicitud."
-        request.reported_total = _active_frontend_expense_total(request)
-        db.add(
-            AuditLog(
-                reimbursement_request_id=request.id,
-                expense_id=expense.id,
-                actor_user_id=current_user.id,
-                actor_type=AuditActorType.user,
-                action="expense_removed_from_request",
-                message=expense.removal_reason,
-                event_payload={
-                    "actor_role": current_user.role.value,
-                    "request_status": request.status.value,
-                    "previous_expense_status": previous_expense_status.value,
-                    "reported_total": str(request.reported_total),
-                    "authenticated": True,
-                    "draft_delete": True,
-                },
-            )
+    previous_expense_status = expense.status
+    deleted_expense_payload = {
+        "expense_id": str(expense.id),
+        "merchant": expense.merchant,
+        "amount": str(_money(expense.amount)),
+        "category": expense.category,
+    }
+    removal_reason = "Gasto eliminado por tienda antes de enviar la solicitud."
+    request.reported_total = _active_frontend_expense_total(
+        request,
+        excluding_expense_id=expense.id,
+    )
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="expense_removed_from_request",
+            message=removal_reason,
+            event_payload={
+                "actor_role": current_user.role.value,
+                "request_status": request.status.value,
+                "previous_expense_status": previous_expense_status.value,
+                "reported_total": str(request.reported_total),
+                "authenticated": True,
+                "draft_delete": True,
+                "hard_delete": True,
+                **deleted_expense_payload,
+            },
         )
+    )
+    db.delete(expense)
 
     db.commit()
     request = _get_request_by_id(request.id, db)
     return _request_payload(request, current_user, db)
 
 
-def _active_frontend_expense_total(request: ReimbursementRequest) -> Decimal:
+def _active_frontend_expense_total(
+    request: ReimbursementRequest,
+    *,
+    excluding_expense_id: UUID | None = None,
+) -> Decimal:
     return _money(
         sum(
             (
                 expense.amount
                 for expense in request.expenses
+                if expense.id != excluding_expense_id
                 if expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
                 and expense.removed_at is None
             ),

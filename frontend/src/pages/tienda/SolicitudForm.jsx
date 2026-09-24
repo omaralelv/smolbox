@@ -215,14 +215,14 @@ function SolicitudForm({ currentRole }) {
     // Calcular el TOTAL dinámicamente basándose en la lista actual
     const calcularTotal = () => {
         return gastos
-            .filter(gastoActivoEnBorrador)
+            .filter(gastoEnviableEnSolicitud)
             .reduce((sum, item) => sum + Number(item.monto || 0), 0)
             .toFixed(2);
     };
 
     const handleEnviarSolicitud = async () => {
         const borradorBackend = loadDraftRequest();
-        const gastosActivos = gastos.filter(gastoActivoEnBorrador);
+        const gastosActivos = gastos.filter(gastoEnviableEnSolicitud);
 
         if (gastosActivos.length === 0 && !borradorBackend?.backendId) {
             alert("Debes añadir al menos un gasto antes de enviar.");
@@ -1021,6 +1021,10 @@ function gastoActivoEnBorrador(gasto) {
         .toLowerCase()
         .trim();
     return !['deleted', 'removed', 'rejected', 'eliminado', 'no autorizado', 'no_autorizado'].includes(estado);
+}
+
+function gastoEnviableEnSolicitud(gasto) {
+    return gastoActivoEnBorrador(gasto) && Number(gasto.monto || 0) > 0;
 }
 
 function combinarHistorialObservaciones(obsIniciales = [], obsEventos = []) {

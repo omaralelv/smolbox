@@ -6,6 +6,7 @@ from conftest import create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.expense import Expense
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
 )
@@ -287,6 +288,91 @@ def test_frontend_can_create_request_and_lookup_by_folio(
     )
     assert detail.status_code == 200, detail.text
     assert detail.json()["backendId"] == created_body["backendId"]
+
+
+def test_frontend_delete_draft_expense_removes_it_before_submission(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
+    user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "frontend.delete-draft@example.com",
+            "full_name": "Frontend Delete Draft",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert user.status_code == 201, user.text
+    store = client.post(
+        "/api/v1/stores/",
+        json={
+            "code": "T997",
+            "name": "Tienda Delete Draft",
+            "manager_name": "Karen Ponce Hernandez",
+            "bank_account": "101328508",
+            "state_region": "CDMX",
+        },
+    )
+    assert store.status_code == 201, store.text
+    assignment = client.post(
+        f"/api/v1/stores/{store.json()['id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+    _create_opening_cutoff(session_factory, store.json()["id"])
+    period = client.post(
+        "/api/v1/periods/",
+        json={
+            "name": "Agosto Delete Draft",
+            "starts_on": "2026-08-01",
+            "ends_on": "2026-08-31",
+        },
+    )
+    assert period.status_code == 201, period.text
+
+    headers = _auth_headers(client, "frontend.delete-draft@example.com")
+    created = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=headers,
+        json={
+            "tienda": "T997",
+            "montoTotal": "300.00",
+            "gastos": [
+                {
+                    "fecha": "07/08/2026",
+                    "categoria": "Papelería",
+                    "monto": "100.00",
+                    "folio": "11111111-1111-4111-8111-111111111111",
+                },
+                {
+                    "fecha": "07/08/2026",
+                    "categoria": "Limpieza",
+                    "monto": "200.00",
+                    "folio": "22222222-2222-4222-8222-222222222222",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    created_body = created.json()
+    deleted_expense_id = created_body["gastos"][0]["backendId"]
+
+    deleted = client.delete(
+        (
+            f"/api/v1/frontend/solicitudes/{created_body['backendId']}"
+            f"/gastos/{deleted_expense_id}/me"
+        ),
+        headers=headers,
+    )
+    assert deleted.status_code == 200, deleted.text
+    deleted_body = deleted.json()
+    assert deleted_body["montoTotal"] == 200.0
+    assert [gasto["monto"] for gasto in deleted_body["gastos"]] == [200.0]
+    assert deleted_expense_id not in {gasto["backendId"] for gasto in deleted_body["gastos"]}
+
+    with session_factory() as db:
+        assert db.get(Expense, UUID(deleted_expense_id)) is None
 
 
 def test_frontend_taxi_expense_routes_request_to_authorization(
