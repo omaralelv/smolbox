@@ -43,9 +43,9 @@ function AppRouter({ currentRole }) {
         <Route path="/acumulado" element={<RequireSession><Acumulado currentRole={currentRole} /></RequireSession>}/>
         <Route path="/detalle" element={<RequireSession><Detalle currentRole={currentRole} /></RequireSession>}/>
         <Route path="/dashboard" element={<RequireSession><Dashboard currentRole={currentRole} /></RequireSession>} />
+        <Route path="/bitacora" element={<RequireSession><Bitacora /></RequireSession>} />
         <Route path="/historico" element={<RequireSession><Historico currentRole={currentRole} /></RequireSession>}/>
         <Route path="/usuarios" element={<RequireSession><Usuarios /></RequireSession>} />
-        <Route path="/bitacora" element={<RequireSession><Bitacora /></RequireSession>} />
 
         
         </Routes>
