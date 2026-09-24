@@ -30,8 +30,8 @@ function MainContent({ rolLogueado, setRolLogueado }) {
         </>
       )}
 
-      {/* Si estamos en Login eliminamos el padding de 20px para pantalla completa */}
-      <main style={{ padding: esLogin ? '0' : '20px' }}>
+      {/* Si estamos en autenticación eliminamos el padding para pantalla completa */}
+      <main style={{ padding: esPantallaAuth ? '0' : '20px' }}>
         <AppRouter currentRole={rolLogueado} />
       </main>
     </>

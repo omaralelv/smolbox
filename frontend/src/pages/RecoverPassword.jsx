@@ -89,31 +89,27 @@ function RecoverPassword() {
 
 const styles = {
     pageWrapper: {
-        position: 'absolute',
-        width: '100vw',
-        height: '100vh',
-        margin: 0,
-        overflowX: 'hidden',
+        position: 'relative',
+        width: '100%',
+        height: '100svh',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        boxSizing: 'border-box',
     },
 
     backgroundCanvas: { 
         position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
+        inset: 0,
         zIndex: 1, // Fondo
     },
-    
-    container: { 
-        maxWidth: '420px',
+
+    container: {
         zIndex: 10, // Encima del canvas
-        width: '100%',
-        padding: '100px',margin: '60px auto', 
+        width: 'min(420px, calc(100% - 32px))',
+        padding: '24px 0',
+        boxSizing: 'border-box',
     },
 
     form: {

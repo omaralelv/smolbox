@@ -154,15 +154,15 @@ const styles = {
     pageWrapper: {
         position: 'relative',
         width: '100%',
-        minHeight: '100vh',
-        
+        height: '100svh',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        boxSizing: 'border-box',
     },
     backgroundCanvas: { position: 'absolute', inset: 0, zIndex: 1 },
-    container: { maxWidth: '420px', zIndex: 10, width: '100%', padding: '100px', margin: '60px auto' },
+    container: { zIndex: 10, width: 'min(420px, calc(100% - 32px))', padding: '24px 0', boxSizing: 'border-box' },
     form: { display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#ffffff', border: '1px solid var(--sb-btnBorder)', borderRadius: '10px', padding: '40px', boxShadow: 'var(--shadow)' },
     logo: { height: '60px', width: 'auto', objectFit: 'contain', marginBottom: '15px' },
     title: { margin: 0, fontSize: '22px', color: 'var(--text-h)', textAlign: 'left' },
