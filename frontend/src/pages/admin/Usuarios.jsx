@@ -202,10 +202,21 @@ function Usuarios() {
 
         // Ordenar alfabéticamente por nombre dentro de cada grupo
         Object.keys(agrupados).forEach((roleKey) => {
-            agrupados[roleKey].sort((a, b) =>
-                (a.full_name || '').localeCompare(b.full_name || '', 'es', { sensitivity: 'base' })
-            );
+            agrupados[roleKey].sort((a, b) => {
+                // Obtenemos el nombre visual que se renderiza en la tabla
+                const nombreA = obtenerNombreMostrado(a, asignacionesPorUsuario[a.id] || {}, tiendas);
+                const nombreB = obtenerNombreMostrado(b, asignacionesPorUsuario[b.id] || {}, tiendas);
+
+                return nombreA.localeCompare(nombreB, 'es', { numeric: true, sensitivity: 'base' });
+            });
         });
+
+
+        //Object.keys(agrupados).forEach((roleKey) => {
+        //    agrupados[roleKey].sort((a, b) =>
+        //        (a.full_name || '').localeCompare(b.full_name || '', 'es', { sensitivity: 'base' })
+        //    );
+        //});
 
         return agrupados;
     }, [usuarios]);

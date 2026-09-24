@@ -4,17 +4,18 @@ import { Link, useNavigate } from 'react-router-dom';
 import Grainient from './Grainient';
 import { apiErrorMessage, requestPasswordReset } from '../lib/api';
 
+
 function RecoverPassword() {
     const navigate = useNavigate();
     const [email, setEmail] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-
+    
     const handleSubmit = async (event) => {
         event.preventDefault();
         setError('');
         setLoading(true);
-
+        
         try {
             await requestPasswordReset(email);
             navigate('/confirmar-recuperacion', {
@@ -26,7 +27,7 @@ function RecoverPassword() {
             setLoading(false);
         }
     };
-
+    
     return (
         <div style={styles.pageWrapper}>
             <div style={styles.backgroundCanvas}>
@@ -55,10 +56,13 @@ function RecoverPassword() {
                     zoom={0.8}
                 />
             </div>
+
+
             <div style={styles.container}>
                 <form style={styles.form} onSubmit={handleSubmit}>
                     <img src="/LogotipoNega.png" alt="Logo" style={styles.logo} />
-                    <h2 style={styles.title}>Recuperar contraseña</h2>
+                    <Link to="/login" style={{...styles.link, textAlign: 'left'}}>🡨 Volver a Iniciar Sesión</Link>
+                    <h2 style={styles.title}>Recuperar Contraseña</h2>
                     <p style={styles.info}>
                         Te enviaremos un código al correo asociado a tu cuenta.
                     </p>
@@ -77,7 +81,6 @@ function RecoverPassword() {
                     <button type="submit" style={styles.button} disabled={loading}>
                         {loading ? 'Enviando...' : 'Enviar código'}
                     </button>
-                    <Link to="/login" style={styles.link}>Volver al inicio de sesión</Link>
                 </form>
             </div>
         </div>
@@ -86,16 +89,25 @@ function RecoverPassword() {
 
 const styles = {
     pageWrapper: {
-        position: 'relative',
-        width: '100%',
-        minHeight: '100vh',
-        
+        position: 'absolute',
+        width: '100vw',
+        height: '100vh',
+        margin: 0,
+        overflowX: 'hidden',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
     },
-    backgroundCanvas: { position: 'absolute', inset: 0, zIndex: 1 },
+
+    backgroundCanvas: { 
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 1, // Fondo
+    },
     
     container: { 
         maxWidth: '420px',
@@ -114,19 +126,29 @@ const styles = {
         padding: '40px',
         boxShadow: 'var(--shadow)',
     },
-    logo: { height: '60px', width: 'auto', objectFit: 'contain', marginBottom: '15px' },
-    title: { margin: 0, fontSize: '22px', color: 'var(--text-h)', textAlign: 'left' },
-    info: { color: 'var(--text-muted, #5f5f5f)', fontSize: '13px', lineHeight: 1.4, textAlign: 'center' },
-    inputGroup: { display: 'flex', flexDirection: 'column', gap: '10px' },
-    label: { fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)', textAlign: 'left',},
-    input: { border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: '#ffffff', color: 'var(--text-h)', padding: '8px', fontSize: '14px' },
-    error: { color: 'var(--text-denegada, #cc3030)', fontSize: '13px', textAlign: 'center', whiteSpace: 'pre-line' },
-    button: { backgroundColor: 'var(--sb-sendBtnBg)', color: 'var(--text-CBtn)', border: 'none', borderRadius: '10px', padding: '10px 25px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: 'var(--shadow)' },
+    logo: { 
+        height: '60px', width: 'auto', objectFit: 'contain', marginBottom: '10px' 
+    },
+    title: { 
+        margin: 0, fontSize: '22px', color: 'var(--text-h)', textAlign: 'left' },
+    info: { 
+        color: 'var(--text-muted, #5f5f5f)', fontSize: '13px', lineHeight: 1.4, textAlign: 'center' },
+    inputGroup: { 
+        display: 'flex', flexDirection: 'column', gap: '10px' },
+    label: { 
+        fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)', textAlign: 'left',},
+    input: { 
+        border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: '#ffffff', color: 'var(--text-h)', padding: '8px', fontSize: '14px' },
+    error: { 
+        color: 'var(--text-denegada, #cc3030)', fontSize: '13px', textAlign: 'center', whiteSpace: 'pre-line' },
+    button: { 
+        backgroundColor: 'var(--sb-sendBtnBg)', color: 'var(--text-CBtn)', border: 'none', borderRadius: '10px', padding: '10px 25px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: 'var(--shadow)' },
     link: { 
         color: 'var(--sb-btnBorder)',
         fontSize: '12px',
-        fontWeight:'500',
+        fontWeight:'400',
         textAlign: 'center', 
+        textDecoration: 'none',
     },
 };
 

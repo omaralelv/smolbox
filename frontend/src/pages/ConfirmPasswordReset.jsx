@@ -151,7 +151,16 @@ function ConfirmPasswordReset() {
 }
 
 const styles = {
-    pageWrapper: { position: 'relative', width: '100%', minHeight: '100vh', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+    pageWrapper: {
+        position: 'relative',
+        width: '100%',
+        minHeight: '100vh',
+        
+        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     backgroundCanvas: { position: 'absolute', inset: 0, zIndex: 1 },
     container: { maxWidth: '420px', zIndex: 10, width: '100%', padding: '100px', margin: '60px auto' },
     form: { display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#ffffff', border: '1px solid var(--sb-btnBorder)', borderRadius: '10px', padding: '40px', boxShadow: 'var(--shadow)' },

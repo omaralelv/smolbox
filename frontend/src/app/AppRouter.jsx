@@ -30,24 +30,24 @@ function RequireSession({ children }) {
 function AppRouter({ currentRole }) { 
     return (
         <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+            
+            <Route path="/" element={<Navigate to="/login" replace />} />
 
-        <Route path="/login" element={<Login />} />
-        <Route path="/recuperar-contrasena" element={<RecoverPassword />} />
-        <Route path="/confirmar-recuperacion" element={<ConfirmPasswordReset />} />
-        <Route path="/solicitud/nueva" element={<RequireSession><SolicitudForm currentRole={currentRole} /></RequireSession>} />
-        <Route path="/gasto/nuevo" element={<RequireSession><AnadirGasto /></RequireSession>} />
-        <Route path="/autorizacion" element={<RequireSession><AutorizacionBandeja currentRole={currentRole}/></RequireSession>} />
-        <Route path="/bandeja" element={<RequireSession><Bandeja currentRole={currentRole}/></RequireSession>} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/recuperar-contrasena" element={<RecoverPassword />} />
+            <Route path="/confirmar-recuperacion" element={<ConfirmPasswordReset />} />
+            <Route path="/solicitud/nueva" element={<RequireSession><SolicitudForm currentRole={currentRole} /></RequireSession>} />
+            <Route path="/gasto/nuevo" element={<RequireSession><AnadirGasto /></RequireSession>} />
+            <Route path="/autorizacion" element={<RequireSession><AutorizacionBandeja currentRole={currentRole}/></RequireSession>} />
+            <Route path="/bandeja" element={<RequireSession><Bandeja currentRole={currentRole}/></RequireSession>} />
 
-        <Route path="/acumulado" element={<RequireSession><Acumulado currentRole={currentRole} /></RequireSession>}/>
-        <Route path="/detalle" element={<RequireSession><Detalle currentRole={currentRole} /></RequireSession>}/>
-        <Route path="/dashboard" element={<RequireSession><Dashboard currentRole={currentRole} /></RequireSession>} />
-        <Route path="/bitacora" element={<RequireSession><Bitacora /></RequireSession>} />
-        <Route path="/historico" element={<RequireSession><Historico currentRole={currentRole} /></RequireSession>}/>
-        <Route path="/usuarios" element={<RequireSession><Usuarios /></RequireSession>} />
+            <Route path="/acumulado" element={<RequireSession><Acumulado currentRole={currentRole} /></RequireSession>}/>
+            <Route path="/detalle" element={<RequireSession><Detalle currentRole={currentRole} /></RequireSession>}/>
+            <Route path="/dashboard" element={<RequireSession><Dashboard currentRole={currentRole} /></RequireSession>} />
+            <Route path="/bitacora" element={<RequireSession><Bitacora /></RequireSession>} />
+            <Route path="/historico" element={<RequireSession><Historico currentRole={currentRole} /></RequireSession>}/>
+            <Route path="/usuarios" element={<RequireSession><Usuarios /></RequireSession>} />
 
-        
         </Routes>
     );
 }

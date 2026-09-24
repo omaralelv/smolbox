@@ -207,7 +207,7 @@ const styles = {
         height: '100%',
         zIndex: 1, // Fondo
     },
-
+    
     logo: {
         height: '60px',          
         width: 'auto',
@@ -276,8 +276,9 @@ const styles = {
     link: {
         color: 'var(--sb-btnBorder)',
         fontSize: '12px',
-        fontWeight:'500',
+        fontWeight:'400',
         textAlign: 'center',
+        textDecoration: 'none'
     },
     button: {
         backgroundColor: 'var(--sb-sendBtnBg)',
