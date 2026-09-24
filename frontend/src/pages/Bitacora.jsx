@@ -66,8 +66,20 @@ function Bitacora() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [events, setEvents] = useState([]);
+    const [selectedDate, setSelectedDate] = useState(() => todayDateInput());
+    const [followToday, setFollowToday] = useState(true);
     const [requestFilter, setRequestFilter] = useState('all');
     const [actionFilter, setActionFilter] = useState('all');
+
+    useEffect(() => {
+        if (!followToday) return undefined;
+
+        const timer = window.setInterval(() => {
+            setSelectedDate(todayDateInput());
+        }, 60_000);
+
+        return () => window.clearInterval(timer);
+    }, [followToday]);
 
     useEffect(() => {
         let active = true;
@@ -150,10 +162,11 @@ function Bitacora() {
 
     const filteredEvents = useMemo(() => (
         events.filter((event) => (
-            (requestFilter === 'all' || event.requestId === requestFilter)
+            event.dateKey === selectedDate
+            && (requestFilter === 'all' || event.requestId === requestFilter)
             && (actionFilter === 'all' || event.group === actionFilter)
         ))
-    ), [events, requestFilter, actionFilter]);
+    ), [events, selectedDate, requestFilter, actionFilter]);
 
     const summary = useMemo(() => ({
         movements: filteredEvents.length,
@@ -173,6 +186,19 @@ function Bitacora() {
             </section>
 
             <section style={styles.toolbar}>
+                <label style={styles.filterLabel}>
+                    Día
+                    <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(event) => {
+                            setSelectedDate(event.target.value);
+                            setFollowToday(event.target.value === todayDateInput());
+                        }}
+                        style={styles.select}
+                    />
+                </label>
+
                 <label style={styles.filterLabel}>
                     Solicitud
                     <select
@@ -203,6 +229,17 @@ function Bitacora() {
                         ))}
                     </select>
                 </label>
+
+                <button
+                    type="button"
+                    onClick={() => {
+                        setSelectedDate(todayDateInput());
+                        setFollowToday(true);
+                    }}
+                    style={styles.todayButton}
+                >
+                    Hoy
+                </button>
             </section>
 
             <section style={styles.summaryGrid}>
@@ -224,7 +261,7 @@ function Bitacora() {
                 ) : error ? (
                     <div style={styles.errorBox}>{error}</div>
                 ) : filteredEvents.length === 0 ? (
-                    <div style={styles.message}>No hay movimientos para mostrar.</div>
+                    <div style={styles.message}>No hay movimientos para el día seleccionado.</div>
                 ) : (
                     <div style={styles.tableWrap}>
                         <table style={styles.table}>
@@ -307,6 +344,7 @@ function normalizeAuditEvent(event, request, usersById) {
         roleLabel: roleLabel(actorRole),
         detail: eventDetail(event, payload),
         timestamp: Number.isNaN(timestamp) ? 0 : timestamp,
+        dateKey: dateInputFromValue(event.created_at || event.createdAt),
         dateLabel: dateLabel(event.created_at || event.createdAt),
     };
 }
@@ -456,6 +494,19 @@ function dateLabel(value) {
     }).format(date);
 }
 
+function todayDateInput() {
+    return dateInputFromValue(new Date());
+}
+
+function dateInputFromValue(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 const styles = {
     container: {
         maxWidth: '1380px',
@@ -494,6 +545,7 @@ const styles = {
         display: 'flex',
         gap: '16px',
         flexWrap: 'wrap',
+        alignItems: 'end',
         marginBottom: '18px',
     },
     filterLabel: {
@@ -513,6 +565,17 @@ const styles = {
         color: '#333',
         padding: '0 12px',
         fontSize: '14px',
+    },
+    todayButton: {
+        height: '40px',
+        border: '1px solid var(--sb-btnBorder, #f0a4ae)',
+        borderRadius: '20px',
+        background: 'var(--gradient, #ff8c9b)',
+        color: 'var(--text-CBtn, #fff)',
+        padding: '0 24px',
+        fontSize: '14px',
+        fontWeight: 800,
+        cursor: 'pointer',
     },
     summaryGrid: {
         display: 'grid',
