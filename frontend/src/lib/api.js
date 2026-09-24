@@ -377,6 +377,35 @@ function friendlyErrorMessage(message) {
     const text = String(message);
     const normalized = text.toLowerCase();
     if (
+        normalized.includes('request_not_in_authorization_review')
+        || normalized.includes('expenses can only be authorized during authorization review')
+        || normalized.includes('expenses can only be rejected during authorization review')
+    ) {
+        return 'La solicitud ya no está en revisión de autorización. Actualiza la pantalla para ver el estado actual.';
+    }
+
+    if (
+        normalized.includes('expense_excluded')
+        || normalized.includes('removed or rejected expenses cannot be changed')
+    ) {
+        return 'Este gasto ya fue eliminado o rechazado y no se puede modificar.';
+    }
+
+    if (
+        normalized.includes('expense_already_authorized')
+        || normalized.includes('authorized expenses cannot be rejected')
+    ) {
+        return 'Este gasto ya fue autorizado y no se puede rechazar.';
+    }
+
+    if (
+        normalized.includes('role_not_allowed')
+        || normalized.includes('cannot perform this expense action')
+    ) {
+        return 'Tu usuario no tiene permisos para realizar esta acción sobre el gasto.';
+    }
+
+    if (
         normalized.includes('textract')
         || normalized.includes('analyzeexpense')
         || normalized.includes('unsupporteddocument')

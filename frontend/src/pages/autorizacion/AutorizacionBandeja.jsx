@@ -144,6 +144,12 @@ function AutorizacionBandeja( { currentRole } ) {
     const handleCambiarEstado = async (gasto, nuevoEstado, decision) => {
         const expenseId = gasto.backendId || gasto.id;
         const requestId = gasto.solicitudBackendId;
+        const motivoBloqueo = motivoBloqueoDecisionAutorizacion(gasto);
+
+        if (motivoBloqueo) {
+            alert(motivoBloqueo);
+            return false;
+        }
 
         if (!requestId || !expenseId) {
             setGastos(prevGastos =>
@@ -173,6 +179,13 @@ function AutorizacionBandeja( { currentRole } ) {
     };
 
     const abrirConfirmacionCambio = (gasto, nuevoEstado) => {
+        const motivoBloqueo = motivoBloqueoDecisionAutorizacion(gasto);
+
+        if (motivoBloqueo) {
+            alert(motivoBloqueo);
+            return;
+        }
+
         setGastoSeleccionado(gasto);
         setConfirmacionAutorizacion({ gasto, nuevoEstado });
         setJustificacionRechazo('');
@@ -350,7 +363,10 @@ function AutorizacionBandeja( { currentRole } ) {
 
                 {/* LISTA DE FILAS DE GASTOS */}
                 <div style={styles.listContainer}>
-                    {gastos.map((gasto) => (
+                    {gastos.map((gasto) => {
+                        const motivoBloqueo = motivoBloqueoDecisionAutorizacion(gasto);
+
+                        return (
                         <div key={gasto.id} style={styles.rowCard}>
                             {/* NOMBRE DEL GASTO */}
                             <div style={{ flex: 1.5, paddingLeft: '20px', fontWeight: '500', color: '#333' }}>
@@ -378,7 +394,7 @@ function AutorizacionBandeja( { currentRole } ) {
 
                             {/* ACCIONES / BOTONES DE CAMBIO DE ESTATUS Y HERRAMIENTAS */}
                             <div style={styles.actionsContainer}>
-                                {gasto.estado === 'Pendiente' ? (
+                                {gasto.estado === 'Pendiente' && !motivoBloqueo ? (
                                     <>
                                         <button
                                             style={styles.btnAutorizar}
@@ -393,8 +409,11 @@ function AutorizacionBandeja( { currentRole } ) {
                                             {ocultarTienda ? '✕' : 'NO AUTORIZAR'}
                                         </button>
                                     </>
+                                ) : gasto.estado === 'Pendiente' && motivoBloqueo ? (
+                                        <span style={styles.actionBlockedText} title={motivoBloqueo}>
+                                            {ocultarTienda ? 'Sin acciones' : 'No disponible'}
+                                        </span>
                                 ) : (
-                                        /* 👈 AQUÍ EL CAMBIO: si ocultarTienda es true, el espaciador debe ser pequeño */
                                         <div style={{ minWidth: ocultarTienda ? '70px' : '220px' }}></div>
                                     )}
 
@@ -408,8 +427,8 @@ function AutorizacionBandeja( { currentRole } ) {
                             </div>
                             
                         </div>
-                        
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -586,6 +605,13 @@ const styles = {
         fontWeight: 'bold',
         cursor: 'pointer',
     },
+    actionBlockedText: {
+        minWidth: '220px',
+        color: '#7a6f6f',
+        fontSize: '12px',
+        fontWeight: '600',
+        textAlign: 'center',
+    },
     herramientasContainer: {
         display: 'flex',
         alignItems: 'center',
@@ -696,14 +722,17 @@ export default AutorizacionBandeja;
 
 function gastosDesdeState(state) {
     if (!state?.desglose?.length) return [];
-    return state.desglose.map((gasto) => ({
-        ...gasto,
-        backendId: gasto.backendId || gasto.backend_id || gasto.id,
-        solicitudBackendId: state.solicitudBackendId || gasto.solicitudBackendId,
-        tienda: gasto.tienda || state.solicitud?.tienda || '',
-        tipo: gasto.tipo || gasto.type || '',
-        estado: estadoAutorizacionDesdeGasto(gasto),
-    }));
+    return state.desglose
+        .filter((gasto) => !gastoFueEliminado(gasto))
+        .map((gasto) => ({
+            ...gasto,
+            backendId: gasto.backendId || gasto.backend_id || gasto.id,
+            solicitudBackendId: state.solicitudBackendId || gasto.solicitudBackendId,
+            solicitudStatus: state.solicitudStatus || state.solicitud?.backendStatus || state.solicitud?.backend_status || '',
+            tienda: gasto.tienda || state.solicitud?.tienda || '',
+            tipo: gasto.tipo || gasto.type || '',
+            estado: estadoAutorizacionDesdeGasto(gasto),
+        }));
 }
 
 function gastosAutorizacionDesdeSolicitud(solicitud) {
@@ -713,10 +742,12 @@ function gastosAutorizacionDesdeSolicitud(solicitud) {
 
     return (solicitud?.gastos || [])
         .filter((gasto) => Boolean(gasto.requiresAuthorization || gasto.requires_authorization))
+        .filter((gasto) => !gastoFueEliminado(gasto))
         .map((gasto) => ({
             ...gasto,
             backendId: gasto.backendId || gasto.backend_id || gasto.id,
             solicitudBackendId,
+            solicitudStatus,
             solicitudFolio: solicitud?.folio || solicitud?.id,
             tienda: gasto.tienda || solicitud?.tienda || '',
             tipo: gasto.tipo || gasto.type || 'Gasto General',
@@ -735,6 +766,37 @@ function estadoAutorizacionDesdeGasto(gasto) {
     if (autorizacion === 'autorizado' || status === 'approved') return 'Autorizada';
     if (autorizacion === 'no_autorizado' || status === 'rejected') return 'No Autorizada';
     return 'Pendiente';
+}
+
+function gastoFueEliminado(gasto) {
+    const status = String(gasto?.backendStatus || gasto?.backend_status || gasto?.status || gasto?.estado || '')
+        .toLowerCase()
+        .trim();
+
+    return ['removed', 'deleted', 'eliminado'].includes(status);
+}
+
+function motivoBloqueoDecisionAutorizacion(gasto) {
+    const autorizacion = String(gasto?.autorizacion || '').toLowerCase().trim();
+    const expenseStatus = String(gasto?.backendStatus || gasto?.backend_status || gasto?.status || gasto?.estado || '')
+        .toLowerCase()
+        .trim();
+    const solicitudStatus = String(gasto?.solicitudStatus || gasto?.solicitud_status || '')
+        .toLowerCase()
+        .trim();
+
+    if (
+        autorizacion === 'no_autorizado'
+        || ['removed', 'rejected', 'deleted', 'eliminado', 'no autorizado', 'no_autorizado'].includes(expenseStatus)
+    ) {
+        return 'Este gasto ya fue eliminado o rechazado y no se puede modificar.';
+    }
+
+    if (solicitudStatus && !['submitted', 'authorization_review'].includes(solicitudStatus)) {
+        return 'La solicitud ya no está en revisión de autorización. Actualiza la pantalla para ver el estado actual.';
+    }
+
+    return '';
 }
 
 function decisionDesdeConfirmacion(nuevoEstado, justificacionRechazo) {
