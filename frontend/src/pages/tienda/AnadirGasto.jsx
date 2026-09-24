@@ -246,7 +246,7 @@ function AnadirGasto() {
             setMensajeValidacion('');
 
             try {
-                const ocrParsed = await leerDocumentoConOcr(archivoDocumento, ocrDocumento);
+                const ocrParsed = await leerDocumentoConOcr(archivoDocumento, ocrDocumento, tipoDocumento);
                 const advertencias = validarResultadoDocumentoSimpleOcr(ocrParsed, monto, fecha, etiqueta);
                 const ocrActualizado = datosOcrParaBorrador(ocrParsed, archivoDocumento, { monto });
                 guardarOcrDocumento(tipoDocumento, ocrActualizado);
@@ -1354,7 +1354,7 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     return { parsed, advertencias };
 }
 
-async function leerDocumentoConOcr(file, ocrActual = null) {
+async function leerDocumentoConOcr(file, ocrActual = null, tipoDocumento = 'factura') {
     if (ocrCoincideConArchivoActual(ocrActual, file)) {
         return {
             ...ocrActual,
@@ -1362,11 +1362,11 @@ async function leerDocumentoConOcr(file, ocrActual = null) {
         };
     }
 
-    return previewInvoiceOcr(file);
+    return previewInvoiceOcr(file, tipoDocumento);
 }
 
 async function leerFacturaPdfConOcr(file, ocrActual = null) {
-    return leerDocumentoConOcr(file, ocrActual);
+    return leerDocumentoConOcr(file, ocrActual, 'factura');
 }
 
 async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, folioCapturado = null) {

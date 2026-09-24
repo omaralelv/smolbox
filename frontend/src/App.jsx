@@ -8,7 +8,7 @@ import Header from './components/shared/Header';
 import TabsNav from './components/shared/TabsNav';
 import AppRouter from './app/AppRouter';
 
-import { currentStoredRole, currentToken, getFrontendContext } from './lib/api';
+import { clearSession, currentStoredRole, currentToken, getFrontendContext } from './lib/api';
 
 function MainContent({ rolLogueado, setRolLogueado }) {
   const location = useLocation();
@@ -54,7 +54,7 @@ function App() {
         }
       })
       .catch(() => {
-        localStorage.removeItem('smolboxApiToken');
+        clearSession();
       });
 
     return () => {

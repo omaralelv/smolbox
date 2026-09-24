@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { apiFileUrl, currentToken } from '../../lib/api';
+import { apiFileUrl, currentToken, fetchProtectedBlob } from '../../lib/api';
 
 export default function Drawer({ 
     documentoActivo,      // 'factura' | 'vale' | 'recibo' | 'documento' | null
@@ -126,18 +126,7 @@ function DocumentoPreview({ documento }) {
         let urlEntregadaAlEstado = false;
         const controller = new AbortController();
 
-        fetch(estado.fetchUrl, {
-            headers: {
-                Authorization: `Bearer ${estado.token}`,
-            },
-            signal: controller.signal,
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    throw new Error('No se pudo abrir el archivo.');
-                }
-                return response.blob();
-            })
+        fetchProtectedBlob(estado.fetchUrl, { signal: controller.signal })
             .then((blob) => {
                 if (cancelado) return;
                 urlTemporal = URL.createObjectURL(blob);
@@ -241,7 +230,6 @@ function estadoInicialDocumento(documento) {
         error: '',
         revokeUrl: false,
         fetchUrl: url,
-        token,
     };
 }
 

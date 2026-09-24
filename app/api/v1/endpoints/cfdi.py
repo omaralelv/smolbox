@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -33,9 +33,12 @@ from app.services.storage import (
     read_upload_limited,
 )
 from app.services.textract_ocr import (
+    OCR_RECEIVER_MISMATCH_CODE,
     OCR_UNREADABLE_DOCUMENT_MESSAGE,
     TextractOcrError,
     TextractOcrService,
+    expected_invoice_receiver_message,
+    validate_expected_invoice_receiver,
 )
 
 router = APIRouter()
@@ -83,6 +86,7 @@ async def parse_cfdi(
 async def preview_invoice_ocr(
     file: Annotated[UploadFile, File()],
     settings: Annotated[Settings, Depends(get_settings)],
+    document_type: Annotated[str, Form()] = "factura",
 ) -> InvoiceOcrPreviewResult:
     try:
         content = await read_upload_limited(file, settings.max_upload_bytes)
@@ -144,6 +148,26 @@ async def preview_invoice_ocr(
                 "message": OCR_UNREADABLE_DOCUMENT_MESSAGE,
             },
         )
+
+    if document_type.strip().lower() == "factura":
+        missing_receiver_fields = validate_expected_invoice_receiver(
+            result.raw_text,
+            expected_name=settings.invoice_ocr_receiver_name,
+            expected_rfc=settings.invoice_ocr_receiver_rfc,
+        )
+        if missing_receiver_fields:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": OCR_RECEIVER_MISMATCH_CODE,
+                    "message": expected_invoice_receiver_message(
+                        missing_receiver_fields,
+                        expected_name=settings.invoice_ocr_receiver_name,
+                        expected_rfc=settings.invoice_ocr_receiver_rfc,
+                    ),
+                    "missing_fields": missing_receiver_fields,
+                },
+            )
 
     checksum = sha256(content).hexdigest()
     payload = build_ocr_preview_payload(
