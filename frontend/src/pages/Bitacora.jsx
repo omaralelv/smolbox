@@ -68,6 +68,7 @@ function Bitacora() {
     const [events, setEvents] = useState([]);
     const [selectedDate, setSelectedDate] = useState(() => todayDateInput());
     const [followToday, setFollowToday] = useState(true);
+    const [storeFilter, setStoreFilter] = useState('all');
     const [requestFilter, setRequestFilter] = useState('all');
     const [actionFilter, setActionFilter] = useState('all');
 
@@ -150,23 +151,60 @@ function Bitacora() {
         };
     }, [navigate]);
 
+    const dayEvents = useMemo(() => (
+        events.filter((event) => event.dateKey === selectedDate)
+    ), [events, selectedDate]);
+
+    const storeOptions = useMemo(() => {
+        const options = new Map();
+        dayEvents.forEach((event) => {
+            if (event.storeKey) {
+                options.set(event.storeKey, event.storeLabel);
+            }
+        });
+        return [...options.entries()]
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'es-MX'));
+    }, [dayEvents]);
+
     const requestOptions = useMemo(() => {
         const options = new Map();
-        events.forEach((event) => {
+        dayEvents.forEach((event) => {
+            if (storeFilter !== 'all' && event.storeKey !== storeFilter) return;
             if (event.requestId) {
                 options.set(event.requestId, event.requestLabel);
             }
         });
-        return [...options.entries()].map(([value, label]) => ({ value, label }));
-    }, [events]);
+        return [...options.entries()]
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'es-MX'));
+    }, [dayEvents, storeFilter]);
+
+    useEffect(() => {
+        if (
+            storeFilter !== 'all'
+            && !storeOptions.some((option) => option.value === storeFilter)
+        ) {
+            setStoreFilter('all');
+        }
+    }, [storeFilter, storeOptions]);
+
+    useEffect(() => {
+        if (
+            requestFilter !== 'all'
+            && !requestOptions.some((option) => option.value === requestFilter)
+        ) {
+            setRequestFilter('all');
+        }
+    }, [requestFilter, requestOptions]);
 
     const filteredEvents = useMemo(() => (
-        events.filter((event) => (
-            event.dateKey === selectedDate
+        dayEvents.filter((event) => (
+            (storeFilter === 'all' || event.storeKey === storeFilter)
             && (requestFilter === 'all' || event.requestId === requestFilter)
             && (actionFilter === 'all' || event.group === actionFilter)
         ))
-    ), [events, selectedDate, requestFilter, actionFilter]);
+    ), [dayEvents, storeFilter, requestFilter, actionFilter]);
 
     const summary = useMemo(() => ({
         movements: filteredEvents.length,
@@ -195,9 +233,30 @@ function Bitacora() {
                         onChange={(event) => {
                             setSelectedDate(event.target.value);
                             setFollowToday(event.target.value === todayDateInput());
+                            setStoreFilter('all');
+                            setRequestFilter('all');
                         }}
                         style={styles.selectCal}
                     />
+                </label>
+
+                <label style={styles.filterLabel}>
+                    Tienda
+                    <select
+                        value={storeFilter}
+                        onChange={(event) => {
+                            setStoreFilter(event.target.value);
+                            setRequestFilter('all');
+                        }}
+                        style={styles.select}
+                    >
+                        <option value="all">Todas</option>
+                        {storeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
                 </label>
 
                 <label style={styles.filterLabel}>
@@ -236,6 +295,8 @@ function Bitacora() {
                     onClick={() => {
                         setSelectedDate(todayDateInput());
                         setFollowToday(true);
+                        setStoreFilter('all');
+                        setRequestFilter('all');
                     }}
                     style={styles.todayButton}
                 >
@@ -256,7 +317,7 @@ function Bitacora() {
                 ) : error ? (
                     <div style={styles.errorBox}>{error}</div>
                 ) : filteredEvents.length === 0 ? (
-                    <div style={styles.message}>No hay movimientos para el día seleccionado.</div>
+                    <div style={styles.message}>No hay movimientos con los filtros seleccionados.</div>
                 ) : (
                     <div style={styles.tableWrap}>
                         <table style={styles.table}>
@@ -329,12 +390,14 @@ function normalizeAuditEvent(event, request, usersById) {
     const actorRole = payload.actor_role || actor?.role || event.actor_type || 'system';
     const requestId = String(request.backendId || request.backend_id || request.id || '');
     const timestamp = Date.parse(event.created_at || event.createdAt || '');
+    const storeLabel = request.tienda || request.storeCode || request.store_code || 'N/A';
 
     return {
         id: String(event.id),
         requestId,
         requestLabel: request.folio || request.id || requestId,
-        storeLabel: request.tienda || request.storeCode || request.store_code || 'N/A',
+        storeKey: String(storeLabel).trim().toLowerCase(),
+        storeLabel,
         actionLabel: actionLabel(event.action, event.to_status || event.toStatus),
         group: actionGroup(event.action),
         actorName: actorName(actor, event.actor_type || event.actorType, actorId),
