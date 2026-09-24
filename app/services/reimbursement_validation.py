@@ -338,6 +338,9 @@ def _is_rejected(expense: ExpenseLike) -> bool:
 
 
 def _requires_authorization(expense: ExpenseLike) -> bool:
+    if _money(getattr(expense, "amount", Decimal("0.00"))) <= Decimal("0.00"):
+        return False
+
     return bool(getattr(expense, "requires_authorization", False))
 
 

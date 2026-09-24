@@ -750,6 +750,7 @@ function gastosAutorizacionDesdeSolicitud(solicitud) {
     return (solicitud?.gastos || [])
         .filter((gasto) => Boolean(gasto.requiresAuthorization || gasto.requires_authorization))
         .filter((gasto) => !gastoFueEliminado(gasto))
+        .filter(gastoTieneMontoPositivo)
         .map((gasto) => ({
             ...gasto,
             backendId: gasto.backendId || gasto.backend_id || gasto.id,
@@ -781,6 +782,16 @@ function gastoFueEliminado(gasto) {
         .trim();
 
     return ['removed', 'deleted', 'eliminado'].includes(status);
+}
+
+function gastoTieneMontoPositivo(gasto) {
+    const monto = gasto?.monto ?? gasto?.amount;
+    if (monto === null || monto === undefined || monto === '') return true;
+
+    const valor = Number(monto);
+    if (Number.isNaN(valor)) return true;
+
+    return valor > 0;
 }
 
 function motivoBloqueoDecisionAutorizacion(gasto) {
@@ -833,6 +844,8 @@ async function avanzarSolicitudSiAutorizacionCompleta(requestId) {
     const solicitud = await getFrontendSolicitud(requestId);
     const tienePendientes = (solicitud?.gastos || []).some((gasto) => (
         Boolean(gasto.requiresAuthorization || gasto.requires_authorization)
+        && !gastoFueEliminado(gasto)
+        && gastoTieneMontoPositivo(gasto)
         && estadoAutorizacionDesdeGasto(gasto) === 'Pendiente'
     ));
 

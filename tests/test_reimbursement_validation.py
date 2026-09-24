@@ -325,6 +325,34 @@ def test_summarize_reimbursement_request_tracks_authorization_and_removed_expens
     assert "missing_authorization" in {issue.code for issue in summary.issues}
 
 
+def test_zero_amount_expense_does_not_block_authorization_approval() -> None:
+    authorized_expense = _expense(
+        "100.00",
+        "operacion",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+        requires_authorization=True,
+        authorized=True,
+    )
+    zero_amount_pending = _expense(
+        "0.00",
+        "operacion",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+        requires_authorization=True,
+    )
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[authorized_expense, zero_amount_pending],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.calculated_total == Decimal("100.00")
+    assert summary.missing_authorization_expense_ids == []
+    assert summary.ready_for_authorization_approval is True
+    assert summary.ready_for_accounting_approval is True
+
+
 def test_summarize_reimbursement_request_excludes_rejected_authorization_expenses() -> None:
     approved = _expense(
         "100.00",
