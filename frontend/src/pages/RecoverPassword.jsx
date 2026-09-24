@@ -123,16 +123,16 @@ const styles = {
         boxShadow: 'var(--shadow)',
     },
     logo: { 
-        height: '60px', width: 'auto', objectFit: 'contain', marginBottom: '10px' 
+        height: '60px', width: 'auto', objectFit: 'contain', marginBottom: '5px' 
     },
     title: { 
         margin: 0, fontSize: '22px', color: 'var(--text-h)', textAlign: 'left' },
     info: { 
-        color: 'var(--text-muted, #5f5f5f)', fontSize: '13px', lineHeight: 1.4, textAlign: 'center' },
+        color: 'var(--text-muted, #5f5f5f)', fontSize: '13px', lineHeight: 1.4, textAlign: 'left' },
     inputGroup: { 
         display: 'flex', flexDirection: 'column', gap: '10px' },
     label: { 
-        fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)', textAlign: 'left',},
+        fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)', textAlign: 'center',},
     input: { 
         border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: '#ffffff', color: 'var(--text-h)', padding: '8px', fontSize: '14px' },
     error: { 
@@ -141,7 +141,7 @@ const styles = {
         backgroundColor: 'var(--sb-sendBtnBg)', color: 'var(--text-CBtn)', border: 'none', borderRadius: '10px', padding: '10px 25px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: 'var(--shadow)' },
     link: { 
         color: 'var(--sb-btnBorder)',
-        fontSize: '12px',
+        fontSize: '13px',
         fontWeight:'400',
         textAlign: 'center', 
         textDecoration: 'none',

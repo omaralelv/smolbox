@@ -17,6 +17,8 @@ function Login() {
     const [password, setPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+    const [showPassword, setShowPassword] = useState(false); // Estado para visibilidad
+
     const [cognitoChallenge, setCognitoChallenge] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -154,7 +156,7 @@ function Login() {
                     <div style={styles.inputGroup}>
                         <label style={styles.label}>Contraseña</label>
                         <input
-                            type="password"
+                            type={showPassword ? 'text' : 'password'}
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
                             style={styles.input}
@@ -162,6 +164,23 @@ function Login() {
                         />
                     </div>
                 )}
+
+                {/* CHECKBOX MOSTRAR CONTRASEÑA */}
+                    <label style={styles.checkboxLabel}>
+                        <input
+                            type="checkbox"
+                            checked={showPassword}
+                            onChange={(e) => setShowPassword(e.target.checked)}
+                            style={{
+                                ...styles.checkbox,
+                                backgroundColor: showPassword ? 'var(--sb-btnBorder)' : '#ffffff',
+                                borderColor: showPassword ? 'var(--sb-btnBorder)' : 'var(--border)',
+                                boxShadow: showPassword ? 'inset 0 0 0 3px #ffffff' : 'none',
+                            }}
+                        />
+                        <span>Mostrar contraseña</span>
+                    </label>
+
                 {error && <div style={styles.error}>{error}</div>}
                 <button type="submit" style={styles.button} disabled={loading}>
                     {loading
@@ -275,7 +294,7 @@ const styles = {
     },
     link: {
         color: 'var(--sb-btnBorder)',
-        fontSize: '12px',
+        fontSize: '13px',
         fontWeight:'400',
         textAlign: 'center',
         textDecoration: 'none'
@@ -290,6 +309,33 @@ const styles = {
         fontWeight: 'bold',
         cursor: 'pointer',
         boxShadow: 'var(--shadow)',
+    },
+
+    // ESTILOS DE LA CHECKBOX
+    checkboxLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '13px',
+        color: 'var(--text-muted)',
+        cursor: 'pointer',
+        userSelect: 'none',
+        marginTop: '-5px',
+    },
+    checkbox: {
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        width: '16px',
+        height: '16px',
+        border: '1px solid var(--border)',
+        borderRadius: '100px',
+        backgroundColor: '#ffffff',
+        cursor: 'pointer',
+        outline: 'none',
+        display: 'grid',
+        placeContent: 'center',
+        transition: 'all 0.2s ease-in-out',
+        accentColor: 'var(--sb-btnBorder)', // Mantiene la consistencia con el color de marca
     },
 };
 
