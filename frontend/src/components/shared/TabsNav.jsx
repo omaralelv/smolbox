@@ -28,7 +28,8 @@ function TabsNav({ currentRole }) {
                 return [
                     { label: 'Bandeja', path: '/bandeja' },
                     { label: 'Dashboard', path: '/dashboard' }, // Próximamente
-                    { label: 'Historico', path: '/historico' }
+                    { label: 'Historico', path: '/historico' },
+                    { label: 'Bitacora', path: '/bitacora'},
                 ];
             case 'admin':
                 // El administrador tiene visibilidad de las secciones del sistema
@@ -38,7 +39,8 @@ function TabsNav({ currentRole }) {
                     { label: 'Autorizacion', path: '/autorizacion' },
                     { label: 'Bandeja', path: '/bandeja' },
                     { label: 'Dashboard', path: '/dashboard' },
-                    { label: 'Historico', path: '/historico' }
+                    { label: 'Historico', path: '/historico' },
+                    { label: 'Bitacora', path: '/bitacora'},
                 ];
             default:
                 return [];
