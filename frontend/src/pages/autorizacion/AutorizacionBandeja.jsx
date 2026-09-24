@@ -357,6 +357,7 @@ function AutorizacionBandeja( { currentRole } ) {
                     )}
 
                     <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>TIPO DE GASTO</span>
+                    <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>SOLICITUD</span>
                     <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>¿AUTORIZADO?</span>
                     <span style={{ flex: 2.5, textAlign: 'center', fontWeight: 'bold' }}>HERRAMIENTAS</span>
                 </div>
@@ -386,6 +387,12 @@ function AutorizacionBandeja( { currentRole } ) {
                             <div style={{ flex: 1.5, textAlign: 'center', color: '#444' }}>
                                 {gasto.tipo}
                             </div>
+
+
+                            <div style={{ flex: 1.5, textAlign: 'center', color: '#444' }}>
+                                    {gasto.solicitudFolio || gasto.solicitudNombre || 'Sin Solicitud'}
+                                </div>
+
 
                             {/* ESTATUS VISUAL */}
                             <div style={{ flex: 1.5, display: 'flex', justifyContent: 'center' }}>

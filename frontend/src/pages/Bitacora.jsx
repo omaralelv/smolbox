@@ -191,11 +191,12 @@ function Bitacora() {
                     <input
                         type="date"
                         value={selectedDate}
+                        onClick={(e) => e.target.showPicker && e.target.showPicker()}
                         onChange={(event) => {
                             setSelectedDate(event.target.value);
                             setFollowToday(event.target.value === todayDateInput());
                         }}
-                        style={styles.select}
+                        style={styles.selectCal}
                     />
                 </label>
 
@@ -262,25 +263,27 @@ function Bitacora() {
                             <thead>
                                 <tr>
                                     <th style={styles.th}>Fecha</th>
-                                    <th style={styles.th}>Solicitud</th>
                                     <th style={styles.th}>Tienda</th>
+                                    <th style={styles.th}>Solicitud</th>
                                     <th style={styles.th}>Movimiento</th>
-                                    <th style={styles.th}>Usuario</th>
                                     <th style={styles.th}>Rol</th>
-                                    <th style={styles.th}>Motivo / detalle</th>
+                                    <th style={styles.th}>Usuario</th>
+                                    <th style={styles.th}>Detalle</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredEvents.map((event) => (
                                     <tr key={event.id} style={styles.tr}>
-                                        <td style={styles.td}>{event.dateLabel}</td>
-                                        <td style={styles.tdStrong}>{event.requestLabel}</td>
+                                        <td style={styles.tdStrong}>{event.dateLabel}</td>
                                         <td style={styles.td}>{event.storeLabel}</td>
+                                        <td style={styles.td}>{event.requestLabel}</td>
+                                        <td style={styles.tdStrong}>
+                                            {event.actionLabel}
+                                        </td>
                                         <td style={styles.td}>
-                                            <span style={styles.badge}>{event.actionLabel}</span>
+                                            <span style={styles.badge}>{event.roleLabel}</span>
                                         </td>
                                         <td style={styles.td}>{event.actorName}</td>
-                                        <td style={styles.td}>{event.roleLabel}</td>
                                         <td style={styles.detailTd}>{event.detail}</td>
                                     </tr>
                                 ))}
@@ -525,14 +528,15 @@ const styles = {
     title: {
         margin: 0,
         fontSize: '30px',
-        lineHeight: 1.2,
-        fontWeight: 700,
+        lineHeight: 1,
+        fontWeight: 600,
     },
     description: {
         margin: '12px 0 0',
         color: '#5f5f5f',
-        fontSize: '16px',
+        fontSize: '14px',
         lineHeight: 1.55,
+        fontWeight: 500,
     },
     toolbar: {
         display: 'flex',
@@ -559,13 +563,34 @@ const styles = {
         padding: '0 12px',
         fontSize: '14px',
     },
+
+    selectCal: {
+        minWidth: '200px',
+        height: '35px',
+        border: '1px solid var(--border, #f3c6cc)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#333',
+        padding: '0 12px',
+        fontSize: '14px',
+
+        // Forzar el tema claro para el calendario desplegable nativo
+        colorScheme: 'light', 
+        
+        // Cambiar el color de acento/selección (puedes usar el rosa corporativo o el tono que gustes)
+        accentColor: 'var(--sb-sendBtnBg)',
+
+        cursor: 'pointer',
+    },
+
+
     todayButton: {
         height: '35px',
         border: '1px solid var(--sb-btnBorder, #f0a4ae)',
         borderRadius: '10px',
         background: 'var(--sb-sendBtnBg)',
         color: 'var(--text-CBtn)',
-        padding: '0 25px',
+        padding: '0 15px',
         fontSize: '14px',
         fontWeight: 800,
         cursor: 'pointer',
@@ -637,14 +662,15 @@ const styles = {
         color: '#222',
         fontSize: '13px',
         fontWeight: 600,
-        verticalAlign: 'top',
+        verticalAlign: 'center',
     },
     detailTd: {
         padding: '14px',
         color: '#555',
         fontSize: '13px',
         lineHeight: 1.45,
-        verticalAlign: 'top',
+        verticalAlign: 'center',
+        textAlign: 'left',
         maxWidth: '340px',
     },
     badge: {
