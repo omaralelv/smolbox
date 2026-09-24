@@ -249,12 +249,6 @@ function Bitacora() {
             </section>
 
             <section style={styles.panel}>
-                <div style={styles.panelHeader}>
-                    <h2 style={styles.sectionTitle}>Historial de movimientos</h2>
-                    <p style={styles.sectionText}>
-                        Se muestran los eventos guardados por la app para las solicitudes visibles.
-                    </p>
-                </div>
 
                 {loading ? (
                     <div style={styles.message}>Cargando bitácora...</div>
@@ -509,7 +503,7 @@ function dateInputFromValue(value) {
 
 const styles = {
     container: {
-        maxWidth: '1380px',
+        maxWidth: '1400px',
         margin: '0 auto',
         padding: '34px 28px 56px',
         color: '#252525',
@@ -532,10 +526,9 @@ const styles = {
         margin: 0,
         fontSize: '30px',
         lineHeight: 1.2,
-        fontWeight: 800,
+        fontWeight: 700,
     },
     description: {
-        maxWidth: '820px',
         margin: '12px 0 0',
         color: '#5f5f5f',
         fontSize: '16px',
@@ -553,12 +546,12 @@ const styles = {
         flexDirection: 'column',
         gap: '7px',
         color: '#222',
-        fontSize: '13px',
-        fontWeight: 800,
+        fontSize: '14px',
+        fontWeight: 700,
     },
     select: {
-        minWidth: '240px',
-        height: '40px',
+        minWidth: '200px',
+        height: '35px',
         border: '1px solid var(--border, #f3c6cc)',
         borderRadius: '8px',
         background: '#fff',
@@ -567,12 +560,12 @@ const styles = {
         fontSize: '14px',
     },
     todayButton: {
-        height: '40px',
+        height: '35px',
         border: '1px solid var(--sb-btnBorder, #f0a4ae)',
-        borderRadius: '20px',
-        background: 'var(--gradient, #ff8c9b)',
-        color: 'var(--text-CBtn, #fff)',
-        padding: '0 24px',
+        borderRadius: '10px',
+        background: 'var(--sb-sendBtnBg)',
+        color: 'var(--text-CBtn)',
+        padding: '0 25px',
         fontSize: '14px',
         fontWeight: 800,
         cursor: 'pointer',
@@ -580,49 +573,36 @@ const styles = {
     summaryGrid: {
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: '14px',
-        marginBottom: '18px',
+        gap: '30px',
+        marginBottom: '30px',
     },
     summaryCard: {
-        border: '1px solid #f5cbd1',
-        borderRadius: '8px',
+        border: '1px solid var(--border)',
+        borderRadius: '10px',
         background: '#fffafa',
-        padding: '16px',
+        padding: '15px',
     },
     summaryLabel: {
         display: 'block',
-        color: '#666',
-        fontSize: '13px',
-        fontWeight: 700,
+        color: '#3e3e3e',
+        fontSize: '14px',
+        fontWeight: 600,
     },
     summaryValue: {
         display: 'block',
         marginTop: '8px',
         color: '#222',
-        fontSize: '28px',
+        fontSize: '30px',
         lineHeight: 1,
     },
     panel: {
         border: '1px solid var(--border, #f3c6cc)',
-        borderRadius: '8px',
+        borderRadius: '5px',
         background: '#fff',
         boxShadow: '0 10px 28px rgba(230, 112, 126, 0.08)',
         overflow: 'hidden',
     },
-    panelHeader: {
-        padding: '22px 24px 12px',
-    },
-    sectionTitle: {
-        margin: 0,
-        fontSize: '20px',
-        fontWeight: 800,
-    },
-    sectionText: {
-        margin: '8px 0 0',
-        color: '#666',
-        fontSize: '14px',
-        lineHeight: 1.5,
-    },
+    
     tableWrap: {
         overflowX: 'auto',
         borderTop: '1px solid #f5d5da',
@@ -635,28 +615,28 @@ const styles = {
     th: {
         padding: '12px 14px',
         background: '#fff8f9',
-        borderBottom: '1px solid #f5d5da',
+        borderBottom: '1px solid var(--border)',
         color: '#333',
-        fontSize: '12px',
-        fontWeight: 800,
-        textAlign: 'left',
+        fontSize: '14px',
+        fontWeight: 700,
+        textAlign: 'center',
         textTransform: 'uppercase',
         letterSpacing: '0.03em',
     },
     tr: {
-        borderBottom: '1px solid #f7e2e5',
+        borderBottom: '1px solid #fed5db',
     },
     td: {
         padding: '14px',
         color: '#555',
         fontSize: '13px',
-        verticalAlign: 'top',
+        verticalAlign: 'center',
     },
     tdStrong: {
         padding: '14px',
         color: '#222',
         fontSize: '13px',
-        fontWeight: 800,
+        fontWeight: 600,
         verticalAlign: 'top',
     },
     detailTd: {
@@ -675,7 +655,7 @@ const styles = {
         background: '#fff8f9',
         padding: '5px 10px',
         fontSize: '12px',
-        fontWeight: 800,
+        fontWeight: 600,
         whiteSpace: 'nowrap',
     },
     message: {
