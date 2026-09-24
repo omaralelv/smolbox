@@ -9,7 +9,11 @@ import {
 } from '../lib/api';
 
 function Dashboard({ currentRole }) {
-    if ( currentRole === 'admin' || currentRole === 'direccion' || currentRole === 'gerencia'){
+    const role = String(currentRole || '').toLowerCase().trim();
+    const canViewManagement = ['admin', 'direccion', 'gerencia'].includes(role);
+    const canViewTreasury = ['admin', 'direccion', 'gerencia', 'tesoreria'].includes(role);
+
+    if (canViewManagement && canViewTreasury) {
         return (
             <>
                 <ManagementProductivityDashboard />
@@ -18,11 +22,11 @@ function Dashboard({ currentRole }) {
         );
     }
 
-    if (currentRole === 'gerencia') {
+    if (canViewManagement) {
         return <ManagementProductivityDashboard />;
     }
 
-    if (currentRole === 'tesoreria'){
+    if (canViewTreasury) {
         return <TreasuryBudgetDashboard />;
     }
 

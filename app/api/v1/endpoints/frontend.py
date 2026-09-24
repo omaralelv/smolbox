@@ -388,7 +388,7 @@ def get_management_productivity_dashboard(
     month: Annotated[int | None, Query(ge=1, le=12)] = None,
     year: Annotated[int | None, Query(ge=2020, le=2100)] = None,
 ) -> FrontendManagementProductivityDashboardRead:
-    if current_user.role not in {UserRole.accounting_manager, UserRole.admin}:
+    if current_user.role not in {UserRole.accounting_manager, UserRole.director, UserRole.admin}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
