@@ -9,19 +9,21 @@ import {
 } from '../lib/api';
 
 function Dashboard({ currentRole }) {
-    if (currentRole === 'gerencia') {
-        return <ManagementProductivityDashboard />;
-    }
-    if (currentRole === 'tesoreria'){
-        return <TreasuryBudgetDashboard />;
-    }
-    if (currentRole === 'direccion' || currentRole === 'admin'){
+    if ( currentRole === 'admin' || currentRole === 'direccion' || currentRole === 'gerencia'){
         return (
             <>
                 <ManagementProductivityDashboard />
                 <TreasuryBudgetDashboard />
             </>
         );
+    }
+
+    if (currentRole === 'gerencia') {
+        return <ManagementProductivityDashboard />;
+    }
+
+    if (currentRole === 'tesoreria'){
+        return <TreasuryBudgetDashboard />;
     }
 
     return null;
@@ -250,7 +252,7 @@ function ManagementProductivityDashboard() {
 
             <section style={styles.productivityHeader}>
                 <div>
-                    <span style={styles.sectionLabel}>TABLA SEMANAL</span>
+                    <span style={styles.sectionLabel}>TABLA SEMANAL:  </span>
                     <span style={styles.weekLabel}>
                         {formatDateShort(dashboard?.weekStartsOn)} - {formatDateShort(dashboard?.weekEndsOn)}
                     </span>
@@ -261,7 +263,7 @@ function ManagementProductivityDashboard() {
                         style={styles.smallButton}
                         onClick={() => setSelectedWeekStart(addDaysToInput(selectedWeekStart, -7))}
                     >
-                        Semana anterior
+                        ⫷
                     </button>
                     <input
                         type="date"
@@ -274,7 +276,7 @@ function ManagementProductivityDashboard() {
                         style={styles.smallButton}
                         onClick={() => setSelectedWeekStart(addDaysToInput(selectedWeekStart, 7))}
                     >
-                        Semana siguiente
+                        ⫸
                     </button>
                 </div>
             </section>
@@ -597,15 +599,15 @@ const styles = {
     },
     smallButton: {
         minHeight: '38px',
-        border: '1px solid var(--sb-btnBorder)',
-        borderRadius: '8px',
-        background: '#fff',
-        color: '#b85b65',
-        padding: '0 14px',
-        fontSize: '13px',
+        background: 'transparent', // Cambiado a transparente
+        border: 'none',            // Elimina el borde nativo del botón
+        outline: 'none',           // Elimina el contorno de enfoque/foco
+        boxShadow: 'none',         // Elimina cualquier sombra predeterminada
+        color: 'var(--sb-sendBtnBg)',
+        padding: '0 5px',
+        fontSize: '25px',
         fontWeight: '800',
         cursor: 'pointer',
-        boxShadow: 'var(--shadow)',
     },
     dateInput: {
         width: '150px',
@@ -697,7 +699,7 @@ const styles = {
         color: '#555555',
     },
     kpiValue: {
-        fontSize: '35px',
+        fontSize: '30px',
         lineHeight: 1,
         color: '#000000',
     },
