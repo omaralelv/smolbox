@@ -65,8 +65,11 @@ def summarize_reimbursement_request(
             rejected_expense_ids.append(expense.id)
             continue
 
-        active_expenses.append(expense)
         amount = _money(expense.amount)
+        if amount <= Decimal("0.00"):
+            continue
+
+        active_expenses.append(expense)
         calculated_total += amount
         category = expense.category or "uncategorized"
         category_totals[category] += amount

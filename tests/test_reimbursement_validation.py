@@ -336,7 +336,7 @@ def test_zero_amount_expense_does_not_block_authorization_approval() -> None:
     zero_amount_pending = _expense(
         "0.00",
         "operacion",
-        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+        [],
         requires_authorization=True,
     )
     request = SimpleNamespace(

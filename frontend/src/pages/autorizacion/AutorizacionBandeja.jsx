@@ -100,8 +100,9 @@ function AutorizacionBandeja( { currentRole } ) {
         const solicitudes = solicitudInicialBackendId
             ? [await getFrontendSolicitud(solicitudInicialBackendId)]
             : await getFrontendBandeja();
+        const solicitudesActualizadas = await avanzarSolicitudesConAutorizacionCompleta(solicitudes);
 
-        const nuevosGastos = solicitudes.flatMap(gastosAutorizacionDesdeSolicitud);
+        const nuevosGastos = solicitudesActualizadas.flatMap(gastosAutorizacionDesdeSolicitud);
         setGastos(nuevosGastos);
         setGastoSeleccionado((actual) => {
             if (!actual) return actual;
@@ -124,9 +125,10 @@ function AutorizacionBandeja( { currentRole } ) {
                 const solicitudes = solicitudInicialBackendId
                     ? [await getFrontendSolicitud(solicitudInicialBackendId)]
                     : await getFrontendBandeja();
+                const solicitudesActualizadas = await avanzarSolicitudesConAutorizacionCompleta(solicitudes);
 
                 if (!activo) return;
-                setGastos(solicitudes.flatMap(gastosAutorizacionDesdeSolicitud));
+                setGastos(solicitudesActualizadas.flatMap(gastosAutorizacionDesdeSolicitud));
             } catch (error) {
                 if (activo) alert(apiErrorMessage(error));
             }
@@ -842,16 +844,39 @@ async function asegurarSolicitudEnRevisionAutorizacion(requestId) {
 
 async function avanzarSolicitudSiAutorizacionCompleta(requestId) {
     const solicitud = await getFrontendSolicitud(requestId);
-    const tienePendientes = (solicitud?.gastos || []).some((gasto) => (
+    const tienePendientes = solicitudTienePendientesAutorizacion(solicitud);
+
+    if (!tienePendientes && solicitud?.availableActions?.includes('approve_authorization')) {
+        await executeRequestAction(requestId, 'approve_authorization');
+    }
+}
+
+async function avanzarSolicitudesConAutorizacionCompleta(solicitudes) {
+    return Promise.all((solicitudes || []).map(async (solicitud) => {
+        const requestId = solicitud?.backendId || solicitud?.backend_id;
+        const status = solicitud?.backendStatus || solicitud?.backend_status;
+
+        if (
+            requestId
+            && status === 'authorization_review'
+            && solicitud?.availableActions?.includes('approve_authorization')
+            && !solicitudTienePendientesAutorizacion(solicitud)
+        ) {
+            await executeRequestAction(requestId, 'approve_authorization');
+            return getFrontendSolicitud(requestId);
+        }
+
+        return solicitud;
+    }));
+}
+
+function solicitudTienePendientesAutorizacion(solicitud) {
+    return (solicitud?.gastos || []).some((gasto) => (
         Boolean(gasto.requiresAuthorization || gasto.requires_authorization)
         && !gastoFueEliminado(gasto)
         && gastoTieneMontoPositivo(gasto)
         && estadoAutorizacionDesdeGasto(gasto) === 'Pendiente'
     ));
-
-    if (!tienePendientes && solicitud?.availableActions?.includes('approve_authorization')) {
-        await executeRequestAction(requestId, 'approve_authorization');
-    }
 }
 
 
