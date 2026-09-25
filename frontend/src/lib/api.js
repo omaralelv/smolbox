@@ -1,0 +1,656 @@
+import {
+    cognitoLogin,
+    completeCognitoNewPassword,
+    confirmCognitoPassword,
+    forgotCognitoPassword,
+    isCognitoLoginEnabled,
+    refreshCognitoSession,
+} from './cognito';
+
+const API_BASE_URL = (
+    import.meta.env.DEV
+        ? '/api/v1'
+        : import.meta.env.VITE_API_BASE_URL || '/api/v1'
+).replace(/\/$/, '');
+const TOKEN_KEY = 'smolboxApiToken';
+const ROLE_KEY = 'smolboxFrontendRole';
+const REFRESH_TOKEN_KEY = 'smolboxCognitoRefreshToken';
+const TOKEN_EXPIRES_AT_KEY = 'smolboxCognitoTokenExpiresAt';
+const TOKEN_REFRESH_SKEW_MS = 60_000;
+
+let refreshSessionPromise = null;
+
+const ACTION_TARGET_STATUS = {
+    submit_request: 'submitted',
+    start_authorization_review: 'authorization_review',
+    approve_authorization: 'authorized',
+    start_accounting_review: 'under_accounting_review',
+    mark_accounting_reviewed: 'accounting_reviewed',
+    start_accounting_manager_review: 'accounting_manager_review',
+    approve_accounting_manager: 'accounting_manager_approved',
+    start_treasury_review: 'treasury_review',
+    send_to_direction: 'direction_review',
+    approve_direction: 'direction_approved',
+    mark_approved_for_payment: 'approved_for_payment',
+    close_request: 'closed',
+    reject_request: 'rejected',
+    return_to_accounting: 'under_accounting_review',
+    return_to_manager: 'accounting_manager_review',
+    return_to_treasury: 'treasury_review',
+};
+
+export function currentToken() {
+    return localStorage.getItem(TOKEN_KEY);
+}
+
+export function currentStoredRole() {
+    return localStorage.getItem(ROLE_KEY) || 'admin';
+}
+
+export function clearSession() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(ROLE_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+}
+
+function currentRefreshToken() {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function storeLocalSession(token) {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+}
+
+function storeCognitoSession(session, fallbackRefreshToken = currentRefreshToken()) {
+    if (!session?.idToken) {
+        throw new Error('Cognito no devolvió una sesión válida.');
+    }
+
+    localStorage.setItem(TOKEN_KEY, session.idToken);
+
+    const refreshToken = session.refreshToken || fallbackRefreshToken;
+    if (refreshToken) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
+
+    if (session.expiresIn) {
+        localStorage.setItem(
+            TOKEN_EXPIRES_AT_KEY,
+            String(Date.now() + Number(session.expiresIn) * 1000)
+        );
+    } else {
+        localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+    }
+}
+
+function cognitoTokenExpiresSoon() {
+    const expiresAt = Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY));
+    if (!Number.isFinite(expiresAt) || expiresAt <= 0) return false;
+    return Date.now() + TOKEN_REFRESH_SKEW_MS >= expiresAt;
+}
+
+async function refreshStoredCognitoSession() {
+    if (!isCognitoLoginEnabled()) return currentToken();
+
+    const refreshToken = currentRefreshToken();
+    if (!refreshToken) {
+        expireSession();
+        throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+    }
+
+    if (!refreshSessionPromise) {
+        refreshSessionPromise = refreshCognitoSession(refreshToken)
+            .then((session) => {
+                storeCognitoSession(session, refreshToken);
+                return currentToken();
+            })
+            .catch(() => {
+                expireSession();
+                throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+            })
+            .finally(() => {
+                refreshSessionPromise = null;
+            });
+    }
+
+    return refreshSessionPromise;
+}
+
+async function authTokenForRequest({ forceRefresh = false } = {}) {
+    if (!isCognitoLoginEnabled()) return currentToken();
+
+    const token = currentToken();
+    if (!forceRefresh && token && !cognitoTokenExpiresSoon()) {
+        return token;
+    }
+
+    return refreshStoredCognitoSession();
+}
+
+function expireSession() {
+    clearSession();
+    if (
+        typeof window !== 'undefined'
+        && !['/login', '/recuperar-contrasena', '/confirmar-recuperacion'].includes(window.location.pathname)
+    ) {
+        window.location.assign('/login');
+    }
+}
+
+export async function login(email, password) {
+    if (isCognitoLoginEnabled()) {
+        const cognitoSession = await cognitoLogin(email, password);
+        if (cognitoSession.challengeName === 'NEW_PASSWORD_REQUIRED') {
+            return {
+                challengeName: cognitoSession.challengeName,
+                session: cognitoSession.session,
+                email: cognitoSession.email,
+            };
+        }
+        storeCognitoSession(cognitoSession);
+        const context = await getFrontendContext();
+        localStorage.setItem(ROLE_KEY, context.currentRole);
+        return { token: cognitoSession.idToken, context };
+    }
+
+    const body = await request('/auth/login', {
+        method: 'POST',
+        skipAuth: true,
+        body: { email, password },
+    });
+    storeLocalSession(body.access_token);
+    const context = await getFrontendContext();
+    localStorage.setItem(ROLE_KEY, context.currentRole);
+    return { token: body.access_token, context };
+}
+
+export async function completeNewPasswordLogin(email, newPassword, session) {
+    const cognitoSession = await completeCognitoNewPassword(email, newPassword, session);
+    storeCognitoSession(cognitoSession);
+    const context = await getFrontendContext();
+    localStorage.setItem(ROLE_KEY, context.currentRole);
+    return { token: cognitoSession.idToken, context };
+}
+
+export function requestPasswordReset(email) {
+    return forgotCognitoPassword(email);
+}
+
+export function confirmPasswordReset(email, confirmationCode, newPassword) {
+    return confirmCognitoPassword(email, confirmationCode, newPassword);
+}
+
+export async function getFrontendContext() {
+    return request('/frontend/context/me');
+}
+
+export async function getFrontendBandeja() {
+    return request('/frontend/bandeja/me');
+}
+
+export async function getFrontendHistorico() {
+    return request('/frontend/historico/me');
+}
+
+export async function getTreasuryDashboard() {
+    return request('/frontend/tesoreria/dashboard/me');
+}
+
+export async function getManagementProductivityDashboard(params = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.weekStart) searchParams.set('week_start', params.weekStart);
+    if (params.month) searchParams.set('month', String(params.month));
+    if (params.year) searchParams.set('year', String(params.year));
+    const query = searchParams.toString();
+    return request(`/frontend/gerencia/productividad/me${query ? `?${query}` : ''}`);
+}
+
+export async function getFrontendSolicitud(requestIdOrFolio) {
+    return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
+}
+
+export async function getRequestAuditEvents(requestId) {
+    return request(`/reimbursement-requests/${requestId}/audit-events`);
+}
+
+export async function listUsers() {
+    return request('/users/');
+}
+
+export async function listAllUsers() {
+    return listAllPages((offset) => request(`/users/?limit=200&offset=${offset}`));
+}
+
+export async function createUser(payload) {
+    return request('/users/', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
+// Editar usuario existente
+export async function updateUser(userId, payload) {
+    return request(`/users/${encodeURIComponent(userId)}`, {
+        method: 'PATCH', // O 'PUT' según esté configurado tu backend FastAPI
+        body: payload,
+    });
+}
+
+// Eliminar/desactivar usuario con razón
+export async function deleteUser(userId, payload) {
+    return request(`/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        body: payload,
+    });
+}
+
+
+export async function listStores() {
+    return request('/stores/');
+}
+
+export async function listAllStores() {
+    return listAllPages((offset) => request(`/stores/?limit=200&offset=${offset}`));
+}
+
+async function listAllPages(fetchPage) {
+    const pageSize = 200;
+    const records = [];
+    let offset = 0;
+
+    while (true) {
+        const page = await fetchPage(offset);
+        if (!Array.isArray(page)) {
+            throw new Error('La API devolvió una lista inválida.');
+        }
+        records.push(...page);
+        if (page.length < pageSize) return records;
+        offset += pageSize;
+    }
+}
+
+export async function listStoreUserAssignments(storeId) {
+    return request(`/stores/${encodeURIComponent(storeId)}/users`);
+}
+
+export async function assignUserToStore(storeId, userId, role) {
+    return request(`/stores/${encodeURIComponent(storeId)}/users`, {
+        method: 'POST',
+        body: {
+            user_id: userId,
+            role,
+        },
+    });
+}
+
+export async function listAuthorizationAreas() {
+    return request('/authorization-areas/');
+}
+
+export async function listAuthorizationAreasForUser(userId) {
+    return request(`/authorization-areas/users/${encodeURIComponent(userId)}`);
+}
+
+export async function assignAuthorizationAreaToUser(userId, areaName) {
+    return request(`/authorization-areas/users/${encodeURIComponent(userId)}`, {
+        method: 'POST',
+        body: {
+            areaName,
+        },
+    });
+}
+
+export async function createFrontendSolicitud(payload) {
+    return request('/frontend/solicitudes/me', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
+export async function addFrontendGasto(requestIdOrFolio, payload) {
+    return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/gastos/me`, {
+        method: 'POST',
+        body: payload,
+    });
+}
+
+export async function runAutomatedReview(requestId) {
+    return request(`/reimbursement-requests/${requestId}/automated-review`, {
+        method: 'POST',
+    });
+}
+
+export async function uploadReimbursementExcel(requestId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request(`/reimbursement-requests/${encodeURIComponent(requestId)}/reimbursement-excel/me`, {
+        method: 'POST',
+        body: formData,
+    });
+}
+
+export async function executeRequestAction(requestId, action) {
+    if (action === 'prepare_sap_policy') {
+        return request(`/reimbursement-requests/${requestId}/sap-policy/prepare/me`, {
+            method: 'POST',
+            body: {
+                reference: `SAP-${Date.now()}`,
+                note: 'Póliza preparada desde frontend.',
+            },
+        });
+    }
+
+    if (action === 'record_payment') {
+        return request(`/reimbursement-requests/${requestId}/payments/me`, {
+            method: 'POST',
+            body: {
+                reference: `PAGO-${Date.now()}`,
+                payment_method: 'transfer',
+                note: 'Pago confirmado desde frontend.',
+            },
+        });
+    }
+
+    const targetStatus = ACTION_TARGET_STATUS[action];
+    if (!targetStatus) {
+        throw new Error(`Acción no conectada: ${action}`);
+    }
+
+    return request(`/reimbursement-requests/${requestId}/transition/me`, {
+        method: 'POST',
+        body: {
+            target_status: targetStatus,
+            note: `Acción ejecutada desde frontend: ${action}`,
+        },
+    });
+}
+
+export async function uploadExpenseAttachment(expenseId, file, attachmentType = 'receipt', options = {}) {
+    const formData = new FormData();
+    formData.append('attachment_type', attachmentType);
+    if (options.ocrPreviewToken) {
+        formData.append('ocr_preview_token', options.ocrPreviewToken);
+    }
+    formData.append('file', file);
+    return request(`/expenses/${expenseId}/attachments`, {
+        method: 'POST',
+        body: formData,
+    });
+}
+
+export async function parseCfdi(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/cfdi/parse', {
+        method: 'POST',
+        body: formData,
+    });
+}
+
+export async function previewInvoiceOcr(file, documentType = 'factura') {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', documentType);
+    return request('/cfdi/ocr-preview', {
+        method: 'POST',
+        body: formData,
+    });
+}
+
+export async function checkCfdiUuidAvailability(uuid) {
+    return request(`/cfdi/uuid/${encodeURIComponent(uuid)}/availability`);
+}
+
+export async function validateExpenseCfdi(expenseId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request(`/expenses/${expenseId}/cfdi/validate`, {
+        method: 'POST',
+        body: formData,
+    });
+}
+
+export async function removeExpense(expenseId, reason) {
+    return request(`/expenses/${expenseId}/remove/me`, {
+        method: 'POST',
+        body: {
+            reason,
+            adjust_reported_total: true,
+        },
+    });
+}
+
+export async function deleteDraftExpense(requestIdOrFolio, expenseId) {
+    return request(
+        `/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/gastos/${encodeURIComponent(expenseId)}/me`,
+        { method: 'DELETE' }
+    );
+}
+
+export async function updateExpenseForReview(expenseId, payload) {
+    return request(`/expenses/${expenseId}/review/me`, {
+        method: 'PATCH',
+        body: payload,
+    });
+}
+
+export async function addExpenseObservation(expenseId, note) {
+    return request(`/expenses/${expenseId}/observation/me`, {
+        method: 'POST',
+        body: { note },
+    });
+}
+
+export async function authorizeExpense(expenseId, note = 'Gasto autorizado desde frontend.') {
+    return request(`/expenses/${expenseId}/authorize/me`, {
+        method: 'POST',
+        body: { note },
+    });
+}
+
+export async function rejectAuthorizationExpense(expenseId, reason = 'Gasto no autorizado desde frontend.') {
+    return request(`/expenses/${expenseId}/reject/me`, {
+        method: 'POST',
+        body: {
+            reason,
+            adjust_reported_total: true,
+        },
+    });
+}
+
+export function apiErrorMessage(error) {
+    if (!error) return 'No se pudo completar la operación.';
+    return friendlyErrorMessage(error.message) || 'No se pudo completar la operación.';
+}
+
+function friendlyErrorMessage(message) {
+    if (!message) return '';
+
+    const text = String(message);
+    const normalized = text.toLowerCase();
+    if (
+        normalized.includes('request_not_in_authorization_review')
+        || normalized.includes('expenses can only be authorized during authorization review')
+        || normalized.includes('expenses can only be rejected during authorization review')
+    ) {
+        return 'La solicitud ya no está en revisión de autorización. Actualiza la pantalla para ver el estado actual.';
+    }
+
+    if (
+        normalized.includes('expense_excluded')
+        || normalized.includes('removed or rejected expenses cannot be changed')
+    ) {
+        return 'Este gasto ya fue eliminado o rechazado y no se puede modificar.';
+    }
+
+    if (
+        normalized.includes('expense_already_authorized')
+        || normalized.includes('authorized expenses cannot be rejected')
+    ) {
+        return 'Este gasto ya fue autorizado y no se puede rechazar.';
+    }
+
+    if (
+        normalized.includes('role_not_allowed')
+        || normalized.includes('cannot perform this expense action')
+    ) {
+        return 'Tu usuario no tiene permisos para realizar esta acción sobre el gasto.';
+    }
+
+    if (
+        normalized.includes('textract')
+        || normalized.includes('analyzeexpense')
+        || normalized.includes('unsupporteddocument')
+        || normalized.includes('unsupported document')
+    ) {
+        return [
+            'No se pudo leer el documento con OCR.',
+            'El archivo cargado no tiene un formato compatible o no puede ser procesado.',
+            'Por favor, carga nuevamente el archivo en formato PDF válido o sube el XML si se trata de una factura.',
+        ].join('\n');
+    }
+
+    return text;
+}
+
+export function apiFileUrl(path) {
+    if (!path) return null;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    const cleanPath = path.startsWith('/api/v1') ? path.slice('/api/v1'.length) : path;
+    return `${API_BASE_URL}${cleanPath}`;
+}
+
+export async function openProtectedFile(path) {
+    const url = apiFileUrl(path);
+    if (!url) {
+        throw new Error('No hay sesión activa para abrir el archivo.');
+    }
+
+    const blob = await fetchProtectedBlob(url);
+    const objectUrl = URL.createObjectURL(blob);
+    window.open(objectUrl, '_blank');
+}
+
+export async function downloadProtectedFile(path, fallbackFilename = 'archivo') {
+    const url = apiFileUrl(path);
+    if (!url) {
+        throw new Error('No hay sesión activa para descargar el archivo.');
+    }
+
+    const response = await fetchWithAuthRetry(url);
+    if (!response.ok) {
+        const detail = await readError(response);
+        throw new Error(detail);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = objectUrl;
+    link.download = filenameFromContentDisposition(response.headers.get('content-disposition'))
+        || fallbackFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(objectUrl);
+}
+
+export async function fetchProtectedBlob(url, options = {}) {
+    const response = await fetchWithAuthRetry(url, options);
+    if (!response.ok) {
+        const detail = await readError(response);
+        throw new Error(detail);
+    }
+
+    return response.blob();
+}
+
+function filenameFromContentDisposition(contentDisposition) {
+    if (!contentDisposition) return '';
+
+    const utfMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utfMatch?.[1]) {
+        return decodeURIComponent(utfMatch[1].replace(/"/g, ''));
+    }
+
+    const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+    return match?.[1] || '';
+}
+
+export async function request(path, options = {}) {
+    const response = await fetchApi(path, options);
+
+    if (!response.ok) {
+        const detail = await readError(response);
+        throw new Error(detail);
+    }
+
+    if (response.status === 204) {
+        return null;
+    }
+    return response.json();
+}
+
+async function fetchApi(path, options = {}) {
+    const url = `${API_BASE_URL}${path}`;
+    return fetchWithAuthRetry(url, options);
+}
+
+async function fetchWithAuthRetry(url, options = {}) {
+    let response = await fetchWithAuth(url, options);
+    if (
+        response.status === 401
+        && !options.skipAuth
+        && isCognitoLoginEnabled()
+        && currentRefreshToken()
+    ) {
+        try {
+            await refreshStoredCognitoSession();
+            response = await fetchWithAuth(url, options);
+        } catch (error) {
+            expireSession();
+            throw new Error(error?.message || 'Tu sesión expiró. Vuelve a iniciar sesión.');
+        }
+    }
+    return response;
+}
+
+async function fetchWithAuth(url, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    const isFormData = options.body instanceof FormData;
+
+    if (!isFormData) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    if (!options.skipAuth) {
+        const token = await authTokenForRequest();
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+    }
+
+    return fetch(url, {
+        method: options.method || 'GET',
+        headers,
+        body: isFormData ? options.body : options.body ? JSON.stringify(options.body) : undefined,
+        signal: options.signal,
+    });
+}
+
+async function readError(response) {
+    try {
+        const data = await response.json();
+        if (typeof data.detail === 'string') return data.detail;
+        if (data.detail?.message) return data.detail.message;
+        if (data.message) return data.message;
+        return JSON.stringify(data.detail || data);
+    } catch {
+        return `Error ${response.status}`;
+    }
+}
