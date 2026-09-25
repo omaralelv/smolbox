@@ -22,6 +22,8 @@ class Settings(BaseSettings):
         "text/csv",
     ]
     cfdi_receiver_rfc: str | None = None
+    invoice_ocr_receiver_name: str | None = "COMERCIAL IAC"
+    invoice_ocr_receiver_rfc: str | None = "CIA090819PW4"
     textract_enabled: bool = False
     textract_store_raw_response: bool = False
     aws_region: str = "us-east-1"

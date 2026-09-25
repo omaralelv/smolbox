@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -19,6 +20,7 @@ OCR_UNREADABLE_DOCUMENT_MESSAGE = (
     "El archivo cargado no tiene un formato compatible o no puede ser procesado.\n"
     "Por favor, carga nuevamente el archivo en formato PDF válido o sube el XML si se trata de una factura."
 )
+OCR_RECEIVER_MISMATCH_CODE = "OCR_RECEIVER_MISMATCH"
 
 
 class TextractOcrError(RuntimeError):
@@ -87,6 +89,48 @@ class TextractOcrService:
         return boto3.Session(**session_kwargs).client("textract")
 
 
+def validate_expected_invoice_receiver(
+    raw_text: str | None,
+    *,
+    expected_name: str | None,
+    expected_rfc: str | None,
+) -> list[str]:
+    missing_fields: list[str] = []
+    searchable_text = _compact_search_text(raw_text)
+
+    if expected_name and _compact_search_text(expected_name) not in searchable_text:
+        missing_fields.append("razon_social")
+
+    if expected_rfc and _compact_search_text(expected_rfc) not in searchable_text:
+        missing_fields.append("rfc")
+
+    return missing_fields
+
+
+def expected_invoice_receiver_message(
+    missing_fields: list[str],
+    *,
+    expected_name: str | None,
+    expected_rfc: str | None,
+) -> str:
+    missing_labels = {
+        "razon_social": "Razón Social",
+        "rfc": "RFC",
+    }
+    missing_text = ", ".join(missing_labels[field] for field in missing_fields)
+    expected_values = [
+        f"Razón Social: {expected_name}" if expected_name else "",
+        f"RFC: {expected_rfc}" if expected_rfc else "",
+    ]
+    return "\n".join(
+        [
+            "La factura PDF no corresponde al receptor esperado.",
+            f"El OCR no encontró: {missing_text}.",
+            f"Debe incluir {' y '.join(value for value in expected_values if value)}.",
+        ]
+    )
+
+
 def _parse_analyze_expense_response(
     response: dict[str, Any],
     *,
@@ -118,6 +162,17 @@ def _parse_analyze_expense_response(
         confidence=confidence,
         raw_response=response if store_raw_response else None,
     )
+
+
+def _compact_search_text(value: str | None) -> str:
+    if not value:
+        return ""
+    without_accents = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(character)
+    )
+    return re.sub(r"[^A-Z0-9]", "", without_accents.upper())
 
 
 def _summary_values_by_type(summary_fields: list[dict[str, Any]]) -> dict[str, list[str]]:

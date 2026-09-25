@@ -149,11 +149,22 @@ function Bandeja({currentRole}) {
         ? solicitudes
         : solicitudes.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
 
+
+
+    // Función auxiliar para parsear fechas "DD/MM/YYYY" o ISO "YYYY-MM-DD" a timestamp
+    const parseFecha = (fechaStr) => {
+        if (!fechaStr) return 0;
+        if (fechaStr.includes('/')) {
+            const [dia, mes, anio] = fechaStr.split('/');
+            return new Date(`${anio}-${mes}-${dia}`).getTime() || 0;
+        }
+        return new Date(fechaStr).getTime() || 0;
+    };
+    
     // Ordenamos situando las alertas (Devuelto/Resuelto) arriba
     const solicitudesFiltradas = [...baseFiltrada].sort((a, b) => {
         const alertaA = obtenerEstadoAlerta(a, currentRole);
         const alertaB = obtenerEstadoAlerta(b, currentRole);
-
 
         // Asignación de pesos para priorizar el renderizado
         // 1: Devueltas/Resueltas
@@ -161,17 +172,34 @@ function Bandeja({currentRole}) {
         // 3: Estado base (single)
         // 4: Tomadas por alguien más (taken_other)
         const getPeso = (alerta) => {
+            // Si el rol es tienda (o roles que ven todo libre), todos tienen el mismo peso (grupo único)
+            if (currentRole === 'tienda' || currentRole === 'direccion' || currentRole === 'admin') return 1;
+
             if (alerta.esDevuelto || alerta.esResuelto) return 1;
             if (alerta.queueStatus === 'taken') return 2;
             if (alerta.queueStatus === 'taken_other') return 4;
 
-            //if (alerta.esDevuelto || alerta.esResuelto || alerta.queueStatus === 'taken') return 1;
             return 3;
         };
         //const pesoA = (alertaA.esDevuelto || alertaA.esResuelto) ? 1 : 2;
         //const pesoB = (alertaB.esDevuelto || alertaB.esResuelto) ? 1 : 2;
 
-        return getPeso(alertaA) - getPeso(alertaB);
+        //return getPeso(alertaA) - getPeso(alertaB);
+
+
+        const pesoA = getPeso(alertaA);
+        const pesoB = getPeso(alertaB);
+
+        // 2. Si pertenecen a grupos/prioridades distintas, ordena por su peso
+        if (pesoA !== pesoB) {
+            return pesoA - pesoB;
+        }
+
+        // 3. Desempate CRONOLÓGICO dentro del mismo grupo (De más reciente a más antigua)
+        const fechaA = parseFecha(a.fecha || a.createdAt || a.fechaEnvio);
+        const fechaB = parseFecha(b.fecha || b.createdAt || b.fechaEnvio);
+
+        return fechaB - fechaA; // Orden descendente (B - A)
     });
 
   // Función para asignar colores exactos a cada Badge

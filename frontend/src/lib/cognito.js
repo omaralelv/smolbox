@@ -49,6 +49,23 @@ export async function completeCognitoNewPassword(email, newPassword, session) {
     return tokensFromAuthenticationResult(response.AuthenticationResult);
 }
 
+export async function refreshCognitoSession(refreshToken) {
+    ensureCognitoConfig();
+    if (!refreshToken) {
+        throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+    }
+
+    const response = await cognitoRequest('AWSCognitoIdentityProviderService.InitiateAuth', {
+        AuthFlow: 'REFRESH_TOKEN_AUTH',
+        ClientId: COGNITO_APP_CLIENT_ID,
+        AuthParameters: {
+            REFRESH_TOKEN: refreshToken,
+        },
+    });
+
+    return tokensFromAuthenticationResult(response.AuthenticationResult);
+}
+
 export async function forgotCognitoPassword(email) {
     ensureCognitoConfig();
     return cognitoRequest('AWSCognitoIdentityProviderService.ForgotPassword', {

@@ -81,7 +81,11 @@ def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_s
 
     def fake_extract_expense(self, content, *, content_type, filename):
         return TextractOcrResult(
-            raw_text="Folio Fiscal 11111111-2222-3333-4444-aaaaaaaaaaaa",
+            raw_text=(
+                "Razón Social: COMERCIAL IAC\n"
+                "RFC: CIA090819PW4\n"
+                "Folio Fiscal 11111111-2222-3333-4444-aaaaaaaaaaaa"
+            ),
             extracted_total=Decimal("100.00"),
             extracted_date=date(2026, 8, 7),
             extracted_supplier="Proveedor Demo",
@@ -105,6 +109,69 @@ def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_s
     assert body["verification_token"].startswith("v1.")
 
 
+def test_invoice_ocr_preview_rejects_wrong_receiver(client, monkeypatch, test_settings) -> None:
+    test_settings.textract_enabled = True
+
+    def fake_extract_expense(self, content, *, content_type, filename):
+        return TextractOcrResult(
+            raw_text=(
+                "Razón Social: OTRA EMPRESA\n"
+                "RFC: OTR010101AAA\n"
+                "Folio Fiscal 11111111-2222-3333-4444-aaaaaaaaaaaa"
+            ),
+            extracted_total=Decimal("100.00"),
+            extracted_date=date(2026, 8, 7),
+            extracted_supplier="Proveedor Demo",
+            suggested_cfdi_uuid="11111111-2222-3333-4444-AAAAAAAAAAAA",
+            confidence=Decimal("98.50"),
+            raw_response=None,
+        )
+
+    monkeypatch.setattr(TextractOcrService, "extract_expense", fake_extract_expense)
+
+    response = client.post(
+        "/api/v1/cfdi/ocr-preview",
+        files={"file": ("factura.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "OCR_RECEIVER_MISMATCH"
+    assert detail["missing_fields"] == ["razon_social", "rfc"]
+    assert "COMERCIAL IAC" in detail["message"]
+    assert "CIA090819PW4" in detail["message"]
+
+
+def test_non_invoice_ocr_preview_does_not_require_invoice_receiver(
+    client,
+    monkeypatch,
+    test_settings,
+) -> None:
+    test_settings.textract_enabled = True
+
+    def fake_extract_expense(self, content, *, content_type, filename):
+        return TextractOcrResult(
+            raw_text="Vale interno con total 100.00",
+            extracted_total=Decimal("100.00"),
+            extracted_date=date(2026, 8, 7),
+            extracted_supplier="Proveedor Demo",
+            suggested_cfdi_uuid=None,
+            confidence=Decimal("98.50"),
+            raw_response=None,
+        )
+
+    monkeypatch.setattr(TextractOcrService, "extract_expense", fake_extract_expense)
+
+    response = client.post(
+        "/api/v1/cfdi/ocr-preview",
+        data={"document_type": "vale"},
+        files={"file": ("vale.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["extracted_total"] == "100.00"
+
+
 @pytest.mark.parametrize("attachment_type", ["receipt", "other"])
 def test_attachment_upload_reuses_ocr_preview_token(
     attachment_type,
@@ -118,7 +185,11 @@ def test_attachment_upload_reuses_ocr_preview_token(
 
     def fake_extract_expense(self, content, *, content_type, filename):
         return TextractOcrResult(
-            raw_text="Folio Fiscal 11111111-2222-3333-4444-aaaaaaaaaaaa",
+            raw_text=(
+                "Razón Social: COMERCIAL IAC\n"
+                "RFC: CIA090819PW4\n"
+                "Folio Fiscal 11111111-2222-3333-4444-aaaaaaaaaaaa"
+            ),
             extracted_total=Decimal("100.00"),
             extracted_date=date(2026, 8, 7),
             extracted_supplier="Proveedor Demo",

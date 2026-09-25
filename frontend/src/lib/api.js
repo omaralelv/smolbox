@@ -4,6 +4,7 @@ import {
     confirmCognitoPassword,
     forgotCognitoPassword,
     isCognitoLoginEnabled,
+    refreshCognitoSession,
 } from './cognito';
 
 const API_BASE_URL = (
@@ -13,6 +14,11 @@ const API_BASE_URL = (
 ).replace(/\/$/, '');
 const TOKEN_KEY = 'smolboxApiToken';
 const ROLE_KEY = 'smolboxFrontendRole';
+const REFRESH_TOKEN_KEY = 'smolboxCognitoRefreshToken';
+const TOKEN_EXPIRES_AT_KEY = 'smolboxCognitoTokenExpiresAt';
+const TOKEN_REFRESH_SKEW_MS = 60_000;
+
+let refreshSessionPromise = null;
 
 const ACTION_TARGET_STATUS = {
     submit_request: 'submitted',
@@ -44,6 +50,94 @@ export function currentStoredRole() {
 export function clearSession() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROLE_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+}
+
+function currentRefreshToken() {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function storeLocalSession(token) {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+}
+
+function storeCognitoSession(session, fallbackRefreshToken = currentRefreshToken()) {
+    if (!session?.idToken) {
+        throw new Error('Cognito no devolvió una sesión válida.');
+    }
+
+    localStorage.setItem(TOKEN_KEY, session.idToken);
+
+    const refreshToken = session.refreshToken || fallbackRefreshToken;
+    if (refreshToken) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
+
+    if (session.expiresIn) {
+        localStorage.setItem(
+            TOKEN_EXPIRES_AT_KEY,
+            String(Date.now() + Number(session.expiresIn) * 1000)
+        );
+    } else {
+        localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+    }
+}
+
+function cognitoTokenExpiresSoon() {
+    const expiresAt = Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY));
+    if (!Number.isFinite(expiresAt) || expiresAt <= 0) return false;
+    return Date.now() + TOKEN_REFRESH_SKEW_MS >= expiresAt;
+}
+
+async function refreshStoredCognitoSession() {
+    if (!isCognitoLoginEnabled()) return currentToken();
+
+    const refreshToken = currentRefreshToken();
+    if (!refreshToken) {
+        expireSession();
+        throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+    }
+
+    if (!refreshSessionPromise) {
+        refreshSessionPromise = refreshCognitoSession(refreshToken)
+            .then((session) => {
+                storeCognitoSession(session, refreshToken);
+                return currentToken();
+            })
+            .catch(() => {
+                expireSession();
+                throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+            })
+            .finally(() => {
+                refreshSessionPromise = null;
+            });
+    }
+
+    return refreshSessionPromise;
+}
+
+async function authTokenForRequest({ forceRefresh = false } = {}) {
+    if (!isCognitoLoginEnabled()) return currentToken();
+
+    const token = currentToken();
+    if (!forceRefresh && token && !cognitoTokenExpiresSoon()) {
+        return token;
+    }
+
+    return refreshStoredCognitoSession();
+}
+
+function expireSession() {
+    clearSession();
+    if (
+        typeof window !== 'undefined'
+        && !['/login', '/recuperar-contrasena', '/confirmar-recuperacion'].includes(window.location.pathname)
+    ) {
+        window.location.assign('/login');
+    }
 }
 
 export async function login(email, password) {
@@ -56,7 +150,7 @@ export async function login(email, password) {
                 email: cognitoSession.email,
             };
         }
-        localStorage.setItem(TOKEN_KEY, cognitoSession.idToken);
+        storeCognitoSession(cognitoSession);
         const context = await getFrontendContext();
         localStorage.setItem(ROLE_KEY, context.currentRole);
         return { token: cognitoSession.idToken, context };
@@ -67,7 +161,7 @@ export async function login(email, password) {
         skipAuth: true,
         body: { email, password },
     });
-    localStorage.setItem(TOKEN_KEY, body.access_token);
+    storeLocalSession(body.access_token);
     const context = await getFrontendContext();
     localStorage.setItem(ROLE_KEY, context.currentRole);
     return { token: body.access_token, context };
@@ -75,7 +169,7 @@ export async function login(email, password) {
 
 export async function completeNewPasswordLogin(email, newPassword, session) {
     const cognitoSession = await completeCognitoNewPassword(email, newPassword, session);
-    localStorage.setItem(TOKEN_KEY, cognitoSession.idToken);
+    storeCognitoSession(cognitoSession);
     const context = await getFrontendContext();
     localStorage.setItem(ROLE_KEY, context.currentRole);
     return { token: cognitoSession.idToken, context };
@@ -296,9 +390,10 @@ export async function parseCfdi(file) {
     });
 }
 
-export async function previewInvoiceOcr(file) {
+export async function previewInvoiceOcr(file, documentType = 'factura') {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('document_type', documentType);
     return request('/cfdi/ocr-preview', {
         method: 'POST',
         body: formData,
@@ -430,40 +525,22 @@ export function apiFileUrl(path) {
 
 export async function openProtectedFile(path) {
     const url = apiFileUrl(path);
-    const token = currentToken();
-    if (!url || !token) {
+    if (!url) {
         throw new Error('No hay sesión activa para abrir el archivo.');
     }
 
-    const response = await fetch(url, {
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-    });
-
-    if (!response.ok) {
-        const detail = await readError(response);
-        throw new Error(detail);
-    }
-
-    const blob = await response.blob();
+    const blob = await fetchProtectedBlob(url);
     const objectUrl = URL.createObjectURL(blob);
     window.open(objectUrl, '_blank');
 }
 
 export async function downloadProtectedFile(path, fallbackFilename = 'archivo') {
     const url = apiFileUrl(path);
-    const token = currentToken();
-    if (!url || !token) {
+    if (!url) {
         throw new Error('No hay sesión activa para descargar el archivo.');
     }
 
-    const response = await fetch(url, {
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-    });
-
+    const response = await fetchWithAuthRetry(url);
     if (!response.ok) {
         const detail = await readError(response);
         throw new Error(detail);
@@ -483,6 +560,16 @@ export async function downloadProtectedFile(path, fallbackFilename = 'archivo') 
     URL.revokeObjectURL(objectUrl);
 }
 
+export async function fetchProtectedBlob(url, options = {}) {
+    const response = await fetchWithAuthRetry(url, options);
+    if (!response.ok) {
+        const detail = await readError(response);
+        throw new Error(detail);
+    }
+
+    return response.blob();
+}
+
 function filenameFromContentDisposition(contentDisposition) {
     if (!contentDisposition) return '';
 
@@ -496,25 +583,7 @@ function filenameFromContentDisposition(contentDisposition) {
 }
 
 export async function request(path, options = {}) {
-    const headers = {};
-    const isFormData = options.body instanceof FormData;
-
-    if (!isFormData) {
-        headers['Content-Type'] = 'application/json';
-    }
-
-    if (!options.skipAuth) {
-        const token = currentToken();
-        if (token) {
-            headers.Authorization = `Bearer ${token}`;
-        }
-    }
-
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-        method: options.method || 'GET',
-        headers,
-        body: isFormData ? options.body : options.body ? JSON.stringify(options.body) : undefined,
-    });
+    const response = await fetchApi(path, options);
 
     if (!response.ok) {
         const detail = await readError(response);
@@ -525,6 +594,53 @@ export async function request(path, options = {}) {
         return null;
     }
     return response.json();
+}
+
+async function fetchApi(path, options = {}) {
+    const url = `${API_BASE_URL}${path}`;
+    return fetchWithAuthRetry(url, options);
+}
+
+async function fetchWithAuthRetry(url, options = {}) {
+    let response = await fetchWithAuth(url, options);
+    if (
+        response.status === 401
+        && !options.skipAuth
+        && isCognitoLoginEnabled()
+        && currentRefreshToken()
+    ) {
+        try {
+            await refreshStoredCognitoSession();
+            response = await fetchWithAuth(url, options);
+        } catch (error) {
+            expireSession();
+            throw new Error(error?.message || 'Tu sesión expiró. Vuelve a iniciar sesión.');
+        }
+    }
+    return response;
+}
+
+async function fetchWithAuth(url, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    const isFormData = options.body instanceof FormData;
+
+    if (!isFormData) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    if (!options.skipAuth) {
+        const token = await authTokenForRequest();
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
+    }
+
+    return fetch(url, {
+        method: options.method || 'GET',
+        headers,
+        body: isFormData ? options.body : options.body ? JSON.stringify(options.body) : undefined,
+        signal: options.signal,
+    });
 }
 
 async function readError(response) {
