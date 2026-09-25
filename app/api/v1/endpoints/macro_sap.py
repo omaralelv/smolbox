@@ -352,8 +352,10 @@ def generar_polizas(
         poliza_detallada.append(registro)
         total_gran_factura += monto_total
 
-        if cuenta_gasto in diccionario_agrupador:
-            agrupado = diccionario_agrupador[cuenta_gasto]
+        clave_agrupacion = (cuenta_gasto, gasto_descripcion)
+
+        if clave_agrupacion in diccionario_agrupador:
+            agrupado = diccionario_agrupador[clave_agrupacion]
 
             agrupado["Total"] += monto_total
             agrupado["Subtotal"] += subtotal_factura
@@ -364,7 +366,7 @@ def generar_polizas(
             agrupado["UIDD"] = "Varios"
             agrupado["Cantidad_facturas"] = 1
 
-            diccionario_agrupador[cuenta_gasto] = agrupado
+            diccionario_agrupador[clave_agrupacion] = agrupado
 
     poliza_agrupada = list(diccionario_agrupador.values())
 

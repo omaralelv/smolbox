@@ -9,16 +9,7 @@ def cargar_tipo_gastos(ruta_archivo):
         df["CODIGO"] = df["CODIGO"].str.strip()
         df["TIPO_GASTO"] = df["TIPO_GASTO"].str.strip()
 
-        if df["CODIGO"].duplicated().any():
-            duplicados = df.loc[
-                df["CODIGO"].duplicated(keep=False), "CODIGO"
-            ].tolist()
-
-            raise ValueError(
-                f"Códigos contables duplicados en el catálogo: {duplicados}"
-            )
-
-        return df.set_index("CODIGO").to_dict("index")
+        return df.to_dict("records")
 
     except Exception as e:  # noqa: BLE001
         print(f"❌ Error gastos: {e}")
@@ -33,9 +24,9 @@ def crear_indice_categorias(diccionario_gastos):
     """
     Convierte:
 
-    {
-        "601001": {"TIPO_GASTO": "Papelería"}
-    }
+    [
+        {"CODIGO": "601001", "TIPO_GASTO": "Papelería"}
+    ]
 
     en:
 
@@ -48,13 +39,14 @@ def crear_indice_categorias(diccionario_gastos):
     """
     indice = {}
 
-    for codigo, datos in diccionario_gastos.items():
+    for datos in diccionario_gastos:
         descripcion = datos.get("TIPO_GASTO", "").strip()
 
         if not descripcion:
             continue
 
         clave = normalizar_texto(descripcion)
+        codigo = datos.get("CODIGO", "").strip()
 
         if clave in indice:
             raise ValueError(
