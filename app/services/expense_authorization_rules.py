@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.category_authorization_rule import CategoryAuthorizationRule
@@ -105,6 +105,12 @@ DEFAULT_CATEGORY_AUTHORIZATION_RULES = (
         "category": "Hospedaje",
         "requires_authorization": True,
         "area": "Supervisores",
+        "minimum_amount": None,
+    },
+    {
+        "category": "Insumo",
+        "requires_authorization": True,
+        "area": "Insumos",
         "minimum_amount": None,
     },
     {
@@ -251,13 +257,16 @@ def resolve_expense_authorization(
 
 
 def ensure_default_category_authorization_rules(db: Session) -> None:
-    existing_count = db.scalar(select(func.count()).select_from(CategoryAuthorizationRule)) or 0
-    if existing_count > 0:
-        return
+    existing_categories = set(
+        db.scalars(select(CategoryAuthorizationRule.normalized_category)).all()
+    )
 
     for rule_data in DEFAULT_CATEGORY_AUTHORIZATION_RULES:
         category = str(rule_data["category"])
         normalized_category = _normalize_text(category)
+        if normalized_category in existing_categories:
+            continue
+
         area_name = rule_data["area"]
         authorization_area_id = None
         if area_name:
@@ -275,6 +284,7 @@ def ensure_default_category_authorization_rules(db: Session) -> None:
                 source="built_in",
             )
         )
+        existing_categories.add(normalized_category)
     db.flush()
 
 

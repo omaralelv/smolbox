@@ -17,7 +17,7 @@ import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../components/shared/roles'
 const CATEGORIAS_GASTO = [
     "Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica",
     "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil",
-    "Hospedaje", "Impuesto Hospedaje", "Licencias y Permisos", "Medicamentos",
+    "Hospedaje", "Impuesto Hospedaje", "Insumo", "Licencias y Permisos", "Medicamentos",
     "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis",
     "Publicidad", "Recolección de Basura", "Servicio de Agua", "Trámites",
     "Trasportación", "Vigilancia", "Otros",

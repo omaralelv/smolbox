@@ -215,7 +215,7 @@ function AnadirGasto() {
 
     // Menú desplegable unificado para no perder coherencia
     const categoriasGasto = ["Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil", 
-        "Gasolina", "Hospedaje", "Licencias y Permisos", "Mantenimiento Equipo de Cómputo", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad", 
+        "Gasolina", "Hospedaje", "Insumo", "Licencias y Permisos", "Mantenimiento Equipo de Cómputo", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad",
         "Recolección de Basura", "Servicio de Agua", "Teléfono", "Trámites", "Trasportación", "Vigilancia", "Otros"];
 
     // Lista de áreas que autorizan
@@ -224,6 +224,10 @@ function AnadirGasto() {
 
     // Condición para saber si la categoría seleccionada requiere habilitar el select
     const esTransporte = categoria === 'Pasajes y Taxis' || categoria === 'Trasportación';
+    const esInsumo = categoria === 'Insumo';
+    const areaAutorizaResuelta = esTransporte ? areaAutoriza : (esInsumo ? 'Insumos' : null);
+    const requiereAutorizacion = esTransporte || esInsumo;
+    const muestraAreaAutoriza = esTransporte || esInsumo;
 
 
     // 2. LÓGICA DE SIMULACIÓN DE IA
@@ -435,8 +439,8 @@ function AnadirGasto() {
                 ? (facturaEsPdf ? normalizarUuidLocal(folio) : folio)
                 : 'N/A',
             fecha: fecha,
-            areaAutoriza: esTransporte ? areaAutoriza : null, // Guardamos la selección si aplica
-            requiresAuthorization: esTransporte,
+            areaAutoriza: areaAutorizaResuelta, // Guardamos la selección si aplica
+            requiresAuthorization: requiereAutorizacion,
 
             observaciones: observaciones,
             
@@ -484,6 +488,24 @@ function AnadirGasto() {
                 cfdiTaxAmount: numeroOculto(gastoBackend.cfdiTaxAmount ?? gastoBackend.cfdi_tax_amount),
                 cfdiTaxRate: numeroOculto(gastoBackend.cfdiTaxRate ?? gastoBackend.cfdi_tax_rate),
                 cfdiCurrency: gastoBackend.cfdiCurrency ?? gastoBackend.cfdi_currency ?? nuevoGastoItem.cfdiCurrency,
+                areaAutoriza: (
+                    gastoBackend.authorizationArea
+                    || gastoBackend.authorization_area_name
+                    || nuevoGastoItem.areaAutoriza
+                    || null
+                ),
+                authorizationArea: (
+                    gastoBackend.authorizationArea
+                    || gastoBackend.authorization_area_name
+                    || nuevoGastoItem.authorizationArea
+                    || nuevoGastoItem.areaAutoriza
+                    || null
+                ),
+                requiresAuthorization: Boolean(
+                    gastoBackend.requiresAuthorization
+                    ?? gastoBackend.requires_authorization
+                    ?? nuevoGastoItem.requiresAuthorization
+                ),
                 urlFactura: gastoBackend.urlFactura || null,
                 urlVale: gastoBackend.urlVale || null,
                 urlRecibo: gastoBackend.urlRecibo || null,
@@ -580,19 +602,19 @@ function AnadirGasto() {
                     <div style={styles.inputGroupArea}>
                         <label style={{
                             ...styles.label,
-                            opacity: esTransporte ? 1 : 0.4
+                            opacity: muestraAreaAutoriza ? 1 : 0.4
                         }}>
-                            Área que autoriza {esTransporte ? '*' : ''}
+                            Área que autoriza {esTransporte ? '*' : esInsumo ? '(automática)' : ''}
                         </label>
                         <select 
-                            value={areaAutoriza} 
+                            value={esInsumo ? 'Insumos' : areaAutoriza}
                             onChange={(e) => setAreaAutoriza(e.target.value)} 
                             disabled={!esTransporte}
                             style={{
                                 ...styles.select,
-                                opacity: esTransporte ? 1 : 0.4,
+                                opacity: muestraAreaAutoriza ? 1 : 0.4,
                                 cursor: esTransporte ? 'pointer' : 'not-allowed',
-                                backgroundColor: esTransporte ? 'var(--bg)' : '#f3f4f6'
+                                backgroundColor: muestraAreaAutoriza ? 'var(--bg)' : '#f3f4f6'
                             }}
                         >
                             <option value="">Seleccionar área...</option>
