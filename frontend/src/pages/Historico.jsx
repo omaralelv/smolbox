@@ -163,7 +163,7 @@ const styles = {
         margin: '0 auto',
         padding: '30px 20px',
         textAlign: 'left',
-        width: '100%'
+        width: '95%'
     },
     tableHeader: {
         display: 'flex',
