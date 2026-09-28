@@ -534,7 +534,7 @@ const styles = {
 
     container: {
         flex: 1,
-        maxWidth: '1130px',
+        maxWidth: '1230px',
         margin: '0 auto',
         padding: '20px',
         fontFamily: 'sans-serif',
@@ -552,7 +552,7 @@ const styles = {
     listContainer: {
         display: 'flex',
         flexDirection: 'column',
-        gap: '5px',
+        gap: '10px',
     },
     rowCard: {
         display: 'flex',
