@@ -7,6 +7,7 @@ import {
     currentStoredRole,
     login,
 } from '../lib/api';
+import { passwordPolicyHelpText, passwordPolicyMessage } from '../lib/passwordPolicy';
 
 import Grainient from './Grainient';
 
@@ -43,6 +44,11 @@ function Login() {
             if (cognitoChallenge) {
                 if (newPassword !== newPasswordConfirm) {
                     setError('Las contraseñas no coinciden.');
+                    return;
+                }
+                const passwordError = passwordPolicyMessage(newPassword);
+                if (passwordError) {
+                    setError(passwordError);
                     return;
                 }
                 const response = await completeNewPasswordLogin(
@@ -138,8 +144,11 @@ function Login() {
                                 value={newPassword}
                                 onChange={(event) => setNewPassword(event.target.value)}
                                 style={styles.input}
+                                minLength={8}
+                                autoComplete="new-password"
                                 required
                             />
+                            <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                         </div>
                         <div style={styles.inputGroup}>
                             <label style={styles.label}>Confirmar contraseña</label>
@@ -148,6 +157,8 @@ function Login() {
                                 value={newPasswordConfirm}
                                 onChange={(event) => setNewPasswordConfirm(event.target.value)}
                                 style={styles.input}
+                                minLength={8}
+                                autoComplete="new-password"
                                 required
                             />
                         </div>
@@ -285,6 +296,15 @@ const styles = {
         color: 'var(--text-denegada, #cc3030)',
         fontSize: '13px',
         textAlign: 'center',
+        whiteSpace: 'pre-line',
+    },
+    passwordHint: {
+        color: 'var(--text-muted, #5f5f5f)',
+        fontSize: '12px',
+        lineHeight: 1.4,
+        whiteSpace: 'pre-line',
+        textAlign: 'left',
+        paddingLeft: '10px',
     },
     info: {
         color: 'var(--text-muted, #5f5f5f)',

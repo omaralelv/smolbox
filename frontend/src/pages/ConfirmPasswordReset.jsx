@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import Grainient from './Grainient';
 import { apiErrorMessage, confirmPasswordReset, requestPasswordReset } from '../lib/api';
+import { passwordPolicyHelpText, passwordPolicyMessage } from '../lib/passwordPolicy';
 
 function ConfirmPasswordReset() {
     const navigate = useNavigate();
@@ -119,6 +120,11 @@ function ConfirmPasswordReset() {
             setError('Las contraseñas no coinciden.');
             return;
         }
+        const passwordError = passwordPolicyMessage(password);
+        if (passwordError) {
+            setError(passwordError);
+            return;
+        }
 
         setLoading(true);
         try {
@@ -217,6 +223,7 @@ function ConfirmPasswordReset() {
                             minLength={8}
                             required
                         />
+                        <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                     </label>
                     <label style={styles.inputGroup}>
                         <span style={styles.label}>Confirmar contraseña</span>
@@ -282,6 +289,7 @@ const styles = {
     label: { fontSize: '15px', fontWeight: 'bold', color: 'var(--text-WBtn)' },
     input: { border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: '#ffffff', color: 'var(--text-h)', padding: '10px', fontSize: '14px', textAlign: 'center'},
     error: { color: 'var(--text-denegada, #cc3030)', fontSize: '13px', textAlign: 'center', whiteSpace: 'pre-line' },
+    passwordHint: { color: 'var(--text-muted, #5f5f5f)', fontSize: '12px', lineHeight: 1.4, textAlign: 'left', whiteSpace: 'pre-line' },
     message: { color: 'var(--text-h)', fontSize: '13px', textAlign: 'center' },
     button: { backgroundColor: 'var(--sb-sendBtnBg)', color: 'var(--text-CBtn)', border: 'none', borderRadius: '10px', padding: '10px 25px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: 'var(--shadow)' },
     secondaryButton: { backgroundColor: 'transparent', color: 'var(--text-h)', border: '1px solid var(--border)', borderRadius: '10px', padding: '9px 25px', fontSize: '14px', cursor: 'pointer' },

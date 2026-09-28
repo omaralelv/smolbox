@@ -1,3 +1,5 @@
+import { passwordPolicyHelpText } from './passwordPolicy';
+
 const COGNITO_REGION = import.meta.env.VITE_COGNITO_REGION || 'us-east-1';
 const COGNITO_APP_CLIENT_ID = import.meta.env.VITE_COGNITO_APP_CLIENT_ID || '';
 
@@ -140,7 +142,7 @@ function cognitoErrorMessage(data) {
         return 'El usuario necesita restablecer su contraseña.';
     }
     if (type.includes('InvalidPasswordException')) {
-        return 'La contraseña no cumple la política de seguridad configurada.';
+        return passwordPolicyHelpText();
     }
     if (type.includes('CodeMismatchException')) {
         return 'El código no es válido. Verifica el correo o solicita uno nuevo.';

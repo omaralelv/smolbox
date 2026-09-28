@@ -15,6 +15,7 @@ import {
     listStoreUserAssignments,
     updateUser,
 } from '../../lib/api';
+import { passwordPolicyHelpText, passwordPolicyMessage } from '../../lib/passwordPolicy';
 
 const ROLE_OPTIONS = [
     { value: 'store', label: 'Tienda' },
@@ -392,6 +393,13 @@ function Usuarios() {
             setError('Selecciona el area que autoriza este supervisor.');
             return;
         }
+        if (form.password) {
+            const passwordError = passwordPolicyMessage(form.password);
+            if (passwordError) {
+                setError(passwordError);
+                return;
+            }
+        }
 
         setGuardando(true);
 
@@ -684,6 +692,7 @@ function Usuarios() {
                                 Déjala vacía para que Cognito envíe una invitación y solicite el cambio
                                 en el primer inicio de sesión.
                             </small>
+                            <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                         </label>
 
 
@@ -998,6 +1007,7 @@ const styles = {
         backgroundColor: '#ff383821',
         color: '#d31c00',
         fontSize: '14px',
+        whiteSpace: 'pre-line',
     },
     success: {
         marginBottom: '14px',
@@ -1066,6 +1076,13 @@ const styles = {
         color: '#323232',
         backgroundColor: '#fff',
         fontSize: '13px',
+    },
+    passwordHint: {
+        color: '#666',
+        fontSize: '12px',
+        fontWeight: '400',
+        lineHeight: 1.4,
+        whiteSpace: 'pre-line',
     },
     switchGroup: {
         display: 'flex',
