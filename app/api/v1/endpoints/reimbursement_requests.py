@@ -702,6 +702,7 @@ async def import_reimbursement_request_expenses(
             amount=row.amount,
             description=row.description,
             merchant=row.merchant,
+            store_code=reimbursement_request.store.code if reimbursement_request.store else None,
         )
         expenses.append(
             Expense(
