@@ -148,3 +148,31 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+
+/* Custom Scrollbar para Chrome, Edge y Safari */
+::-webkit-scrollbar {
+  width: 10px; /* Ancho de la barra de scroll */
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; /* Fondo transparente para que no desentone */
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sb-sendBtnBg); /* Color del indicador (puedes usar un tono de tu paleta) */
+  border-radius: 8px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ff8793; /* Color al pasar el cursor encima */
+}
+
+/* Soporte para Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-sendBtnBg) transparent;
+}

@@ -783,23 +783,22 @@ const styles = {
     mainLayout: {
         display: 'flex',
         width: '100%',
-        height: 'calc(100vh - 140px)', 
+        height: 'calc(100vh - 180px)', 
         padding: 0,
         overflow: 'hidden',
-        margin: 0,
+        margin: '0px',
     },
 
     container: {
         width: '100%',
-        height: '100%',
+        height: '91%',
         margin: '0 auto',
-        padding: '20px 20px 0 20px',
+        padding: '20px 20px 20px 20px',
         textAlign: 'left',
         flex: 1,
         minWidth: 0, // CRUCIAL: Permite que la tabla se reduzca sin salirse de la pantalla
         display: 'flex',
         flexDirection: 'column',
-        paddingBottom: '0px',
         overflowY: 'auto',
         position: 'relative',
     },
