@@ -845,6 +845,8 @@ const styles = {
         padding: '10px 10px',
         textAlign: 'left',
         fontFamily: 'var(--sans)',
+        width: '100%',
+        boxSizing: 'border-box'
     },
     headerRow: {
         display: 'flex',
