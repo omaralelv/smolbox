@@ -971,6 +971,16 @@ def _transition_request_with_actor(
             },
         )
 
+    if _should_sync_reported_total_before_submission(
+        reimbursement_request,
+        actor=actor,
+        target_status=target_status,
+    ):
+        reimbursement_request.reported_total = _active_request_expense_total(
+            reimbursement_request,
+        )
+        db.flush()
+
     summary = summarize_reimbursement_request(reimbursement_request)
     _ensure_authorization_transition_area_allowed(
         reimbursement_request,
@@ -1336,6 +1346,37 @@ def _ensure_request_editable(reimbursement_request: ReimbursementRequest) -> Non
                 "message": "Requests can only be edited while draft or in correction.",
             },
         )
+
+
+def _should_sync_reported_total_before_submission(
+    reimbursement_request: ReimbursementRequest,
+    *,
+    actor: User,
+    target_status: ReimbursementRequestStatus,
+) -> bool:
+    return (
+        target_status == ReimbursementRequestStatus.submitted
+        and reimbursement_request.status
+        in {
+            ReimbursementRequestStatus.draft,
+            ReimbursementRequestStatus.correction_required,
+        }
+        and actor.role in {UserRole.store, UserRole.admin}
+    )
+
+
+def _active_request_expense_total(
+    reimbursement_request: ReimbursementRequest,
+) -> Decimal:
+    return sum(
+        (
+            expense.amount
+            for expense in reimbursement_request.expenses
+            if expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
+            and expense.removed_at is None
+        ),
+        Decimal("0.00"),
+    ).quantize(Decimal("0.01"))
 
 
 def _active_request_currency(reimbursement_request: ReimbursementRequest) -> str:

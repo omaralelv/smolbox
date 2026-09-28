@@ -118,6 +118,40 @@ def test_store_submission_requires_cfdi_but_not_receipt(
     assert persisted_expense.json()["status"] == "submitted"
 
 
+def test_store_submission_recalculates_stale_reported_total(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00")
+    _attach_valid_cfdi(client, expense["id"], "1500.00")
+
+    stale_total = client.patch(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}",
+        json={"reported_total": "1.00"},
+    )
+    assert stale_total.status_code == 200, stale_total.text
+
+    summary_before = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/validation-summary"
+    )
+    assert summary_before.status_code == 200, summary_before.text
+    assert summary_before.json()["ready_for_submission"] is False
+    assert summary_before.json()["difference"] == "1499.00"
+
+    store_user_id = _create_user(client, "store")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        target_status="submitted",
+        actor_user_id=store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["status"] == "submitted"
+    assert submitted.json()["reported_total"] == "1500.00"
+
+
 def test_request_moves_through_submission_and_accounting_review(
     client: TestClient,
     base_records: dict[str, str],
