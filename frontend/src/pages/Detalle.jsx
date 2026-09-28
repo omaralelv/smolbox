@@ -23,6 +23,16 @@ const CATEGORIAS_GASTO = [
     "Trasportación", "Vigilancia", "Otros",
 ];
 
+const CATEGORIAS_IVA_CERO = new Set([
+    "no deducibles",
+    "no deducible",
+    "no dedusibles",
+    "no dedusible",
+    "sin deducibles",
+    "sin deducible",
+    "pasajes y taxis",
+]);
+
 const HISTORIAL_MOCK = [
     {
         id: 1,
@@ -310,9 +320,18 @@ function Detalle({ currentRole }) {
             return;
         }
 
+        const categoriaGasto = gasto.tipo || gasto.type || categoria || 'Gasto General';
         setGastoParaEditar(gasto);
-        setCategoriaEditada(gasto.tipo || gasto.type || categoria || 'Gasto General');
+        setCategoriaEditada(categoriaGasto);
         setImpuestoEditado(tasaImpuestoParaEdicion(gasto));
+    };
+
+    const handleCategoriaEditadaChange = (nuevaCategoria) => {
+        setCategoriaEditada(nuevaCategoria);
+        const tasaForzada = tasaImpuestoForzadaPorCategoria(nuevaCategoria);
+        if (tasaForzada !== null) {
+            setImpuestoEditado(tasaForzada);
+        }
     };
 
     const cancelarEdicion = () => {
@@ -420,6 +439,7 @@ function Detalle({ currentRole }) {
 
     // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
     const ocultarFolio = documentoActivo && observacionesAbiertas;
+    const impuestoForzadoEdicion = tasaImpuestoForzadaPorCategoria(categoriaEditada);
 
     
 
@@ -603,12 +623,12 @@ function Detalle({ currentRole }) {
                         <h3 style={styles.modalTitle}>Editar gasto</h3>
                         <div style={styles.modalField}>
                             <label style={styles.modalLabel}>Categoría</label>
-                            <select
-                                value={categoriaEditada}
-                                onChange={(event) => setCategoriaEditada(event.target.value)}
-                                style={styles.modalInput}
-                                disabled={guardandoEdicion}
-                            >
+	                            <select
+	                                value={categoriaEditada}
+	                                onChange={(event) => handleCategoriaEditadaChange(event.target.value)}
+	                                style={styles.modalInput}
+	                                disabled={guardandoEdicion}
+	                            >
                                 {CATEGORIAS_GASTO.map((cat) => (
                                     <option key={cat} value={cat}>{cat}</option>
                                 ))}
@@ -617,11 +637,11 @@ function Detalle({ currentRole }) {
                         <div style={styles.modalField}>
                             <label style={styles.modalLabel}>Impuesto</label>
                             <select
-                                value={impuestoEditado}
-                                onChange={(event) => setImpuestoEditado(event.target.value)}
-                                style={styles.modalInput}
-                                disabled={guardandoEdicion}
-                            >
+	                                value={impuestoEditado}
+	                                onChange={(event) => setImpuestoEditado(event.target.value)}
+	                                style={styles.modalInput}
+	                                disabled={guardandoEdicion || impuestoForzadoEdicion !== null}
+	                            >
                                 <option value="0">0%</option>
                                 <option value="8">8%</option>
                                 <option value="16">16%</option>
@@ -1073,6 +1093,11 @@ function calcularImpuesto(monto, impuesto) {
 }
 
 function tasaImpuestoParaEdicion(gasto) {
+    const tasaForzada = tasaImpuestoForzadaPorCategoria(
+        gasto?.tipo || gasto?.type || gasto?.category
+    );
+    if (tasaForzada !== null) return tasaForzada;
+
     const tasaDirecta = tasaImpuestoNormalizada(
         gasto?.cfdiTaxRate ?? gasto?.cfdi_tax_rate
     );
@@ -1082,6 +1107,19 @@ function tasaImpuestoParaEdicion(gasto) {
     if (tasaInferida !== null) return tasaInferida;
 
     return '16';
+}
+
+function tasaImpuestoForzadaPorCategoria(categoria) {
+    return CATEGORIAS_IVA_CERO.has(normalizarCategoriaImpuesto(categoria)) ? '0' : null;
+}
+
+function normalizarCategoriaImpuesto(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
 }
 
 function tasaImpuestoNormalizada(value) {

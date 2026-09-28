@@ -30,6 +30,26 @@ def normalizar_texto(valor):
     return " ".join(str(valor or "").strip().casefold().split())
 
 
+PASAJES_TAXIS_IVA_CERO = tuple(
+    normalizar_texto(valor)
+    for valor in (
+        "Pasajes y taxis",
+    )
+)
+
+NO_DEDUCIBLES_IVA_CERO = tuple(
+    normalizar_texto(valor)
+    for valor in (
+        "No Deducibles",
+        "No Deducible",
+        "No Dedusibles",
+        "No Dedusible",
+        "Sin Deducibles",
+        "Sin Deducible",
+    )
+)
+
+
 def crear_indice_categorias(diccionario_gastos):
     """
     Convierte:
@@ -106,11 +126,11 @@ def determinar_iva_e_indice(
         return Decimal("8"), "W6"
 
     # Pasajes y taxis siempre usa 0% y W2
-    if descripcion_normalizada == normalizar_texto("Pasajes y taxis"):
+    if descripcion_normalizada in PASAJES_TAXIS_IVA_CERO:
         return Decimal(0), "W2"
 
     # Forzar No Deducibles a 0%: W0
-    if descripcion_normalizada == normalizar_texto("No Deducibles"):
+    if descripcion_normalizada in NO_DEDUCIBLES_IVA_CERO:
         return Decimal(0), "W0"
 
     # Regla 4: Regla general

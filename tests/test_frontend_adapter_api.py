@@ -20,6 +20,16 @@ def test_frontend_initial_tax_rules_assign_zero_percent() -> None:
         requested_tax_rate=Decimal("16.00"),
     ) == Decimal("0.00")
     assert _frontend_tax_rate_for_expense(
+        category="No Deducible",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
+        category="No Dedusible",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
         category="Pasajes y Taxis",
         store_code="TIENDA-SIN-W6",
         requested_tax_rate=Decimal("16.00"),
