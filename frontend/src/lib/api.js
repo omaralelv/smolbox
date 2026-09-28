@@ -509,7 +509,7 @@ function friendlyErrorMessage(message) {
         return [
             'No se pudo leer el documento con OCR.',
             'El archivo cargado no tiene un formato compatible o no puede ser procesado.',
-            'Por favor, carga nuevamente el archivo en formato PDF válido o sube el XML si se trata de una factura.',
+            'Por favor, carga nuevamente el archivo en formato PDF válido.',
         ].join('\n');
     }
 

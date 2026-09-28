@@ -504,7 +504,7 @@ function translateMessage(message) {
     const messages = {
         'Accounting request opened by user.': 'Solicitud abierta por contabilidad.',
         'Automatic validation flow completed.': 'Validación automática completada.',
-        'CFDI XML parsed, validated and stored.': 'Factura XML leída, validada y guardada.',
+        'CFDI XML parsed, validated and stored.': 'Factura leída, validada y guardada.',
         'Expense updated.': 'Gasto actualizado.',
         'OCR extracted with AWS Textract.': 'OCR leído con Textract.',
         'OCR reused from validation preview.': 'OCR reutilizado desde la validación previa.',

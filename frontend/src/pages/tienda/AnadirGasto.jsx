@@ -169,7 +169,7 @@ function AnadirGasto() {
             setFacturaFile(null);
             setFolio('');
             setFolioValidado(false);
-            alert('La factura debe ser XML o PDF.');
+            alert('La factura debe ser un archivo válido.');
             return;
         }
 
@@ -192,7 +192,7 @@ function AnadirGasto() {
             if (!uuid) {
                 setFolio('');
                 setFolioValidado(false);
-                alert('El XML no trae folio fiscal.');
+                alert('La factura no trae folio fiscal.');
                 return;
             }
 
@@ -295,7 +295,7 @@ function AnadirGasto() {
                     ...loadDraftGastos(),
                     crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
                 ]);
-                setMensajeValidacion(mensajeConAdvertencias('XML validado. El gasto está listo para añadirse.', advertencias));
+                setMensajeValidacion(mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
             } else if (facturaEsPdf) {
                 const ocrParsed = await leerFacturaPdfConOcr(facturaFile, ocrFactura);
@@ -1249,7 +1249,7 @@ function mensajeCfdiBackendInvalido(gasto, resultado) {
         .map((issue) => issue.message);
 
     return [
-        `El CFDI XML del gasto "${gasto.nombre}" no es válido.`,
+        `La factura del gasto "${gasto.nombre}" no es válida.`,
         errores.length ? errores.join('\n') : 'Revisa que el total, moneda, UUID y RFC coincidan.',
     ].join('\n');
 }
@@ -1261,11 +1261,11 @@ function folioManualLocal(folio) {
 
 function validarCfdiXmlRequerido(file) {
     if (!file) {
-        return 'Debes cargar la factura XML o PDF antes de añadir el gasto.';
+        return 'Debes cargar la factura antes de añadir el gasto.';
     }
 
     if (!esXml(file) && !esPdf(file)) {
-        return 'La factura debe ser XML o PDF.';
+        return 'La factura debe ser un archivo válido.';
     }
 
     return null;
@@ -1330,45 +1330,45 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     const uuidCapturado = normalizarUuidLocal(folioCapturado);
 
     if (!parsed.uuid) {
-        errores.push('- El XML no trae UUID fiscal.');
+        errores.push('- La factura no trae UUID fiscal.');
     }
 
     if (uuidCapturado && uuidXml && uuidCapturado !== uuidXml) {
-        advertencias.push(`- El folio confirmado (${uuidCapturado}) no coincide con el folio fiscal del XML (${uuidXml}). Se guardará el folio de la factura XML.`);
+        advertencias.push(`- El folio confirmado (${uuidCapturado}) no coincide con el folio fiscal de la factura (${uuidXml}). Se guardará el folio de la factura.`);
     }
 
     if (totalCfdi === null || Number.isNaN(totalCfdi)) {
-        advertencias.push('- El XML no trae total fiscal. Se usará el monto capturado por el usuario.');
+        advertencias.push('- La factura no trae total fiscal. Se usará el monto capturado por el usuario.');
     } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
-        advertencias.push(`- El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}). Revisa el dato capturado; se guardará el monto que ingresó el usuario.`);
+        advertencias.push(`- El total de la factura (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}). Revisa el dato capturado; se guardará el monto que ingresó el usuario.`);
     }
 
     if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
-        errores.push(`- La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
+        errores.push(`- La moneda de la factura es ${parsed.currency}, pero el gasto se enviará como MXN.`);
     }
 
     if (!fechaGasto) {
         advertencias.push('- No se pudo revisar la fecha capturada. Revisa que esté en formato DD/MM/AAAA.');
     } else if (!fechaCfdi) {
-        advertencias.push('- El XML no trae fecha fiscal para comparar.');
+        advertencias.push('- La factura no trae fecha fiscal para comparar.');
     } else if (fechaCfdi !== fechaGasto) {
-        advertencias.push(`- La fecha del XML (${formatoFecha(fechaCfdi)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
+        advertencias.push(`- La fecha de la factura (${formatoFecha(fechaCfdi)}) no coincide con la fecha capturada (${formatoFecha(fechaGasto)}).`);
     }
 
     if (uuidXml) {
         if (uuidYaExisteEnSolicitud(uuidXml)) {
-            errores.push('- El UUID fiscal del XML ya está agregado en otro gasto de esta solicitud.');
+            errores.push('- El UUID fiscal de la factura ya está agregado en otro gasto de esta solicitud.');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(parsed.uuid);
             if (!disponibilidad.is_available) {
-                errores.push('- El UUID fiscal del XML ya está registrado en otro gasto.');
+                errores.push('- El UUID fiscal de la factura ya está registrado en otro gasto.');
             }
         }
     }
 
     if (errores.length) {
         throw new Error([
-            `- El CFDI XML del gasto no coincide con el gasto capturado:`,
+            `- La factura del gasto no coincide con el gasto capturado:`,
             ...errores,
         ].join('\n'));
     }

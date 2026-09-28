@@ -685,22 +685,22 @@ async function validarCfdisAntesDeCrearSolicitud(gastos) {
         const totalCfdi = parsed.total === null || parsed.total === undefined ? null : Number(parsed.total);
 
         if (!parsed.uuid) {
-            errores.push('El XML no trae UUID fiscal.');
+            errores.push('La factura no trae UUID fiscal.');
         }
 
         if (totalCfdi === null || Number.isNaN(totalCfdi)) {
-            errores.push('El XML no trae total fiscal.');
+            errores.push('La factura no trae total fiscal.');
         } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
-            errores.push(`El total del XML (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
+            errores.push(`El total de la factura (${formatoMonto(totalCfdi)}) no coincide con el monto del gasto (${formatoMonto(montoGasto)}).`);
         }
 
         if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
-            errores.push(`La moneda del XML es ${parsed.currency}, pero el gasto se enviará como MXN.`);
+            errores.push(`La moneda de la factura es ${parsed.currency}, pero el gasto se enviará como MXN.`);
         }
 
         if (errores.length) {
             throw new Error([
-                `El CFDI XML del gasto "${gasto.nombre}" no coincide con el gasto capturado:`,
+                `La factura del gasto "${gasto.nombre}" no coincide con el gasto capturado:`,
                 ...errores,
             ].join('\n'));
         }
@@ -753,7 +753,7 @@ function mensajeCfdiInvalido(gasto, resultado) {
         .map((issue) => issue.message);
 
     return [
-        `El CFDI XML del gasto "${gasto.nombre}" no es válido.`,
+        `La factura del gasto "${gasto.nombre}" no es válida.`,
         errores.length ? errores.join('\n') : 'Revisa que el total, moneda, UUID y RFC coincidan.',
     ].join('\n');
 }

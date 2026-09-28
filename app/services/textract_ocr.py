@@ -18,7 +18,7 @@ SUPPORTED_TEXTRACT_CONTENT_TYPES = {
 OCR_UNREADABLE_DOCUMENT_MESSAGE = (
     "No se pudo leer el documento con OCR.\n"
     "El archivo cargado no tiene un formato compatible o no puede ser procesado.\n"
-    "Por favor, carga nuevamente el archivo en formato PDF válido o sube el XML si se trata de una factura."
+    "Por favor, carga nuevamente el archivo en formato PDF válido."
 )
 OCR_RECEIVER_MISMATCH_CODE = "OCR_RECEIVER_MISMATCH"
 
