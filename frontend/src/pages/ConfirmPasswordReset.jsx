@@ -185,6 +185,7 @@ function ConfirmPasswordReset() {
                     <p style={styles.info}>
                         Escribe el código que recibiste en {email} y define una contraseña nueva.
                     </p>
+                            <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                     <label style={styles.inputGroup}>
                         <span style={styles.label}>Código de 6 dígitos</span>
                         
@@ -223,7 +224,6 @@ function ConfirmPasswordReset() {
                             minLength={8}
                             required
                         />
-                        <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                     </label>
                     <label style={styles.inputGroup}>
                         <span style={styles.label}>Confirmar contraseña</span>

@@ -1,9 +1,9 @@
 export const PASSWORD_RULES = [
-    'Mínimo 8 caracteres.',
-    'Al menos una letra mayúscula.',
-    'Al menos una letra minúscula.',
-    'Al menos un número.',
-    'Al menos un carácter especial.',
+    '- 8 caracteres.',
+    '- Una mayúscula.',
+    '- Una minúscula.',
+    '- Un número.',
+    '- Un carácter especial.',
 ];
 
 export const PASSWORD_RULES_TEXT = PASSWORD_RULES.join('\n');
@@ -32,5 +32,5 @@ export function passwordPolicyMessage(password) {
 }
 
 export function passwordPolicyHelpText() {
-    return `Reglas de contraseña:\n${PASSWORD_RULES_TEXT}`;
+    return `Tu contraseña debe contener al menos:\n${PASSWORD_RULES_TEXT}`;
 }

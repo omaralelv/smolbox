@@ -122,6 +122,7 @@ function Login() {
                 {cognitoChallenge && (
                     <div style={styles.info}>
                         Tu usuario requiere una nueva contraseña para continuar.
+                        <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                     </div>
                 )}
                 <div style={styles.inputGroup}>
@@ -148,7 +149,6 @@ function Login() {
                                 autoComplete="new-password"
                                 required
                             />
-                            <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
                         </div>
                         <div style={styles.inputGroup}>
                             <label style={styles.label}>Confirmar contraseña</label>

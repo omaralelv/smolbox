@@ -61,7 +61,7 @@ function RecoverPassword() {
             <div style={styles.container}>
                 <form style={styles.form} onSubmit={handleSubmit}>
                     <img src="/LogotipoNega.png" alt="Logo" style={styles.logo} />
-                    <Link to="/login" style={{...styles.link, textAlign: 'left'}}>🡨 Volver a Iniciar Sesión</Link>
+                    <Link to="/login" style={{...styles.link, textAlign: 'left'}}>🡨 Volver a Inicio de Sesión</Link>
                     <h2 style={styles.title}>Recuperar Contraseña</h2>
                     <p style={styles.info}>
                         Te enviaremos un código al correo asociado a tu cuenta.
