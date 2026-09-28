@@ -439,7 +439,6 @@ function Detalle({ currentRole }) {
 
     // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
     const ocultarFolio = documentoActivo && observacionesAbiertas;
-    const impuestoForzadoEdicion = tasaImpuestoForzadaPorCategoria(categoriaEditada);
 
     
 
@@ -640,7 +639,7 @@ function Detalle({ currentRole }) {
 	                                value={impuestoEditado}
 	                                onChange={(event) => setImpuestoEditado(event.target.value)}
 	                                style={styles.modalInput}
-	                                disabled={guardandoEdicion || impuestoForzadoEdicion !== null}
+	                                disabled={guardandoEdicion}
 	                            >
                                 <option value="0">0%</option>
                                 <option value="8">8%</option>
