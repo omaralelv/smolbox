@@ -6,10 +6,29 @@ from conftest import create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.api.v1.endpoints.frontend import _frontend_tax_rate_for_expense
 from app.models.expense import Expense
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
 )
+
+
+def test_frontend_initial_tax_rules_assign_zero_percent() -> None:
+    assert _frontend_tax_rate_for_expense(
+        category="No Deducibles",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
+        category="Pasajes y Taxis",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
+        category="Otros",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("0.00"),
+    ) == Decimal("0.00")
 
 
 def test_frontend_context_and_bandeja_use_ui_shape(

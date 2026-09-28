@@ -14,6 +14,7 @@ from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense, ExpenseStatus
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.store import Store
 from app.models.user import User, UserRole
 from app.schemas.expense import (
     AuthenticatedExpenseAuthorization,
@@ -35,6 +36,7 @@ from app.services.expense_authorization_rules import resolve_expense_authorizati
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
+from app.services.tax_rules import determinar_tasa_iva_para_gasto
 from app.services.workflow import transition_reimbursement_request
 
 router = APIRouter()
@@ -744,7 +746,7 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
             },
         )
 
-    _apply_tax_rate_update(expense, updates)
+    _apply_tax_rate_update(expense, updates, db)
 
     for field, value in updates.items():
         setattr(expense, field, value)
@@ -753,7 +755,7 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
         _clear_current_cfdi_validation(db, expense)
 
 
-def _apply_tax_rate_update(expense: Expense, updates: dict[str, object]) -> None:
+def _apply_tax_rate_update(expense: Expense, updates: dict[str, object], db: Session) -> None:
     if "cfdi_tax_rate" not in updates:
         return
 
@@ -764,7 +766,12 @@ def _apply_tax_rate_update(expense: Expense, updates: dict[str, object]) -> None
         return
 
     amount = Decimal(updates.get("amount", expense.amount)).quantize(Decimal("0.01"))
-    rate = Decimal(tax_rate).quantize(Decimal("0.01"))
+    category = str(updates.get("category") or expense.category or "")
+    rate = determinar_tasa_iva_para_gasto(
+        descripcion=category,
+        numero_tienda=_store_code_for_expense(expense, db),
+        porcentaje_iva=tax_rate,
+    )
     tax_amount = (
         amount
         / (Decimal(1) + rate / Decimal(100))
@@ -776,6 +783,17 @@ def _apply_tax_rate_update(expense: Expense, updates: dict[str, object]) -> None
     updates["cfdi_subtotal"] = (amount - tax_amount).quantize(Decimal("0.01"))
     updates["cfdi_total"] = amount
     updates["cfdi_currency"] = str(updates.get("currency", expense.currency)).upper()
+
+
+def _store_code_for_expense(expense: Expense, db: Session) -> str:
+    request = expense.reimbursement_request
+    if request is None and expense.reimbursement_request_id is not None:
+        request = db.get(ReimbursementRequest, expense.reimbursement_request_id)
+    if request is None:
+        return ""
+
+    store = request.store or db.get(Store, request.store_id)
+    return str(store.code) if store else ""
 
 
 def _clear_current_cfdi_validation(db: Session, expense: Expense) -> None:

@@ -288,3 +288,20 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert body["cfdi_tax_amount"] == "111.11"
     assert body["cfdi_subtotal"] == "1388.89"
     assert body["cfdi_total"] == "1500.00"
+
+    updated_zero_tax = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "category": "No Deducibles",
+            "cfdi_tax_rate": "16.00",
+            "note": "Ajuste contable a no deducible.",
+        },
+    )
+    assert updated_zero_tax.status_code == 200, updated_zero_tax.text
+    zero_tax_body = updated_zero_tax.json()
+    assert zero_tax_body["category"] == "No Deducibles"
+    assert zero_tax_body["cfdi_tax_rate"] == "0.00"
+    assert zero_tax_body["cfdi_tax_amount"] == "0.00"
+    assert zero_tax_body["cfdi_subtotal"] == "1500.00"
+    assert zero_tax_body["cfdi_total"] == "1500.00"

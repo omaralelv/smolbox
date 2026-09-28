@@ -1,7 +1,5 @@
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from functools import lru_cache
-from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -55,17 +53,12 @@ from app.services.reimbursement_periods import (
     obtener_contexto_periodo_reembolso,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
-from app.services.tax_rules import cargar_tiendas_iva_w6, determinar_iva_e_indice
+from app.services.tax_rules import determinar_tasa_iva_para_gasto
 from app.utils.folio_dates import (
     obtener_fecha_desde_folio,
 )
 
 router = APIRouter()
-ASSETS_DIR = Path(__file__).resolve().parents[3] / "assets"
-TIENDAS_IVA_W6_FILES = (
-    "tiendas_iva_w6.xlsx",
-    "TDAS IVA W6.xlsx",
-)
 MEXICO_CITY_TZ = ZoneInfo(
     "America/Mexico_City"
 )
@@ -1123,18 +1116,16 @@ def _frontend_tax_rate_for_expense(
     store_code: str,
     requested_tax_rate: Decimal | None,
 ) -> Decimal:
-    base_tax_rate = _rate_or_none(requested_tax_rate) or Decimal("16.00")
-    tax_rate, _tax_index = determinar_iva_e_indice(
+    return determinar_tasa_iva_para_gasto(
         descripcion=category,
         numero_tienda=store_code,
-        porcentaje_iva=base_tax_rate,
-        tiendas_iva_w6=_tiendas_iva_w6(),
+        porcentaje_iva=requested_tax_rate,
     )
-    return _rate_or_none(tax_rate) or Decimal("16.00")
 
 
 def _tax_amounts_from_rate(amount: Decimal, tax_rate: Decimal) -> tuple[Decimal, Decimal]:
-    rate = _rate_or_none(tax_rate) or Decimal("0.00")
+    normalized_rate = _rate_or_none(tax_rate)
+    rate = normalized_rate if normalized_rate is not None else Decimal("0.00")
     if rate == Decimal("0.00"):
         return Decimal("0.00"), amount
 
@@ -1149,15 +1140,6 @@ def _tax_amounts_from_rate(amount: Decimal, tax_rate: Decimal) -> tuple[Decimal,
 def _request_store_code(request: ReimbursementRequest, db: Session) -> str:
     store = request.store or db.get(Store, request.store_id)
     return _frontend_store_code(store) if store else ""
-
-
-@lru_cache(maxsize=1)
-def _tiendas_iva_w6() -> set[str]:
-    for filename in TIENDAS_IVA_W6_FILES:
-        path = ASSETS_DIR / filename
-        if path.exists():
-            return cargar_tiendas_iva_w6(str(path))
-    return set()
 
 
 def _add_frontend_observation_events(

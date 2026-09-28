@@ -1,5 +1,15 @@
-import pandas as pd
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
+
+import pandas as pd
+
+
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+TIENDAS_IVA_W6_FILES = (
+    "tiendas_iva_w6.xlsx",
+    "TDAS IVA W6.xlsx",
+)
 
 
 def cargar_tipo_gastos(ruta_archivo):
@@ -105,3 +115,42 @@ def determinar_iva_e_indice(
 
     # Regla 4: Regla general
     return porcentaje_iva, "W1"
+
+
+def determinar_tasa_iva_para_gasto(
+    *,
+    descripcion: str,
+    numero_tienda: str,
+    porcentaje_iva: Decimal | float | str | None,
+    tiendas_iva_w6: set[str] | None = None,
+) -> Decimal:
+    porcentaje_base = normalizar_porcentaje_iva(porcentaje_iva)
+    if porcentaje_base is None:
+        porcentaje_base = Decimal("16.00")
+
+    tasa_iva, _indice_iva = determinar_iva_e_indice(
+        descripcion=descripcion,
+        numero_tienda=numero_tienda,
+        porcentaje_iva=porcentaje_base,
+        tiendas_iva_w6=tiendas_iva_w6 if tiendas_iva_w6 is not None else tiendas_iva_w6_default(),
+    )
+    tasa_normalizada = normalizar_porcentaje_iva(tasa_iva)
+    return tasa_normalizada if tasa_normalizada is not None else Decimal("16.00")
+
+
+def normalizar_porcentaje_iva(value: Decimal | float | str | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@lru_cache(maxsize=1)
+def tiendas_iva_w6_default() -> set[str]:
+    for filename in TIENDAS_IVA_W6_FILES:
+        path = ASSETS_DIR / filename
+        if path.exists():
+            return cargar_tiendas_iva_w6(str(path))
+    return set()
