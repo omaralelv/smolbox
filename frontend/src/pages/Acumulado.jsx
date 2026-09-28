@@ -27,6 +27,18 @@ function Acumulado( {currentRole} ) {
     const reembolsoFileName = solicitudSeleccionada?.reembolsoFileName || solicitudSeleccionada?.reembolso_file_name || 'Reembolso.xlsx';
 
 
+    // ESTADOS PARA EL BLOQUEO DE BOTONES SEGUN EL FLUJO
+    // Rastrear si ya se descargó la póliza/reembolso
+    const [polizaGenerada, setPolizaGenerada] = useState(false);
+    // Comprobar si ya existe un reembolso previo en el backend o si fue cargado en la sesión
+    const reembolsoCargado = Boolean(solicitudActual?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolsoDownloadUrl);
+
+    const currentBackendStatus = solicitudActual?.backendStatus || solicitudSeleccionada?.backendStatus || '';
+
+    // Validar si la solicitud ya está aprobada por dirección para liberar el botón de confirmar pago
+    const puedeConfirmarPago = ['direction_approved', 'approved_for_payment'].includes(currentBackendStatus);
+
+
     // ESTADOS PARA EL MODAL DE DEVOLUCIÓN Y BANNER AMARILLO
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [returnReason, setReturnReason] = useState('');
@@ -263,6 +275,11 @@ function Acumulado( {currentRole} ) {
 
 
     function abrirCargaReembolso() {
+        if (!polizaGenerada) {
+            alert("Primero debes dar clic en 'Póliza y Reembolso' para generar y descargar el Reembolso correspondiente.");
+            return;
+        }
+
         if (!solicitudBackendId) {
             alert("No se encontró el UUID interno de la solicitud.");
             return;
@@ -385,6 +402,9 @@ function Acumulado( {currentRole} ) {
 
         window.URL.revokeObjectURL(urlDescarga);
 
+        // MARCAR COMO GENERADA
+        setPolizaGenerada(true);
+
     } catch (error) {
         console.error("Error descargando pólizas:", error);
 
@@ -409,27 +429,39 @@ function Acumulado( {currentRole} ) {
                 return null;
 
             case 'contabilidad':
+                // 1. Cargar Reembolso solo si ya se descargó la Póliza
+                const puedeCargarReembolso = polizaGenerada;
+
+                // 2. Enviar a Gerencia solo si ya se cargó el Excel de Reembolso
+                const puedeEnviarGerencia = reembolsoCargado;
+
                 return (
                     <>
                         <button
                             style={styles.btnOutline}
                             onClick={() => handleDescargarPoliza(solicitudBackendId)}>
-                        Póliza y Reembolso</button>
+                        Póliza y Reembolso
+                        </button>
+
                         <button
-                            style={subiendoReembolso ? styles.btnOutlineDisabled : styles.btnOutline}
-                            onClick={abrirCargaReembolso}
+                            style={puedeCargarReembolso ? styles.btnOutline : styles.btnOutlineDisabled}
+                            onClick={puedeCargarReembolso ? abrirCargaReembolso : undefined}
                             disabled={subiendoReembolso}
                         >
                             {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
                         </button>
+
                         <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
+
                         <button
-                            style={styles.btnFilledCoral}
+                            style={puedeEnviarGerencia ? styles.btnFilledCoral : styles.btnFilledCoralDisabled}
                             onClick={() => ejecutarAcciones(
                                 ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
                                 'Solicitud enviada a gerencia.'
                             )}
-                        >Enviar a Gerencia</button>
+                            disabled={!puedeEnviarGerencia}
+                        >
+                            Enviar a Gerencia</button>
                     </>
                 );
 
@@ -451,8 +483,12 @@ function Acumulado( {currentRole} ) {
                         >Enviar a Tesorería</button>
 
                         <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
+                            style={{
+                                ...(puedeConfirmarPago ? styles.btnGreen : styles.btnGreenDisabled),
+                                pointerEvents: puedeConfirmarPago ? 'auto' : 'none',
+                            }}
+                            onClick={puedeConfirmarPago ? () => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.') : undefined}
+                            disabled={!puedeConfirmarPago}
                         >
                             Confirmar pago
                         </button>
@@ -485,8 +521,14 @@ function Acumulado( {currentRole} ) {
                 );
 
             case 'admin':
-            default:
+            default: {
                 // Muestra todos los botones de la suite
+                // 1. Cargar Reembolso solo si ya se descargó la Póliza
+                const puedeCargarReembolso = polizaGenerada;
+
+                // 2. Enviar a Gerencia solo si ya se cargó el Excel de Reembolso
+                const puedeEnviarGerencia = reembolsoCargado;
+
                 return (
                         <>
                         <button
@@ -498,19 +540,20 @@ function Acumulado( {currentRole} ) {
                             onClick={() => handleDescargarPoliza(solicitudBackendId)}>
                         Póliza y Reembolso</button>
                         <button
-                            style={subiendoReembolso ? styles.btnOutlineDisabled : styles.btnOutline}
-                            onClick={abrirCargaReembolso}
-                            disabled={subiendoReembolso}
+                            style={puedeCargarReembolso ? styles.btnOutline : styles.btnOutlineDisabled}
+                            onClick={puedeCargarReembolso ? abrirCargaReembolso : undefined}
+                            disabled={!puedeCargarReembolso}
                         >
                             {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
                         </button>
                         <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
                         <button
-                            style={styles.btnFilledCoral}
+                            style={puedeEnviarGerencia ? styles.btnFilledCoral : styles.btnFilledCoralDisabled}
                             onClick={() => ejecutarAcciones(
                                 ['start_accounting_review', 'mark_accounting_reviewed', 'prepare_sap_policy', 'start_accounting_manager_review'],
                                 'Solicitud enviada a gerencia.'
                             )}
+                            disabled={!puedeEnviarGerencia}
                         >Enviar a Gerencia</button>
                         <button
                             style={styles.btnFilledCoral}
@@ -528,14 +571,19 @@ function Acumulado( {currentRole} ) {
                         </button>
 
                         <button 
-                            style={styles.btnGreen}
-                            onClick={() => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.')}
+                            style={{
+                                ...(puedeConfirmarPago ? styles.btnGreen : styles.btnGreenDisabled),
+                                pointerEvents: puedeConfirmarPago ? 'auto' : 'none',
+                            }}
+                            onClick={puedeConfirmarPago ? () => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.') : undefined}
+                            disabled={!puedeConfirmarPago}
                         >
                             Confirmar pago
                         </button>
 
                     </>
                 );
+            }
         }
     
 
@@ -547,8 +595,6 @@ function Acumulado( {currentRole} ) {
 
 
     // EVALUACIÓN DEL BANNER
-    const currentBackendStatus = solicitudActual?.backendStatus || solicitudSeleccionada?.backendStatus || '';
-
     // Recuperamos también el origen inicial
     //const devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || devueltoPor;
 
@@ -928,7 +974,7 @@ const styles = {
     },
     btnOutlineDisabled: {
         backgroundColor: '#f7f7f7',
-        border: '1px solid var(--sb-btnBorder)',
+        border: '1px solid #6f6f6f',
         color: '#999',
         borderRadius: '12px',
         padding: '10px 22px',
@@ -947,6 +993,18 @@ const styles = {
         boxShadow: 'var(--shadow)',
         cursor: 'pointer',
     },
+    btnFilledCoralDisabled: {
+        backgroundColor: '#f5a3a3', // Color coral desvanecido / opaco
+        border: 'none',
+        color: '#ffffff',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        cursor: 'not-allowed',
+        opacity: 0.6,
+    },
+
     btnBlue: {
         backgroundColor: 'var(--sb-aprobadaBg)',
         border: '1px solid var(--text-aprobada)',
@@ -968,6 +1026,17 @@ const styles = {
         fontWeight: 'bold',
         boxShadow: 'var(--shadow-green)',
         cursor: 'pointer',
+    }, 
+    btnGreenDisabled: {
+        backgroundColor: '#d9f4d0',
+        border: '1px solid #629557',
+        color: '#629557',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        cursor: 'not-allowed',
+        opacity: 0.6,
     },
 
 
