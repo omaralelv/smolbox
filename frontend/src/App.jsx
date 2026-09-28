@@ -22,16 +22,26 @@ function MainContent({ rolLogueado, setRolLogueado }) {
 
   return (
     <>
-      {/* Solo mostramos Header y TabsNav si NO estamos en Login */}
+      {/* 1. SECCIÓN FIJA SUPERIOR (HEADER Y TABS) */}
       {!esPantallaAuth && (
-        <>
+        <div style={{ flexShrink: 0, zIndex: 100 }}>
           <Header currentRole={rolLogueado} onRoleChange={setRolLogueado} />
           <TabsNav currentRole={rolLogueado} />
-        </>
+        </div>
       )}
 
       {/* Si estamos en autenticación eliminamos el padding para pantalla completa */}
-      <main style={{ padding: esPantallaAuth ? '0' : '20px' }}>
+      {/* 2. ÁREA DE CONTENIDO CON SCROLL INDEPENDIENTE */}
+      <main 
+        style={{ 
+          flex: 1, 
+          overflowY: 'auto', 
+          padding: esPantallaAuth ? '0' : '20px 30px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch'
+        }}
+      >
         <AppRouter currentRole={rolLogueado} />
       </main>
     </>

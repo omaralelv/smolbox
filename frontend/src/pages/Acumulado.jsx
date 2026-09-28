@@ -809,6 +809,7 @@ const styles = {
         padding: '20px',
         paddingBottom: '120px',
         textAlign: 'left',
+        width: '100%'
     },
     headerRow: {
         display: 'flex',
