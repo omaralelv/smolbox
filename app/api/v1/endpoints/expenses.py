@@ -120,6 +120,7 @@ def create_expense(
 ) -> Expense:
     expense_data = expense_in.model_dump()
     request_id = expense_data.get("reimbursement_request_id")
+    reimbursement_request = None
 
     if request_id is not None:
         reimbursement_request = db.get(ReimbursementRequest, request_id)
@@ -151,6 +152,7 @@ def create_expense(
         description=expense_data.get("description"),
         merchant=expense_data.get("merchant"),
         authorization_area_id=expense_data.get("authorization_area_id"),
+        store_code=_store_code_for_request(reimbursement_request, db),
     )
     expense_data["requires_authorization"] = authorization_decision.requires_authorization
     if (
@@ -789,6 +791,10 @@ def _store_code_for_expense(expense: Expense, db: Session) -> str:
     request = expense.reimbursement_request
     if request is None and expense.reimbursement_request_id is not None:
         request = db.get(ReimbursementRequest, expense.reimbursement_request_id)
+    return _store_code_for_request(request, db)
+
+
+def _store_code_for_request(request: ReimbursementRequest | None, db: Session) -> str:
     if request is None:
         return ""
 

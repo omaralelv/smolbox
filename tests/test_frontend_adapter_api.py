@@ -476,6 +476,92 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     assert accountant_items[0]["availableActions"] == []
 
 
+def test_frontend_fe006272_skips_authorization_and_routes_to_accounting(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
+    store = client.post(
+        "/api/v1/stores/",
+        json={"code": "FE006272", "name": "Tienda Sin Autorizacion"},
+    )
+    assert store.status_code == 201, store.text
+    period = client.post(
+        "/api/v1/periods/",
+        json={
+            "name": "Agosto FE006272",
+            "starts_on": "2026-08-01",
+            "ends_on": "2026-08-31",
+        },
+    )
+    assert period.status_code == 201, period.text
+
+    store_user_id = _create_user(client, "store", "frontend.noauth.store@example.com")
+    authorizer_user_id = _create_user(
+        client,
+        "authorizer",
+        "frontend.noauth.authorizer@example.com",
+    )
+    accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.noauth.accountant@example.com",
+    )
+    _assign_user_to_store(client, store.json()["id"], store_user_id, "store")
+    _assign_user_to_store(client, store.json()["id"], authorizer_user_id, "authorizer")
+    _assign_user_to_store(client, store.json()["id"], accountant_user_id, "accountant")
+    _create_opening_cutoff(session_factory, store.json()["id"])
+
+    store_headers = _auth_headers(client, "frontend.noauth.store@example.com")
+    created = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=store_headers,
+        json={
+            "tienda": "FE006272",
+            "montoTotal": "1500.00",
+            "gastos": [
+                {
+                    "fecha": "07/08/2026",
+                    "categoria": "Pasajes y Taxis",
+                    "monto": "1500.00",
+                    "observaciones": "Traslado operativo sin autorizacion",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    created_body = created.json()
+    created_expense = created_body["gastos"][0]
+    assert created_expense["requiresAuthorization"] is False
+    assert created_expense["autorizacion"] == ""
+
+    _attach_valid_cfdi(
+        client,
+        created_expense["backendId"],
+        "1500.00",
+        uuid="77777777-7777-4777-8777-777777777777",
+    )
+
+    submitted = _transition(
+        client,
+        created_body["backendId"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    authorizer_headers = _auth_headers(client, "frontend.noauth.authorizer@example.com")
+    authorizer_queue = client.get("/api/v1/frontend/bandeja/me", headers=authorizer_headers)
+    assert authorizer_queue.status_code == 200, authorizer_queue.text
+    assert authorizer_queue.json() == []
+
+    accountant_headers = _auth_headers(client, "frontend.noauth.accountant@example.com")
+    accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    accountant_items = accountant_queue.json()
+    assert [item["backendId"] for item in accountant_items] == [created_body["backendId"]]
+    assert accountant_items[0]["availableActions"] == ["start_accounting_review"]
+
+
 def test_frontend_accounting_actions_follow_sap_policy_order(
     client: TestClient,
     base_records: dict[str, str],

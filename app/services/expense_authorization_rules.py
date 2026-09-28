@@ -40,6 +40,10 @@ TAXI_CATEGORY_ALIASES = (
     "TAXI",
 )
 
+AUTHORIZATION_EXEMPT_STORE_CODES = (
+    "FE006272",
+)
+
 DEFAULT_CATEGORY_AUTHORIZATION_RULES = (
     {
         "category": "Agua",
@@ -236,7 +240,11 @@ def resolve_expense_authorization(
     description: str | None = None,
     merchant: str | None = None,
     authorization_area_id: UUID | None = None,
+    store_code: str | None = None,
 ) -> ExpenseAuthorizationDecision:
+    if store_skips_authorization(store_code):
+        return ExpenseAuthorizationDecision(requires_authorization=False)
+
     category_decision = _resolve_category_authorization(db, category=category, amount=amount)
     legacy_authorization = expense_requires_authorization(
         explicit=explicit,
@@ -254,6 +262,12 @@ def resolve_expense_authorization(
         authorization_area_id=resolved_area_id,
         matched_rule=category_decision.matched_rule,
     )
+
+
+def store_skips_authorization(store_code: str | None) -> bool:
+    if not store_code:
+        return False
+    return _normalize_text(store_code) in _NORMALIZED_AUTHORIZATION_EXEMPT_STORE_CODES
 
 
 def ensure_default_category_authorization_rules(db: Session) -> None:
@@ -378,3 +392,6 @@ def _normalize_text(value: str) -> str:
 
 _NORMALIZED_TAXI_TYPES = tuple(_normalize_text(item) for item in TAXI_AUTHORIZATION_TYPES)
 _NORMALIZED_CATEGORY_ALIASES = tuple(_normalize_text(item) for item in TAXI_CATEGORY_ALIASES)
+_NORMALIZED_AUTHORIZATION_EXEMPT_STORE_CODES = tuple(
+    _normalize_text(item) for item in AUTHORIZATION_EXEMPT_STORE_CODES
+)

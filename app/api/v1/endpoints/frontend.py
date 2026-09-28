@@ -1088,6 +1088,7 @@ def _expense_from_frontend(
         description=expense_in.observaciones,
         merchant=merchant,
         authorization_area_id=authorization_area.id if authorization_area else None,
+        store_code=store_code,
     )
 
     return Expense(

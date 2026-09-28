@@ -515,7 +515,7 @@ function AnadirGasto() {
 
             saveDraftRequest(solicitud);
             addDraftGasto(gastoGuardado);
-            alert(mensajeConAdvertencias("¡Gasto guardado exitosamente en la solicitud!", advertencias));
+            alert("¡Gasto guardado exitosamente en la solicitud!");
             navigate('/solicitud/nueva');
         } catch (error) {
             const mensaje = apiErrorMessage(error);
