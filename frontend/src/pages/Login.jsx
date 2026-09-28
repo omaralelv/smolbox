@@ -134,7 +134,7 @@ function Login() {
                         <div style={styles.inputGroup}>
                             <label style={styles.label}>Nueva contraseña</label>
                             <input
-                                type="password"
+                                type={showPassword ? 'text' : 'password'}
                                 value={newPassword}
                                 onChange={(event) => setNewPassword(event.target.value)}
                                 style={styles.input}
@@ -144,7 +144,7 @@ function Login() {
                         <div style={styles.inputGroup}>
                             <label style={styles.label}>Confirmar contraseña</label>
                             <input
-                                type="password"
+                                type={showPassword ? 'text' : 'password'}
                                 value={newPasswordConfirm}
                                 onChange={(event) => setNewPasswordConfirm(event.target.value)}
                                 style={styles.input}
