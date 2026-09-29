@@ -225,7 +225,7 @@ function AnadirGasto() {
     // Menú desplegable unificado para no perder coherencia
     const categoriasGasto = ["Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil", 
         "Gasolina", "Hospedaje", "Insumos", "Licencias y Permisos", "Mantenimiento Equipo de Cómputo", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad",
-        "Recolección de Basura", "Servicio de Agua", "Teléfono", "Trámites", "Trasportación", "Vigilancia", "Otros"];
+        "Recolección de Basura", "Servicio de Agua", "Teléfono", "Trasportación", "Otros"];
 
     // Lista de áreas que autorizan
     const areasAutorizan = ["Auditoría Interna", "Contabilidad", "Gestoría", "Insumos", "Mantenimiento",  "Operaciones", "Pago de Luz", "Recursos Humanos", "Servicio de Agua", "Sistemas", "Supervisores", "Tráfico"];
