@@ -462,6 +462,7 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     created_body = created.json()
     created_expense = created_body["gastos"][0]
     assert created_expense["requiresAuthorization"] is True
+    assert created_expense["authorizationArea"] == "Supervisores"
     assert created_expense["autorizacion"] == ""
 
     _attach_valid_cfdi(

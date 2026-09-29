@@ -40,6 +40,8 @@ TAXI_CATEGORY_ALIASES = (
     "TAXI",
 )
 
+LEGACY_AUTHORIZATION_AREA_NAME = "Supervisores"
+
 AUTHORIZATION_EXEMPT_STORE_CODES = (
     "FE006272",
 )
@@ -118,6 +120,12 @@ DEFAULT_CATEGORY_AUTHORIZATION_RULES = (
         "minimum_amount": None,
     },
     {
+        "category": "Insumos",
+        "requires_authorization": True,
+        "area": "Insumos",
+        "minimum_amount": None,
+    },
+    {
         "category": "Licencias y Permisos",
         "requires_authorization": True,
         "area": "Gestoría",
@@ -140,6 +148,12 @@ DEFAULT_CATEGORY_AUTHORIZATION_RULES = (
         "requires_authorization": True,
         "area": "Insumos",
         "minimum_amount": Decimal("600.00"),
+    },
+    {
+        "category": "Pasajes y Taxis",
+        "requires_authorization": True,
+        "area": "Supervisores",
+        "minimum_amount": None,
     },
     {
         "category": "Paquetería y Mensajería",
@@ -256,6 +270,11 @@ def resolve_expense_authorization(
     resolved_area_id = authorization_area_id
     if resolved_area_id is None and category_decision.authorization_area_id is not None:
         resolved_area_id = category_decision.authorization_area_id
+    if resolved_area_id is None and legacy_authorization:
+        resolved_area_id = get_or_create_authorization_area(
+            db,
+            LEGACY_AUTHORIZATION_AREA_NAME,
+        ).id
 
     return ExpenseAuthorizationDecision(
         requires_authorization=requires_authorization,

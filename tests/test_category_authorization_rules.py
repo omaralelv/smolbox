@@ -67,6 +67,50 @@ def test_insumo_always_routes_to_insumos(
     assert body["authorization_area_name"] == "Insumos"
 
 
+def test_insumos_plural_always_routes_to_insumos(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    response = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Insumos Demo",
+            "amount": "1.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "Insumos",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["requires_authorization"] is True
+    assert body["authorization_area_name"] == "Insumos"
+
+
+def test_pasajes_y_taxis_routes_to_supervisores(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    response = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Taxi Demo",
+            "amount": "150.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "Pasajes y Taxis",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["requires_authorization"] is True
+    assert body["authorization_area_name"] == "Supervisores"
+
+
 def test_agua_never_requires_category_authorization(
     client: TestClient,
     base_records: dict[str, str],
