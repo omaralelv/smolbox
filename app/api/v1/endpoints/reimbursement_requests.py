@@ -982,6 +982,14 @@ def _transition_request_with_actor(
         db.flush()
 
     summary = summarize_reimbursement_request(reimbursement_request)
+    if _is_duplicate_rejected_transition(
+        reimbursement_request,
+        actor=actor,
+        target_status=target_status,
+        summary=summary,
+    ):
+        return reimbursement_request
+
     _ensure_authorization_transition_area_allowed(
         reimbursement_request,
         actor=actor,
@@ -1033,6 +1041,29 @@ def _transition_request_with_actor(
     db.commit()
     db.refresh(reimbursement_request)
     return reimbursement_request
+
+
+def _is_duplicate_rejected_transition(
+    reimbursement_request: ReimbursementRequest,
+    *,
+    actor: User,
+    target_status: ReimbursementRequestStatus,
+    summary: ReimbursementValidationSummary,
+) -> bool:
+    return (
+        reimbursement_request.status == ReimbursementRequestStatus.rejected
+        and target_status == ReimbursementRequestStatus.rejected
+        and summary.expense_count == 0
+        and actor.role
+        in {
+            UserRole.authorizer,
+            UserRole.accountant,
+            UserRole.accounting_manager,
+            UserRole.treasury,
+            UserRole.director,
+            UserRole.admin,
+        }
+    )
 
 
 def _ensure_authorization_transition_area_allowed(

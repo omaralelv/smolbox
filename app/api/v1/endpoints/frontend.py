@@ -795,6 +795,7 @@ def delete_frontend_draft_expense(
     db.delete(expense)
 
     db.commit()
+    db.expire_all()
     request = _get_request_by_id(request.id, db)
     return _request_payload(request, current_user, db)
 
@@ -1257,6 +1258,14 @@ def _ensure_request_visible(
                 "message": "Actor must be assigned to the request store",
             },
         )
+    if not _request_is_visible_for_role(request, current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "REQUEST_NOT_VISIBLE_FOR_ROLE",
+                "message": "This request is not available for the current role",
+            },
+        )
 
 
 def _mark_accounting_request_taken_if_needed(
@@ -1394,6 +1403,9 @@ def _request_is_visible_for_role(
 
     if request.status != ReimbursementRequestStatus.submitted:
         return True
+
+    if current_user.role == UserRole.accountant:
+        return not has_pending_authorization
 
     return True
 

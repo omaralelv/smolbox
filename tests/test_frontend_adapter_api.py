@@ -400,7 +400,8 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
     )
     assert created.status_code == 201, created.text
     created_body = created.json()
-    deleted_expense_id = created_body["gastos"][0]["backendId"]
+    deleted_expense = next(gasto for gasto in created_body["gastos"] if gasto["monto"] == 100.0)
+    deleted_expense_id = deleted_expense["backendId"]
 
     deleted = client.delete(
         (
@@ -486,9 +487,13 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     accountant_headers = _auth_headers(client, "frontend.taxi.accountant@example.com")
     accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
     assert accountant_queue.status_code == 200, accountant_queue.text
-    accountant_items = accountant_queue.json()
-    assert [item["backendId"] for item in accountant_items] == [created_body["backendId"]]
-    assert accountant_items[0]["availableActions"] == []
+    assert accountant_queue.json() == []
+
+    accountant_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{created_body['backendId']}/me",
+        headers=accountant_headers,
+    )
+    assert accountant_detail.status_code == 403, accountant_detail.text
 
 
 def test_frontend_fe006272_skips_authorization_and_routes_to_accounting(

@@ -1049,8 +1049,7 @@ def test_work_queue_routes_authorization_required_submitted_requests_to_authoriz
         headers=_auth_headers(client, "accountant@example.com"),
     )
     assert accountant_queue.status_code == 200, accountant_queue.text
-    assert [item["id"] for item in accountant_queue.json()] == [base_records["request_id"]]
-    assert accountant_queue.json()[0]["available_actions"] == []
+    assert accountant_queue.json() == []
 
 
 def test_later_review_returns_correction_to_accounting(
