@@ -37,8 +37,8 @@ router = APIRouter()
 def _resaltar_uidd_necesario(ws_sap, fila: int, uidd: str) -> None:
     if uidd == "DATO NECESARIO":
         ws_sap.cell(row=fila, column=8).fill = PatternFill(
-            start_color="FFFF00",
-            end_color="FFFF00",
+            start_color="FFFADD",
+            end_color="FFFADD",
             fill_type="solid",
         )
 
@@ -415,7 +415,7 @@ def generar_polizas(
     ws_sap['D1'] = f'{fecha_poliza_sap}' # Si el identificador es K, no se escribe nada
     ws_sap['E1'] = 'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
     ws_sap['F1'] = f'{numero_tienda} CAJA CHICA' 
-    ws_sap['G1'] = f'{numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' 
+    ws_sap['G1'] = f'{numero_tienda} {str_inicio_caja} AL {str_ultimo_gasto} {gerente}' 
     ws_sap['H1'] = ' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja}
 
     for mov in poliza_detallada:
@@ -425,7 +425,7 @@ def generar_polizas(
         col_d = '' if es_k else mov['Indice_IVA']
         col_e = '' if es_k else numero_tienda
 
-        col_h = f'{numero_tienda} {str_inicio_caja} AL {str_fin_caja} {gerente}' if es_k else mov['UIDD']
+        col_h = f'{numero_tienda} {str_inicio_caja} AL {str_ultimo_gasto} {gerente}' if es_k else mov['UIDD']
         ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, "", f'{numero_tienda} CAJA CHICA', col_h])
         _resaltar_uidd_necesario(ws_sap, ws_sap.max_row, col_h)
 

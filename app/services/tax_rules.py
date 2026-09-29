@@ -37,6 +37,13 @@ PASAJES_TAXIS_IVA_CERO = tuple(
     )
 )
 
+AGUA_IVA_CERO = tuple(
+    normalizar_texto(valor)
+    for valor in (
+        "Agua",
+    )
+)
+
 NO_DEDUCIBLES_IVA_CERO = tuple(
     normalizar_texto(valor)
     for valor in (
@@ -128,6 +135,10 @@ def determinar_iva_e_indice(
     # Pasajes y taxis siempre usa 0% y W2
     if descripcion_normalizada in PASAJES_TAXIS_IVA_CERO:
         return Decimal(0), "W2"
+
+    # Agua siempre usa 0% y W0
+    if descripcion_normalizada in AGUA_IVA_CERO:
+        return Decimal(0), "W0"
 
     # Forzar No Deducibles a 0%: W0
     if descripcion_normalizada in NO_DEDUCIBLES_IVA_CERO:
