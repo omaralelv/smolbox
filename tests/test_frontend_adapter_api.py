@@ -15,6 +15,16 @@ from app.models.store_reimbursement_opening_cutoff import (
 
 def test_frontend_initial_tax_rules_assign_zero_percent() -> None:
     assert _frontend_tax_rate_for_expense(
+        category="Agua",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
+        category="Servicio de Agua",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
         category="No Deducibles",
         store_code="TIENDA-SIN-W6",
         requested_tax_rate=Decimal("16.00"),

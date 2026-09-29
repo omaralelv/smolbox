@@ -1,7 +1,13 @@
+from decimal import Decimal
+
 import pytest
 from openpyxl import Workbook
 
-from app.services.tax_rules import cargar_tipo_gastos, crear_indice_categorias
+from app.services.tax_rules import (
+    cargar_tipo_gastos,
+    crear_indice_categorias,
+    determinar_iva_e_indice,
+)
 
 
 def test_catalogo_permite_mismo_codigo_para_categorias_distintas(tmp_path) -> None:
@@ -34,3 +40,18 @@ def test_indice_rechaza_descripciones_duplicadas_sin_importar_mayusculas() -> No
 
     with pytest.raises(ValueError, match="TIPO_GASTO duplicado"):
         crear_indice_categorias(gastos)
+
+
+def test_agua_usa_iva_cero_incluso_en_tienda_w6() -> None:
+    assert determinar_iva_e_indice(
+        descripcion="Agua",
+        numero_tienda="T001",
+        porcentaje_iva=Decimal("16.00"),
+        tiendas_iva_w6={"t001"},
+    ) == (Decimal("0"), "W0")
+    assert determinar_iva_e_indice(
+        descripcion="Servicio de Agua",
+        numero_tienda="T001",
+        porcentaje_iva=Decimal("16.00"),
+        tiendas_iva_w6={"t001"},
+    ) == (Decimal("0"), "W0")
