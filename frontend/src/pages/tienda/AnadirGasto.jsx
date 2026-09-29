@@ -184,7 +184,7 @@ function AnadirGasto() {
 
         if (esPdf(file)) {
             const folioOcr = ocrDelMismoArchivo ? normalizarUuidFiscalValido(ocrFactura.suggested_cfdi_uuid) : null;
-            setFolio(folioOcr || 'OCR pendiente');
+            setFolio(folioOcr || '');
             setFolioValidado(Boolean(folioOcr && folioValidado && normalizarUuidFiscalValido(folio) === folioOcr));
             setMensajeValidacion(
                 folioOcr
