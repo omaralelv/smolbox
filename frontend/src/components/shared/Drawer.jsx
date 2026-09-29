@@ -503,6 +503,7 @@ const styles = {
         overflow: 'auto',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
+        textAlign: 'left',
         backgroundColor: '#111827',
         color: '#e5e7eb',
         fontSize: '11px',
