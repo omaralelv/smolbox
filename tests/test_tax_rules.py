@@ -42,9 +42,15 @@ def test_indice_rechaza_descripciones_duplicadas_sin_importar_mayusculas() -> No
         crear_indice_categorias(gastos)
 
 
-def test_agua_usa_iva_cero_incluso_en_tienda_w6() -> None:
+def test_agua_usa_iva_cero_pero_servicio_de_agua_sigue_regla_normal() -> None:
     assert determinar_iva_e_indice(
         descripcion="Agua",
+        numero_tienda="T001",
+        porcentaje_iva=Decimal("16.00"),
+        tiendas_iva_w6={"t001"},
+    ) == (Decimal("0"), "W0")
+    assert determinar_iva_e_indice(
+        descripcion="Hospedaje",
         numero_tienda="T001",
         porcentaje_iva=Decimal("16.00"),
         tiendas_iva_w6={"t001"},
@@ -54,4 +60,10 @@ def test_agua_usa_iva_cero_incluso_en_tienda_w6() -> None:
         numero_tienda="T001",
         porcentaje_iva=Decimal("16.00"),
         tiendas_iva_w6={"t001"},
-    ) == (Decimal("0"), "W0")
+    ) == (Decimal("8"), "W6")
+    assert determinar_iva_e_indice(
+        descripcion="Servicio de Agua",
+        numero_tienda="T002",
+        porcentaje_iva=Decimal("16.00"),
+        tiendas_iva_w6={"t001"},
+    ) == (Decimal("16.00"), "W1")

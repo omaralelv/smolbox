@@ -20,10 +20,15 @@ def test_frontend_initial_tax_rules_assign_zero_percent() -> None:
         requested_tax_rate=Decimal("16.00"),
     ) == Decimal("0.00")
     assert _frontend_tax_rate_for_expense(
-        category="Servicio de Agua",
+        category="Hospedaje",
         store_code="TIENDA-SIN-W6",
         requested_tax_rate=Decimal("16.00"),
     ) == Decimal("0.00")
+    assert _frontend_tax_rate_for_expense(
+        category="Servicio de Agua",
+        store_code="TIENDA-SIN-W6",
+        requested_tax_rate=Decimal("16.00"),
+    ) == Decimal("16.00")
     assert _frontend_tax_rate_for_expense(
         category="No Deducibles",
         store_code="TIENDA-SIN-W6",
