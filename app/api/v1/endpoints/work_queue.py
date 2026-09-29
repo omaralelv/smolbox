@@ -159,6 +159,9 @@ def _request_is_visible_for_role(
     if request.status != ReimbursementRequestStatus.submitted:
         return True
 
+    if current_user.role == UserRole.accountant:
+        return not has_pending_authorization
+
     return True
 
 

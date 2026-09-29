@@ -795,6 +795,7 @@ def delete_frontend_draft_expense(
     db.delete(expense)
 
     db.commit()
+    db.expire_all()
     request = _get_request_by_id(request.id, db)
     return _request_payload(request, current_user, db)
 
@@ -897,6 +898,8 @@ def _request_payload(
         reported_total=float(reported_total) if reported_total is not None else None,
         calculated_total=float(calculated_total),
         expense_count=summary.expense_count,
+        authorization_pending_count=len(summary.missing_authorization_expense_ids),
+        ready_for_authorization_approval=summary.ready_for_authorization_approval,
         reembolso_attachment_id=reembolso_attachment.id if reembolso_attachment else None,
         reembolso_file_name=reembolso_attachment.filename if reembolso_attachment else None,
         reembolso_download_url=_attachment_download_url(reembolso_attachment),
@@ -1255,6 +1258,14 @@ def _ensure_request_visible(
                 "message": "Actor must be assigned to the request store",
             },
         )
+    if not _request_is_visible_for_role(request, current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "REQUEST_NOT_VISIBLE_FOR_ROLE",
+                "message": "This request is not available for the current role",
+            },
+        )
 
 
 def _mark_accounting_request_taken_if_needed(
@@ -1392,6 +1403,9 @@ def _request_is_visible_for_role(
 
     if request.status != ReimbursementRequestStatus.submitted:
         return True
+
+    if current_user.role == UserRole.accountant:
+        return not has_pending_authorization
 
     return True
 

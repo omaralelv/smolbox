@@ -446,12 +446,10 @@ function Acumulado( {currentRole} ) {
                         <button
                             style={puedeCargarReembolso ? styles.btnOutline : styles.btnOutlineDisabled}
                             onClick={puedeCargarReembolso ? abrirCargaReembolso : undefined}
-                            disabled={subiendoReembolso}
+                            disabled={!puedeCargarReembolso}
                         >
                             {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
                         </button>
-
-                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
 
                         <button
                             style={puedeEnviarGerencia ? styles.btnFilledCoral : styles.btnFilledCoralDisabled}
@@ -460,8 +458,8 @@ function Acumulado( {currentRole} ) {
                                 'Solicitud enviada a gerencia.'
                             )}
                             disabled={!puedeEnviarGerencia}
-                        >
-                            Enviar a Gerencia</button>
+
+                        >Enviar a Gerencia</button>
                     </>
                 );
 

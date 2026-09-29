@@ -871,12 +871,24 @@ async function avanzarSolicitudesConAutorizacionCompleta(solicitudes) {
 }
 
 function solicitudTienePendientesAutorizacion(solicitud) {
-    return (solicitud?.gastos || []).some((gasto) => (
-        Boolean(gasto.requiresAuthorization || gasto.requires_authorization)
-        && !gastoFueEliminado(gasto)
-        && gastoTieneMontoPositivo(gasto)
-        && estadoAutorizacionDesdeGasto(gasto) === 'Pendiente'
-    ));
+    if (!solicitud) return true;
+
+    const pendientesConteo = solicitud.authorizationPendingCount
+        ?? solicitud.authorization_pending_count;
+    const pendientesBackend = solicitud.pendingAuthorizationExpenseIds
+        || solicitud.pending_authorization_expense_ids;
+    const listoBackend = solicitud.readyForAuthorizationApproval
+        ?? solicitud.ready_for_authorization_approval;
+
+    if (Number.isFinite(Number(pendientesConteo))) {
+        return Number(pendientesConteo) > 0 || listoBackend !== true;
+    }
+
+    if (Array.isArray(pendientesBackend)) {
+        return pendientesBackend.length > 0 || listoBackend !== true;
+    }
+
+    return true;
 }
 
 

@@ -200,7 +200,7 @@ def check_cfdi_uuid_availability(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "code": "INVALID_CFDI_UUID",
-                "message": "The fiscal UUID is not valid",
+                "message": "El folio fiscal no tiene formato válido.",
                 "uuid": uuid,
             },
         )

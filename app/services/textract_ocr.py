@@ -125,7 +125,7 @@ def expected_invoice_receiver_message(
     return "\n".join(
         [
             "La factura PDF no corresponde al receptor esperado.",
-            f"El OCR no encontró: {missing_text}.",
+            f"Corroborar: {missing_text}.",
             f"Debe incluir {' y '.join(value for value in expected_values if value)}.",
         ]
     )
