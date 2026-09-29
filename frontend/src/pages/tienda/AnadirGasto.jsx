@@ -1445,9 +1445,9 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     }
 
     if (uuidOcrTexto && !uuid) {
-        advertencias.push('- El OCR encontró un folio fiscal, pero no tiene formato válido. Captúralo manualmente y presiona "Confirmar".');
+        advertencias.push('- Que el folio fiscal coincida con la factura. Captúralo manualmente y presiona "Confirmar".');
     } else if (!uuid) {
-        advertencias.push('- El OCR no encontró un folio fiscal válido. Captúralo manualmente y presiona "Confirmar".');
+        advertencias.push('- Que el folio fiscal coincida con la factura. Captúralo manualmente y presiona "Confirmar".');
     }
 
     if (folioCapturadoTexto && !esPlaceholderFolio(folioCapturadoTexto) && !uuidCapturado) {
