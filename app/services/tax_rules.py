@@ -63,6 +63,14 @@ NO_DEDUCIBLES_IVA_CERO = tuple(
     )
 )
 
+AGUA_IVA_CERO = tuple(
+    normalizar_texto(valor)
+    for valor in (
+        "Agua",
+        "Servicio de Agua",
+    )
+)
+
 
 def crear_indice_categorias(diccionario_gastos):
     """
@@ -134,6 +142,10 @@ def determinar_iva_e_indice(
     tiendas_iva_w6: set[str] | None = None,
 ) -> tuple[Decimal, str]:
     descripcion_normalizada = normalizar_texto(descripcion)
+
+    # Agua siempre usa 0% y W0
+    if descripcion_normalizada in AGUA_IVA_CERO:
+        return Decimal(0), "W0"
 
     # Tiendas incluidas en el archivo W6
     if tiendas_iva_w6 and normalizar_texto(numero_tienda) in tiendas_iva_w6:

@@ -24,6 +24,7 @@ const CATEGORIAS_GASTO = [
 ];
 
 const CATEGORIAS_IVA_CERO = new Set([
+    "agua",
     "no deducibles",
     "no deducible",
     "no dedusibles",
@@ -31,6 +32,7 @@ const CATEGORIAS_IVA_CERO = new Set([
     "sin deducibles",
     "sin deducible",
     "pasajes y taxis",
+    "servicio de agua",
 ]);
 
 const HISTORIAL_MOCK = [

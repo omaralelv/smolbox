@@ -284,9 +284,9 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert updated.status_code == 200, updated.text
     body = updated.json()
     assert body["category"] == "Agua"
-    assert body["cfdi_tax_rate"] == "8.00"
-    assert body["cfdi_tax_amount"] == "111.11"
-    assert body["cfdi_subtotal"] == "1388.89"
+    assert body["cfdi_tax_rate"] == "0.00"
+    assert body["cfdi_tax_amount"] == "0.00"
+    assert body["cfdi_subtotal"] == "1500.00"
     assert body["cfdi_total"] == "1500.00"
 
     updated_zero_tax = client.patch(
