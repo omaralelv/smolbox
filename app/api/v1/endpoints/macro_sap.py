@@ -47,6 +47,9 @@ def _formatear_fecha_ultimo_gasto(gastos_db) -> str:
     """Devuelve la fecha más reciente de los gastos ya filtrados de la solicitud."""
     return max(gasto["spent_on"] for gasto in gastos_db).strftime("%d/%m/%Y")
 
+def _formatear_fecha_primer_gasto(gastos_db) -> str:
+    """Devuelve la fecha más antigua de los gastos ya filtrados de la solicitud."""
+    return min(gasto["spent_on"] for gasto in gastos_db).strftime("%d/%m/%Y")
 
 # 2. Configurar las rutas absolutas para leer tus archivos (para que no falle al ejecutarlo)
 # Esto calcula la ruta basándose en dónde está este archivo macro_sap.py
@@ -265,6 +268,7 @@ def generar_polizas(
         )
 
     str_ultimo_gasto = _formatear_fecha_ultimo_gasto(gastos_db)
+    str_primer_gasto = _formatear_fecha_primer_gasto(gastos_db)
 
     # ========================================================
     # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA
@@ -415,7 +419,7 @@ def generar_polizas(
     ws_sap['D1'] = f'{fecha_poliza_sap}' # Si el identificador es K, no se escribe nada
     ws_sap['E1'] = 'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
     ws_sap['F1'] = f'{numero_tienda} CAJA CHICA' 
-    ws_sap['G1'] = f'{numero_tienda} {str_inicio_caja} AL {str_ultimo_gasto} {gerente}' 
+    ws_sap['G1'] = f'{numero_tienda} {str_primer_gasto} AL {str_ultimo_gasto} {gerente}' 
     ws_sap['H1'] = ' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja}
 
     for mov in poliza_detallada:
@@ -425,7 +429,7 @@ def generar_polizas(
         col_d = '' if es_k else mov['Indice_IVA']
         col_e = '' if es_k else numero_tienda
 
-        col_h = f'{numero_tienda} {str_inicio_caja} AL {str_ultimo_gasto} {gerente}' if es_k else mov['UIDD']
+        col_h = f'{numero_tienda} {str_primer_gasto} AL {str_ultimo_gasto} {gerente}' if es_k else mov['UIDD']
         ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, "", f'{numero_tienda} CAJA CHICA', col_h])
         _resaltar_uidd_necesario(ws_sap, ws_sap.max_row, col_h)
 
