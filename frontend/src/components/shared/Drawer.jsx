@@ -119,6 +119,35 @@ function DocumentoPreview({ documento }) {
         if (estado.revokeUrl) {
             return () => URL.revokeObjectURL(estado.url);
         }
+
+        if (estado.status === 'local-xml') {
+            let cancelado = false;
+
+            estado.file.text()
+                .then((texto) => {
+                    if (cancelado) return;
+                    setEstado({
+                        status: 'xml',
+                        xml: formatearXml(texto),
+                        error: '',
+                        revokeUrl: false,
+                    });
+                })
+                .catch((error) => {
+                    if (cancelado) return;
+                    setEstado({
+                        status: 'error',
+                        url: null,
+                        error: error.message || 'No se pudo abrir el XML.',
+                        revokeUrl: false,
+                    });
+                });
+
+            return () => {
+                cancelado = true;
+            };
+        }
+
         if (estado.status !== 'protected') return undefined;
 
         let cancelado = false;
@@ -127,8 +156,20 @@ function DocumentoPreview({ documento }) {
         const controller = new AbortController();
 
         fetchProtectedBlob(estado.fetchUrl, { signal: controller.signal })
-            .then((blob) => {
+            .then(async (blob) => {
                 if (cancelado) return;
+                if (esBlobXml(blob, estado.documento)) {
+                    const texto = await blob.text();
+                    if (cancelado) return;
+                    setEstado({
+                        status: 'xml',
+                        xml: formatearXml(texto),
+                        error: '',
+                        revokeUrl: false,
+                    });
+                    return;
+                }
+
                 urlTemporal = URL.createObjectURL(blob);
                 urlEntregadaAlEstado = true;
                 setEstado({
@@ -157,11 +198,18 @@ function DocumentoPreview({ documento }) {
         };
     }, [estado]);
 
-    if (estado.status === 'loading' || estado.status === 'protected') {
+    if (estado.status === 'loading' || estado.status === 'protected' || estado.status === 'local-xml') {
         return <div style={styles.documentoMensaje}>Cargando archivo...</div>;
     }
     if (estado.error) {
         return <div style={styles.documentoMensaje}>{estado.error}</div>;
+    }
+    if (estado.status === 'xml') {
+        return (
+            <pre style={styles.xmlPreview}>
+                {estado.xml || 'El XML está vacío.'}
+            </pre>
+        );
     }
     if (!estado.url) {
         return <div style={styles.documentoMensaje}>No hay archivo para mostrar.</div>;
@@ -187,6 +235,15 @@ function estadoInicialDocumento(documento) {
     }
 
     if (esArchivoLocal(documento)) {
+        if (esDocumentoXml(documento)) {
+            return {
+                status: 'local-xml',
+                file: documento,
+                error: '',
+                revokeUrl: false,
+            };
+        }
+
         return {
             status: 'ready',
             url: URL.createObjectURL(documento),
@@ -230,6 +287,7 @@ function estadoInicialDocumento(documento) {
         error: '',
         revokeUrl: false,
         fetchUrl: url,
+        documento,
     };
 }
 
@@ -316,6 +374,57 @@ function esArchivoLocal(valor) {
     return typeof File !== 'undefined' && valor instanceof File;
 }
 
+function esDocumentoXml(documento) {
+    if (!documento) return false;
+    if (esArchivoLocal(documento)) {
+        return esNombreXml(documento.name) || String(documento.type || '').toLowerCase().includes('xml');
+    }
+
+    return esNombreXml(String(documento));
+}
+
+function esBlobXml(blob, documento) {
+    return String(blob?.type || '').toLowerCase().includes('xml') || esDocumentoXml(documento);
+}
+
+function esNombreXml(nombre) {
+    return String(nombre || '').toLowerCase().split('?')[0].endsWith('.xml');
+}
+
+function formatearXml(xml) {
+    const texto = String(xml || '').trim();
+    if (!texto) return '';
+
+    try {
+        const parser = new DOMParser();
+        const document = parser.parseFromString(texto, 'application/xml');
+        if (document.querySelector('parsererror')) return texto;
+    } catch {
+        return texto;
+    }
+
+    const lineas = texto
+        .replace(/>\s*</g, '>\n<')
+        .split('\n')
+        .map((linea) => linea.trim())
+        .filter(Boolean);
+    let nivel = 0;
+
+    return lineas.map((linea) => {
+        if (/^<\//.test(linea)) {
+            nivel = Math.max(nivel - 1, 0);
+        }
+        const formateada = `${'  '.repeat(nivel)}${linea}`;
+        if (
+            /^<[^!?/][^>]*[^/]?>$/.test(linea)
+            && !linea.includes('</')
+        ) {
+            nivel += 1;
+        }
+        return formateada;
+    }).join('\n');
+}
+
 const styles = {
     drawerWrapper: {
         display: 'flex',
@@ -384,6 +493,21 @@ const styles = {
         width: '100%',
         height: '100%',
         border: 'none',
+    },
+    xmlPreview: {
+        margin: 0,
+        width: '100%',
+        height: '100%',
+        boxSizing: 'border-box',
+        padding: '14px',
+        overflow: 'auto',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        backgroundColor: '#111827',
+        color: '#e5e7eb',
+        fontSize: '11px',
+        lineHeight: '1.45',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
     },
     chatBody: {
         flex: 1,
