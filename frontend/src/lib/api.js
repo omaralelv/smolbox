@@ -501,6 +501,15 @@ function friendlyErrorMessage(message) {
     }
 
     if (
+        normalized.includes('invalid_cfdi_uuid')
+        || normalized.includes('fiscal uuid is not valid')
+        || normalized.includes('folio fiscal no tiene formato')
+        || normalized.includes('input should be a valid uuid')
+    ) {
+        return 'El folio fiscal no tiene formato válido. Captúralo manualmente con el formato 12345678-ABCD-1234-ABCD-1234567890AB y vuelve a confirmar.';
+    }
+
+    if (
         normalized.includes('textract')
         || normalized.includes('analyzeexpense')
         || normalized.includes('unsupporteddocument')
