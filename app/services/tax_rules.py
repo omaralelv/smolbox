@@ -44,6 +44,13 @@ AGUA_IVA_CERO = tuple(
     )
 )
 
+HOSPEDAJE_IVA_CERO = tuple(
+    normalizar_texto(valor)
+    for valor in (
+        "Hospedaje",
+    )
+)
+
 NO_DEDUCIBLES_IVA_CERO = tuple(
     normalizar_texto(valor)
     for valor in (
@@ -136,7 +143,11 @@ def determinar_iva_e_indice(
     if descripcion_normalizada in PASAJES_TAXIS_IVA_CERO:
         return Decimal(0), "W2"
 
-    # Agua siempre usa 0% y W0
+    # HOSPEDAJE siempre usa 0% y W0
+    if descripcion_normalizada in HOSPEDAJE_IVA_CERO:
+        return Decimal(0), "W0"
+
+    # AGUA siempre usa 0% y W0
     if descripcion_normalizada in AGUA_IVA_CERO:
         return Decimal(0), "W0"
 
