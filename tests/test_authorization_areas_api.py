@@ -218,6 +218,140 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
     ]
 
 
+def test_central_authorization_area_does_not_require_store_assignment(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    _create_user(client, "admin", "areas.central.admin@example.com")
+    store_user_id = _create_user(client, "store", "areas.central.store@example.com")
+    systems_authorizer_id = _create_user(
+        client,
+        "authorizer",
+        "areas.central.sistemas@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+
+    admin_headers = _auth_headers(client, "areas.central.admin@example.com")
+    systems_area_id = _assign_authorization_area(
+        client,
+        systems_authorizer_id,
+        "Sistemas",
+        admin_headers,
+    )
+    systems_expense = _create_expense(
+        client,
+        base_records,
+        amount="1000.00",
+        authorization_area_id=systems_area_id,
+        category="Equipo de Cómputo Menor",
+    )
+    _attach_valid_cfdi(
+        client,
+        systems_expense["id"],
+        "1000.00",
+        uuid="99999999-9999-4999-8999-999999999999",
+    )
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    systems_headers = _auth_headers(client, "areas.central.sistemas@example.com")
+    systems_queue = client.get("/api/v1/frontend/bandeja/me", headers=systems_headers)
+    assert systems_queue.status_code == 200, systems_queue.text
+    assert [item["backendId"] for item in systems_queue.json()] == [
+        base_records["request_id"]
+    ]
+    assert [expense["authorizationArea"] for expense in systems_queue.json()[0]["gastos"]] == [
+        "Sistemas"
+    ]
+
+    api_queue = client.get("/api/v1/work-queue/me", headers=systems_headers)
+    assert api_queue.status_code == 200, api_queue.text
+    assert [item["id"] for item in api_queue.json()] == [base_records["request_id"]]
+
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=systems_headers,
+    )
+    assert detail.status_code == 200, detail.text
+
+    authorization_review = client.post(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",
+        headers=systems_headers,
+        json={
+            "target_status": "authorization_review",
+            "note": "Inicio Sistemas",
+        },
+    )
+    assert authorization_review.status_code == 200, authorization_review.text
+
+    authorized_systems = client.post(
+        f"/api/v1/expenses/{systems_expense['id']}/authorize/me",
+        headers=systems_headers,
+        json={"note": "Autorizado por Sistemas"},
+    )
+    assert authorized_systems.status_code == 200, authorized_systems.text
+
+
+def test_supervisores_area_still_requires_store_assignment(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    _create_user(client, "admin", "areas.supervisores.admin@example.com")
+    store_user_id = _create_user(client, "store", "areas.supervisores.store@example.com")
+    supervisor_id = _create_user(
+        client,
+        "authorizer",
+        "areas.supervisores.authorizer@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+
+    admin_headers = _auth_headers(client, "areas.supervisores.admin@example.com")
+    supervisor_area_id = _assign_authorization_area(
+        client,
+        supervisor_id,
+        "Supervisores",
+        admin_headers,
+    )
+    supervisor_expense = _create_expense(
+        client,
+        base_records,
+        amount="500.00",
+        authorization_area_id=supervisor_area_id,
+        category="Alimentos",
+    )
+    _attach_valid_cfdi(
+        client,
+        supervisor_expense["id"],
+        "500.00",
+        uuid="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        store_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    supervisor_headers = _auth_headers(client, "areas.supervisores.authorizer@example.com")
+    supervisor_queue = client.get("/api/v1/frontend/bandeja/me", headers=supervisor_headers)
+    assert supervisor_queue.status_code == 200, supervisor_queue.text
+    assert supervisor_queue.json() == []
+
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=supervisor_headers,
+    )
+    assert detail.status_code == 403, detail.text
+
+
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
     login = client.post(
         "/api/v1/auth/login",
@@ -270,6 +404,7 @@ def _create_expense(
     *,
     amount: str,
     authorization_area_id: str,
+    category: str = "Pasajes y Taxis",
 ) -> dict[str, object]:
     response = client.post(
         "/api/v1/expenses/",
@@ -279,7 +414,7 @@ def _create_expense(
             "amount": amount,
             "currency": "MXN",
             "spent_on": "2026-08-07",
-            "category": "Pasajes y Taxis",
+            "category": category,
             "authorization_area_id": authorization_area_id,
         },
     )

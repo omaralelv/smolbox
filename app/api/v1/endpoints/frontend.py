@@ -41,6 +41,7 @@ from app.schemas.frontend import (
 )
 from app.services.accounting_queue import mark_accounting_request_taken_on_open
 from app.services.authorization_areas import (
+    authorizer_has_global_authorization_area,
     expense_is_visible_to_authorizer,
     get_or_create_authorization_area,
     request_has_authorization_area_for_user,
@@ -231,10 +232,7 @@ def list_frontend_work_queue(
         return []
 
     statement = statement.where(ReimbursementRequest.status.in_(statuses))
-    if current_user.role not in {
-        UserRole.accountant,
-        *GLOBAL_POST_ACCOUNTING_ROLES,
-    }:
+    if _should_scope_queue_to_assigned_stores(current_user, db):
         statement = statement.where(
             ReimbursementRequest.store_id.in_(
                 select(StoreUserAssignment.store_id).where(
@@ -890,7 +888,12 @@ def _request_payload(
         gastos=[
             _expense_payload(expense)
             for expense in sorted(
-                _frontend_visible_expenses(request.expenses, current_user, db),
+                _frontend_visible_expenses(
+                    request.expenses,
+                    current_user,
+                    db,
+                    store_id=request.store_id,
+                ),
                 key=_expense_sort_key,
             )
         ],
@@ -929,11 +932,18 @@ def _frontend_visible_expenses(
     expenses: list[Expense],
     current_user: User,
     db: Session,
+    *,
+    store_id: UUID,
 ) -> list[Expense]:
     return [
         expense
         for expense in expenses
-        if expense_is_visible_to_authorizer(db, current_user, expense)
+        if expense_is_visible_to_authorizer(
+            db,
+            current_user,
+            expense,
+            store_id=store_id,
+        )
     ]
 
 
@@ -1251,13 +1261,22 @@ def _ensure_request_visible(
     db: Session,
 ) -> None:
     if not user_can_transition_store_request(db, current_user, request.store_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "STORE_ASSIGNMENT_REQUIRED",
-                "message": "Actor must be assigned to the request store",
-            },
-        )
+        if (
+            current_user.role != UserRole.authorizer
+            or request.status
+            not in {
+                ReimbursementRequestStatus.submitted,
+                ReimbursementRequestStatus.authorization_review,
+            }
+            or not _request_is_visible_for_role(request, current_user, db)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "STORE_ASSIGNMENT_REQUIRED",
+                    "message": "Actor must be assigned to the request store",
+                },
+            )
     if not _request_is_visible_for_role(request, current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1407,6 +1426,20 @@ def _request_is_visible_for_role(
     if current_user.role == UserRole.accountant:
         return not has_pending_authorization
 
+    return True
+
+
+def _should_scope_queue_to_assigned_stores(current_user: User, db: Session) -> bool:
+    if current_user.role in {
+        UserRole.accountant,
+        *GLOBAL_POST_ACCOUNTING_ROLES,
+    }:
+        return False
+    if (
+        current_user.role == UserRole.authorizer
+        and authorizer_has_global_authorization_area(db, current_user)
+    ):
+        return False
     return True
 
 

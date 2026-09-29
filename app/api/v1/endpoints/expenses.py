@@ -443,7 +443,13 @@ def _authorize_expense_with_actor(
             },
         )
     _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
-    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_store_assignment_if_required(
+        db,
+        actor,
+        reimbursement_request,
+        require_store_assignment,
+        expense=expense,
+    )
     _ensure_authorization_area_allowed(db, actor, expense)
     _ensure_expense_not_excluded(expense)
 
@@ -490,7 +496,13 @@ def _reject_expense_with_actor(
             },
         )
     _ensure_actor_can(actor, {UserRole.authorizer, UserRole.admin})
-    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_store_assignment_if_required(
+        db,
+        actor,
+        reimbursement_request,
+        require_store_assignment,
+        expense=expense,
+    )
     _ensure_authorization_area_allowed(db, actor, expense)
     _ensure_expense_not_excluded(expense)
     if expense.authorized_at is not None or expense.status == ExpenseStatus.approved:
@@ -545,7 +557,13 @@ def _add_observation_with_actor(
     reimbursement_request = _attached_request_or_conflict(expense)
     _ensure_request_accepts_observations(reimbursement_request)
     _ensure_actor_can(actor, OBSERVATION_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
-    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_store_assignment_if_required(
+        db,
+        actor,
+        reimbursement_request,
+        require_store_assignment,
+        expense=expense,
+    )
     _ensure_expense_not_excluded(expense)
 
     expense.review_note = note
@@ -591,7 +609,13 @@ def _review_update_expense_with_actor(
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
     _ensure_actor_can(actor, REVIEW_EDIT_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
-    _ensure_store_assignment_if_required(db, actor, reimbursement_request, require_store_assignment)
+    _ensure_store_assignment_if_required(
+        db,
+        actor,
+        reimbursement_request,
+        require_store_assignment,
+        expense=expense,
+    )
     _ensure_expense_not_excluded(expense)
 
     _apply_expense_updates(expense, updates, db)
@@ -876,10 +900,23 @@ def _ensure_store_assignment_if_required(
     actor: User,
     reimbursement_request: ReimbursementRequest,
     required: bool,
+    *,
+    expense: Expense | None = None,
 ) -> None:
     if not required:
         return
     if user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        return
+    if (
+        actor.role == UserRole.authorizer
+        and expense is not None
+        and user_can_authorize_expense_area(
+            db,
+            actor,
+            expense,
+            store_id=reimbursement_request.store_id,
+        )
+    ):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -891,7 +928,13 @@ def _ensure_store_assignment_if_required(
 
 
 def _ensure_authorization_area_allowed(db: Session, actor: User, expense: Expense) -> None:
-    if user_can_authorize_expense_area(db, actor, expense):
+    reimbursement_request = _attached_request_or_conflict(expense)
+    if user_can_authorize_expense_area(
+        db,
+        actor,
+        expense,
+        store_id=reimbursement_request.store_id,
+    ):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

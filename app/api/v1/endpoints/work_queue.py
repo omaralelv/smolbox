@@ -15,6 +15,7 @@ from app.schemas.reimbursement_request import (
     ReimbursementRequestRead,
 )
 from app.services.authorization_areas import (
+    authorizer_has_global_authorization_area,
     request_has_authorization_area_for_user,
     request_has_authorization_visible_to_user,
 )
@@ -96,7 +97,7 @@ def list_my_work_queue(
         return []
 
     statement = statement.where(ReimbursementRequest.status.in_(statuses))
-    statement = _scope_to_assigned_stores(statement, current_user)
+    statement = _scope_to_assigned_stores(statement, current_user, db)
     requests = [
         request
         for request in db.scalars(statement.limit(200))
@@ -108,8 +109,14 @@ def list_my_work_queue(
 def _scope_to_assigned_stores(
     statement: Select[tuple[ReimbursementRequest]],
     current_user: User,
+    db: Session,
 ) -> Select[tuple[ReimbursementRequest]]:
     if current_user.role in GLOBAL_QUEUE_ROLES:
+        return statement
+    if (
+        current_user.role == UserRole.authorizer
+        and authorizer_has_global_authorization_area(db, current_user)
+    ):
         return statement
 
     return statement.where(

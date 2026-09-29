@@ -228,6 +228,7 @@ def get_reimbursement_validation_summary(
             selectinload(ReimbursementRequest.period),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
         )
         .where(ReimbursementRequest.id == request_id)
     )
@@ -251,6 +252,7 @@ def run_reimbursement_automated_review(
             selectinload(ReimbursementRequest.period),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
         )
         .where(ReimbursementRequest.id == request_id)
     )
@@ -952,6 +954,7 @@ def _transition_request_with_actor(
             selectinload(ReimbursementRequest.period),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
         )
         .where(ReimbursementRequest.id == request_id)
     )
@@ -960,15 +963,6 @@ def _transition_request_with_actor(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Reimbursement request not found",
-        )
-
-    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "STORE_ASSIGNMENT_REQUIRED",
-                "message": "Actor must be assigned to the request store for this transition",
-            },
         )
 
     if _should_sync_reported_total_before_submission(
@@ -982,6 +976,21 @@ def _transition_request_with_actor(
         db.flush()
 
     summary = summarize_reimbursement_request(reimbursement_request)
+    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
+        if not _authorizer_can_transition_by_area_without_store_assignment(
+            reimbursement_request,
+            actor=actor,
+            target_status=target_status,
+            summary=summary,
+            db=db,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "STORE_ASSIGNMENT_REQUIRED",
+                    "message": "Actor must be assigned to the request store for this transition",
+                },
+            )
     if _is_duplicate_rejected_transition(
         reimbursement_request,
         actor=actor,
@@ -1115,6 +1124,68 @@ def _ensure_authorization_transition_area_allowed(
     )
 
 
+def _authorizer_can_transition_by_area_without_store_assignment(
+    reimbursement_request: ReimbursementRequest,
+    *,
+    actor: User,
+    target_status: ReimbursementRequestStatus,
+    summary: ReimbursementValidationSummary,
+    db: Session,
+) -> bool:
+    if actor.role != UserRole.authorizer:
+        return False
+
+    if target_status == ReimbursementRequestStatus.authorization_review:
+        pending_authorization_ids = set(summary.missing_authorization_expense_ids)
+        return request_has_authorization_visible_to_user(
+            reimbursement_request,
+            actor,
+            db,
+            pending_expense_ids=pending_authorization_ids,
+        )
+
+    if (
+        reimbursement_request.status == ReimbursementRequestStatus.authorization_review
+        and target_status
+        in {
+            ReimbursementRequestStatus.authorized,
+            ReimbursementRequestStatus.rejected,
+        }
+    ):
+        return request_has_authorization_area_for_user(reimbursement_request, actor, db)
+
+    return False
+
+
+def _authorizer_can_view_request_by_area_without_store_assignment(
+    reimbursement_request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> bool:
+    if current_user.role != UserRole.authorizer:
+        return False
+    if reimbursement_request.status not in {
+        ReimbursementRequestStatus.submitted,
+        ReimbursementRequestStatus.authorization_review,
+    }:
+        return False
+
+    summary = summarize_reimbursement_request(reimbursement_request)
+    pending_authorization_ids = set(summary.missing_authorization_expense_ids)
+    if pending_authorization_ids:
+        return request_has_authorization_visible_to_user(
+            reimbursement_request,
+            current_user,
+            db,
+            pending_expense_ids=pending_authorization_ids,
+        )
+    return request_has_authorization_area_for_user(
+        reimbursement_request,
+        current_user,
+        db,
+    )
+
+
 def _generate_request_folio(store: Store, db: Session) -> str:
     prefix = f"{store.code}-{datetime.now(UTC).date():%d%m%Y}"
     existing_folios = db.scalars(
@@ -1163,13 +1234,18 @@ def _ensure_request_visible_to_user(
     db: Session,
 ) -> None:
     if not user_can_transition_store_request(db, current_user, reimbursement_request.store_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "STORE_ASSIGNMENT_REQUIRED",
-                "message": "Actor must be assigned to the request store",
-            },
-        )
+        if not _authorizer_can_view_request_by_area_without_store_assignment(
+            reimbursement_request,
+            current_user,
+            db,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "STORE_ASSIGNMENT_REQUIRED",
+                    "message": "Actor must be assigned to the request store",
+                },
+            )
     if (
         current_user.role != UserRole.authorizer
         or reimbursement_request.status
@@ -1245,7 +1321,12 @@ def _build_request_detail(
     visible_expenses = [
         expense
         for expense in reimbursement_request.expenses
-        if expense_is_visible_to_authorizer(db, current_user, expense)
+        if expense_is_visible_to_authorizer(
+            db,
+            current_user,
+            expense,
+            store_id=reimbursement_request.store_id,
+        )
     ]
     return ReimbursementRequestDetailRead(
         **ReimbursementRequestRead.model_validate(reimbursement_request).model_dump(),
