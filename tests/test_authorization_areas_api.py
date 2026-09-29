@@ -127,6 +127,8 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
     assert [item["backendId"] for item in systems_queue.json()] == [
         base_records["request_id"]
     ]
+    assert systems_queue.json()[0]["authorizationPendingCount"] == 2
+    assert systems_queue.json()[0]["readyForAuthorizationApproval"] is False
     assert [expense["authorizationArea"] for expense in systems_queue.json()[0]["gastos"]] == [
         "Sistemas"
     ]
@@ -143,6 +145,8 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
     accountant_items = accountant_queue.json()
     assert [item["backendId"] for item in accountant_items] == [base_records["request_id"]]
     assert accountant_items[0]["availableActions"] == []
+    assert accountant_items[0]["authorizationPendingCount"] == 2
+    assert accountant_items[0]["readyForAuthorizationApproval"] is False
 
     authorization_review = _transition(
         client,
@@ -179,6 +183,8 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
     assert [item["backendId"] for item in hr_queue_after_systems.json()] == [
         base_records["request_id"]
     ]
+    assert hr_queue_after_systems.json()[0]["authorizationPendingCount"] == 1
+    assert hr_queue_after_systems.json()[0]["readyForAuthorizationApproval"] is False
 
     authorized_hr = client.post(
         f"/api/v1/expenses/{hr_expense['id']}/authorize/me",
@@ -193,6 +199,8 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
     )
     assert ready_detail.status_code == 200, ready_detail.text
     assert "approve_authorization" in ready_detail.json()["availableActions"]
+    assert ready_detail.json()["authorizationPendingCount"] == 0
+    assert ready_detail.json()["readyForAuthorizationApproval"] is True
 
     authorized_request = client.post(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition/me",

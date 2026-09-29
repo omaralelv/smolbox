@@ -897,6 +897,8 @@ def _request_payload(
         reported_total=float(reported_total) if reported_total is not None else None,
         calculated_total=float(calculated_total),
         expense_count=summary.expense_count,
+        authorization_pending_count=len(summary.missing_authorization_expense_ids),
+        ready_for_authorization_approval=summary.ready_for_authorization_approval,
         reembolso_attachment_id=reembolso_attachment.id if reembolso_attachment else None,
         reembolso_file_name=reembolso_attachment.filename if reembolso_attachment else None,
         reembolso_download_url=_attachment_download_url(reembolso_attachment),
