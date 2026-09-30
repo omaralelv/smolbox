@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
@@ -38,6 +38,14 @@ const HISTORIAL_MOCK = [
     }
 ];
 
+function formatearMonto(monto) {
+    const valor = Number(monto) || 0;
+    return new Intl.NumberFormat('es-MX', {
+        style: 'currency',
+        currency: 'MXN',
+    }).format(valor);
+}
+
 // Función helper para convertir la observación inicial de un gasto en formato de evento
     function observacionInicialDesdeGasto(gasto) {
         // Busca el texto en las propiedades típicas donde la tienda guarda la nota al crear el gasto
@@ -71,6 +79,10 @@ function AutorizacionBandeja( { currentRole } ) {
     const navigate = useNavigate();
     const location = useLocation();
     
+    // 1. ESTADO PARA EL FILTRO DE TIENDA
+    const [filtroTienda, setFiltroTienda] = useState('todas');
+    const [filtroSolicitud, setFiltroSolicitud] = useState('todas');
+
     const solicitudInicialBackendId = location.state?.solicitudBackendId || null;
     const [gastos, setGastos] = useState(() => gastosDesdeState(location.state));
 
@@ -109,6 +121,47 @@ function AutorizacionBandeja( { currentRole } ) {
             return nuevosGastos.find((gasto) => idsIguales(gastoHistorialId(gasto), gastoHistorialId(actual))) || actual;
         });
     };
+
+
+
+    // 2. LÓGICA PARA OBTENER TIENDAS Y FILTRAR GASTOS
+    const obtenerTienda = (gasto) => gasto.tienda || 'T-001';
+    const obtenerSolicitud = (gasto) => gasto.solicitudFolio || gasto.solicitudNombre || gasto.solicitudBackendId || 'Sin Solicitud';
+
+    const tiendasDisponibles = Array.from(
+        new Set(gastos.map((gasto) => obtenerTienda(gasto)))
+    ).sort();
+
+    const solicitudesDisponibles = useMemo(() => {
+        const gastosFiltradosPorTienda = filtroTienda === 'todas'
+            ? gastos
+            : gastos.filter((gasto) => obtenerTienda(gasto) === filtroTienda);
+
+        return Array.from(
+            new Set(gastosFiltradosPorTienda.map((gasto) => obtenerSolicitud(gasto)))
+        ).sort();
+    }, [gastos, filtroTienda]);
+
+    useEffect(() => {
+        if (filtroSolicitud !== 'todas' && !solicitudesDisponibles.includes(filtroSolicitud)) {
+            setFiltroSolicitud('todas');
+        }
+    }, [filtroTienda, solicitudesDisponibles, filtroSolicitud]);
+
+
+    //const gastosFiltrados = filtroTienda === 'todas'
+    //    ? gastos
+    //    : gastos.filter((gasto) => obtenerTienda(gasto) === filtroTienda);
+    const gastosFiltrados = useMemo(() => {
+        return gastos.filter((gasto) => {
+            const coincideTienda = filtroTienda === 'todas' || obtenerTienda(gasto) === filtroTienda;
+            const coincideSolicitud = filtroSolicitud === 'todas' || obtenerSolicitud(gasto) === filtroSolicitud;
+            return coincideTienda && coincideSolicitud;
+        });
+    }, [gastos, filtroTienda, filtroSolicitud]);
+
+
+
 
     useEffect(() => {
         let activo = true;
@@ -349,6 +402,64 @@ function AutorizacionBandeja( { currentRole } ) {
         
         <div style={styles.mainLayout}>
             <div style={styles.container}>
+
+                {/* FILTRO DE TIENDA 
+                <div style={styles.filtersRow}>
+                    <label style={styles.filterLabel}>
+                        Tienda
+                        <select
+                            value={filtroTienda}
+                            onChange={(event) => setFiltroTienda(event.target.value)}
+                            style={styles.filterSelect}
+                        >
+                            <option value="todas">Todas</option>
+                            {tiendasDisponibles.map((tienda) => (
+                                <option key={tienda} value={tienda}>
+                                    {tienda}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>*/}
+
+                <div style={styles.filtersRow}>
+                    <label style={styles.filterLabel}>
+                        Tienda
+                        <select
+                            value={filtroTienda}
+                            onChange={(event) => {
+                                setFiltroTienda(event.target.value);
+                                setFiltroSolicitud('todas'); // Reset al cambiar la tienda
+                            }}
+                            style={styles.filterSelect}
+                        >
+                            <option value="todas">Todas</option>
+                            {tiendasDisponibles.map((tienda) => (
+                                <option key={tienda} value={tienda}>
+                                    {tienda}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <label style={styles.filterLabel}>
+                        Solicitud
+                        <select
+                            value={filtroSolicitud}
+                            onChange={(event) => setFiltroSolicitud(event.target.value)}
+                            style={styles.filterSelect}
+                        >
+                            <option value="todas">Todas</option>
+                            {solicitudesDisponibles.map((solicitud) => (
+                                <option key={solicitud} value={solicitud}>
+                                    {solicitud}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+
+
                 {/* ENCABEZADOS DE LA TABLA */}
                 <div style={styles.tableHeader}>
                     <span style={{ flex: 1.5 }}></span>
@@ -359,6 +470,7 @@ function AutorizacionBandeja( { currentRole } ) {
                     )}
 
                     <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>TIPO DE GASTO</span>
+                    <span style={{ flex: 1.2, textAlign: 'center', fontWeight: 'bold' }}>MONTO</span>
                     <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>SOLICITUD</span>
                     <span style={{ flex: 1.5, textAlign: 'center', fontWeight: 'bold' }}>¿AUTORIZADO?</span>
                     <span style={{ flex: 2.5, textAlign: 'center', fontWeight: 'bold' }}>HERRAMIENTAS</span>
@@ -366,8 +478,14 @@ function AutorizacionBandeja( { currentRole } ) {
 
                 {/* LISTA DE FILAS DE GASTOS */}
                 <div style={styles.listContainer}>
-                    {gastos.map((gasto) => {
+                    {gastosFiltrados.length === 0 ? (
+                        <div style={styles.emptyState}>
+                            No hay gastos que coincidan con los filtros seleccionados.
+                        </div>
+                    ) : (
+                    gastosFiltrados.map((gasto) => {
                         const motivoBloqueo = motivoBloqueoDecisionAutorizacion(gasto);
+                        const montoGasto = gasto.monto ?? gasto.totalAmount ?? gasto.amount ?? 0;
 
                         return (
                         <div key={gasto.id} style={styles.rowCard}>
@@ -391,6 +509,13 @@ function AutorizacionBandeja( { currentRole } ) {
                             </div>
 
 
+                            {/* MONTO */}
+                            <div style={{ flex: 1.2, textAlign: 'center', color: '#333', fontWeight: '700' }}>
+                                {formatearMonto(montoGasto)}
+                            </div>
+
+
+                            {/* SOLICITUD */}
                             <div style={{ flex: 1.5, textAlign: 'center', color: '#444' }}>
                                     {gasto.solicitudFolio || gasto.solicitudNombre || 'Sin Solicitud'}
                                 </div>
@@ -437,7 +562,8 @@ function AutorizacionBandeja( { currentRole } ) {
                             
                         </div>
                         );
-                    })}
+                        })
+                    )}
                 </div>
             </div>
 
@@ -534,12 +660,45 @@ const styles = {
 
     container: {
         flex: 1,
-        maxWidth: '1230px',
+        maxWidth: '1330px',
         margin: '0 auto',
         padding: '20px',
         fontFamily: 'sans-serif',
         overflowY: 'auto',
     },
+
+
+    filtersRow: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        gap: '16px',
+        marginBottom: '16px',
+    },
+    filterLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '13px',
+        fontWeight: '700',
+        color: '#000000',
+    },
+    filterSelect: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        backgroundColor: '#ffffff',
+        color: '#000000',
+        fontSize: '13px',
+        padding: '7px 10px',
+        minWidth: '120px',
+    },
+    emptyState: {
+        textAlign: 'center',
+        padding: '20px',
+        color: '#000000',
+        fontSize: '13px',
+    },
+
 
     tableHeader: {
         display: 'flex',
@@ -609,7 +768,7 @@ const styles = {
         color: 'var(--text-CBtn)',
         border: 'none',
         borderRadius: '6px',
-        padding: '6px 14px',
+        padding: '6px 10px',
         fontSize: '11px',
         fontWeight: 'bold',
         cursor: 'pointer',
