@@ -163,6 +163,49 @@ def test_analyze_expense_parses_invoice_date_when_label_is_on_previous_line() ->
     assert result.extracted_date == date(2026, 8, 7)
 
 
+def test_extract_expense_falls_back_to_text_pdf_when_textract_rejects_document(
+    monkeypatch,
+    test_settings,
+) -> None:
+    test_settings.textract_enabled = True
+
+    class FakeTextractClient:
+        def analyze_expense(self, Document):
+            raise RuntimeError("Request has unsupported document format")
+
+    pdf_text = (
+        "Folio fiscal:\n"
+        "7F3EAC12-5857-4293-8CCA-416792CA7B33\n"
+        "RFC receptor:\n"
+        "CIA090819PW4\n"
+        "Nombre receptor:\n"
+        "COMERCIAL IAC\n"
+        "Codigo postal, fecha y hora de emision:\n"
+        "26010 2026-08-03 22:00:07\n"
+        "Subtotal\n"
+        "$ 1,085.49\n"
+        "IVA\n"
+        "$ 85.51\n"
+        "Total\n"
+        "$ 1,171.00"
+    )
+
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeTextractClient())
+    monkeypatch.setattr("app.services.textract_ocr._pdf_text_from_bytes", lambda content: pdf_text)
+
+    result = service.extract_expense(
+        b"%PDF-1.4\ncontent\n%%EOF",
+        content_type="application/pdf",
+        filename="factura.pdf",
+    )
+
+    assert result is not None
+    assert result.suggested_cfdi_uuid == "7F3EAC12-5857-4293-8CCA-416792CA7B33"
+    assert result.extracted_date == date(2026, 8, 3)
+    assert result.extracted_total == Decimal("1171.00")
+
+
 def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_settings) -> None:
     test_settings.textract_enabled = True
 

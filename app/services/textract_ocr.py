@@ -5,6 +5,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from typing import Any
 
 from app.core.config import Settings
@@ -114,6 +115,10 @@ class TextractOcrService:
             # Aqui vive la llamada real a AWS Textract.
             response = client.analyze_expense(Document={"Bytes": content})
         except Exception as exc:  # pragma: no cover - depends on AWS
+            if _is_textract_document_read_error(exc):
+                fallback_result = _extract_text_pdf_expense(content, content_type=content_type)
+                if fallback_result is not None:
+                    return fallback_result
             raise TextractOcrError(f"Textract failed for {filename}: {exc}") from exc
 
         return _parse_analyze_expense_response(
@@ -254,16 +259,122 @@ def _raw_text_from_response(response: dict[str, Any]) -> str:
     return "\n".join(dict.fromkeys(text_parts))
 
 
+def _extract_text_pdf_expense(
+    content: bytes,
+    *,
+    content_type: str,
+) -> TextractOcrResult | None:
+    if content_type.lower().split(";", maxsplit=1)[0] != "application/pdf":
+        return None
+
+    raw_text = _pdf_text_from_bytes(content)
+    if not raw_text:
+        return None
+
+    return TextractOcrResult(
+        raw_text=raw_text,
+        extracted_total=_total_from_ocr_text(raw_text),
+        extracted_date=_date_from_summary_or_text({}, raw_text),
+        extracted_supplier=None,
+        suggested_cfdi_uuid=_cfdi_uuid_from_text(raw_text),
+        confidence=None,
+        raw_response=None,
+    )
+
+
+def _pdf_text_from_bytes(content: bytes) -> str | None:
+    try:
+        from pypdf import PdfReader
+    except ImportError:  # pragma: no cover - dependency is installed in packaged app
+        return None
+
+    try:
+        reader = PdfReader(BytesIO(content))
+        if reader.is_encrypted:
+            return None
+
+        text_parts = [
+            text
+            for page in reader.pages
+            if (text := (page.extract_text() or "").strip())
+        ]
+    except Exception:  # noqa: BLE001
+        return None
+
+    raw_text = "\n".join(text_parts).strip()
+    return raw_text or None
+
+
 def _money_from_text(value: str | None) -> Decimal | None:
     if not value:
         return None
-    match = re.search(r"-?\d[\d,]*(?:\.\d{1,2})?", value)
-    if not match:
+    values = _money_values_from_text(value)
+    if not values:
         return None
-    try:
-        return Decimal(match.group(0).replace(",", "")).quantize(Decimal("0.01"))
-    except InvalidOperation:
+    return values[0]
+
+
+def _total_from_ocr_text(raw_text: str | None) -> Decimal | None:
+    if not raw_text:
         return None
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if not _is_total_label_line(line):
+            continue
+
+        line_values = _money_values_from_text(line)
+        if line_values:
+            return line_values[-1]
+
+        nearby_values: list[Decimal] = []
+        for nearby_line in lines[index + 1 : index + 12]:
+            if _looks_like_new_section_after_total(nearby_line):
+                break
+            nearby_values.extend(_money_values_from_text(nearby_line))
+
+        if nearby_values:
+            return nearby_values[-1]
+
+    return None
+
+
+def _money_values_from_text(value: str) -> list[Decimal]:
+    matches = re.finditer(r"-?\$?\s*\d[\d,]*(?:\.\d{1,2})?", value)
+    values: list[Decimal] = []
+    for match in matches:
+        normalized = match.group(0).replace("$", "").replace(",", "").replace(" ", "")
+        try:
+            values.append(Decimal(normalized).quantize(Decimal("0.01")))
+        except InvalidOperation:
+            continue
+    return values
+
+
+def _is_total_label_line(value: str) -> bool:
+    compact = _compact_search_text(value)
+    return "TOTAL" in compact and "SUBTOTAL" not in compact
+
+
+def _looks_like_new_section_after_total(value: str) -> bool:
+    compact = _compact_search_text(value)
+    return compact.startswith(
+        (
+            "PAGINA",
+            "SELLO",
+            "CADENAORIGINAL",
+        )
+    )
+
+
+def _is_textract_document_read_error(exc: Exception) -> bool:
+    error_text = f"{exc.__class__.__name__} {exc}".lower()
+    return (
+        "unsupported document" in error_text
+        or "unsupporteddocument" in error_text
+        or "bad document" in error_text
+        or "baddocument" in error_text
+    )
 
 
 def _date_from_summary_or_text(
