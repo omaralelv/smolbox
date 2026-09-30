@@ -40,6 +40,12 @@ TAXI_CATEGORY_ALIASES = (
     "TAXI",
 )
 
+MANUAL_AUTHORIZATION_AREA_CATEGORIES = (
+    "PASAJES Y TAXIS",
+    "TAXIS",
+    "TAXI",
+)
+
 LEGACY_AUTHORIZATION_AREA_NAME = "Supervisores"
 
 AUTHORIZATION_EXEMPT_STORE_CODES = (
@@ -289,6 +295,12 @@ def store_skips_authorization(store_code: str | None) -> bool:
     return _normalize_text(store_code) in _NORMALIZED_AUTHORIZATION_EXEMPT_STORE_CODES
 
 
+def category_requires_manual_authorization_area(category: str | None) -> bool:
+    if not category:
+        return False
+    return _normalize_text(category) in _NORMALIZED_MANUAL_AUTHORIZATION_AREA_CATEGORIES
+
+
 def ensure_default_category_authorization_rules(db: Session) -> None:
     existing_categories = set(
         db.scalars(select(CategoryAuthorizationRule.normalized_category)).all()
@@ -411,6 +423,9 @@ def _normalize_text(value: str) -> str:
 
 _NORMALIZED_TAXI_TYPES = tuple(_normalize_text(item) for item in TAXI_AUTHORIZATION_TYPES)
 _NORMALIZED_CATEGORY_ALIASES = tuple(_normalize_text(item) for item in TAXI_CATEGORY_ALIASES)
+_NORMALIZED_MANUAL_AUTHORIZATION_AREA_CATEGORIES = tuple(
+    _normalize_text(item) for item in MANUAL_AUTHORIZATION_AREA_CATEGORIES
+)
 _NORMALIZED_AUTHORIZATION_EXEMPT_STORE_CODES = tuple(
     _normalize_text(item) for item in AUTHORIZATION_EXEMPT_STORE_CODES
 )

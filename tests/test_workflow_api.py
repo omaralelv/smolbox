@@ -300,11 +300,11 @@ def test_authorizer_can_observe_authorized_expense_before_accounting(
         "/api/v1/expenses/",
         json={
             "reimbursement_request_id": base_records["request_id"],
-            "merchant": "Taxi con autorizacion",
+            "merchant": "Gasto con autorizacion",
             "amount": "1500.00",
             "currency": "MXN",
             "spent_on": "2026-08-07",
-            "category": "Pasajes y Taxis",
+            "category": "Alimentos",
             "requires_authorization": True,
         },
     )

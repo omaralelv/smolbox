@@ -32,7 +32,10 @@ from app.schemas.expense import (
     ExpenseUpdate,
 )
 from app.services.authorization_areas import user_can_authorize_expense_area
-from app.services.expense_authorization_rules import resolve_expense_authorization
+from app.services.expense_authorization_rules import (
+    category_requires_manual_authorization_area,
+    resolve_expense_authorization,
+)
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
@@ -143,6 +146,18 @@ def create_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Period not found")
     if period.status == PeriodStatus.closed:
         raise HTTPException(...)
+
+    if (
+        category_requires_manual_authorization_area(expense_data.get("category"))
+        and expense_data.get("authorization_area_id") is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "AUTHORIZATION_AREA_REQUIRED",
+                "message": "Selecciona el área que autoriza para Pasajes y Taxis.",
+            },
+        )
 
     authorization_decision = resolve_expense_authorization(
         db,

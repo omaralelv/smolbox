@@ -47,7 +47,10 @@ from app.services.authorization_areas import (
     request_has_authorization_area_for_user,
     request_has_authorization_visible_to_user,
 )
-from app.services.expense_authorization_rules import resolve_expense_authorization
+from app.services.expense_authorization_rules import (
+    category_requires_manual_authorization_area,
+    resolve_expense_authorization,
+)
 from app.services.frontend_actions import available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_periods import (
@@ -1077,6 +1080,18 @@ def _expense_from_frontend(
         requested_tax_rate=expense_in.cfdi_tax_rate,
     )
     tax_amount, tax_subtotal = _tax_amounts_from_rate(amount, tax_rate)
+    if (
+        category_requires_manual_authorization_area(category)
+        and not (expense_in.authorization_area_name or "").strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "AUTHORIZATION_AREA_REQUIRED",
+                "message": "Selecciona el área que autoriza para Pasajes y Taxis.",
+            },
+        )
+
     authorization_area = None
     if expense_in.authorization_area_name:
         try:

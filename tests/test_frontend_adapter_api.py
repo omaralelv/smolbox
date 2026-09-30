@@ -453,6 +453,7 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
                     "fecha": "07/08/2026",
                     "categoria": "Pasajes y Taxis",
                     "monto": "1500.00",
+                    "authorizationArea": "Supervisores",
                     "observaciones": "Traslado operativo",
                 }
             ],
@@ -495,6 +496,40 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
         headers=accountant_headers,
     )
     assert accountant_detail.status_code == 403, accountant_detail.text
+
+
+def test_frontend_taxi_expense_requires_authorization_area(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    store_user_id = _create_user(
+        client,
+        "store",
+        "frontend.taxi.noarea.store@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+    _create_opening_cutoff(session_factory, base_records["store_id"])
+
+    store_headers = _auth_headers(client, "frontend.taxi.noarea.store@example.com")
+    created = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=store_headers,
+        json={
+            "tienda": "T001",
+            "montoTotal": "1500.00",
+            "gastos": [
+                {
+                    "fecha": "07/08/2026",
+                    "categoria": "Pasajes y Taxis",
+                    "monto": "1500.00",
+                    "observaciones": "Traslado operativo",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 422, created.text
+    assert created.json()["detail"]["code"] == "AUTHORIZATION_AREA_REQUIRED"
 
 
 def test_frontend_fe006272_skips_authorization_and_routes_to_accounting(
@@ -544,6 +579,7 @@ def test_frontend_fe006272_skips_authorization_and_routes_to_accounting(
                     "fecha": "07/08/2026",
                     "categoria": "Pasajes y Taxis",
                     "monto": "1500.00",
+                    "authorizationArea": "Supervisores",
                     "observaciones": "Traslado operativo sin autorizacion",
                 }
             ],

@@ -233,6 +233,7 @@ function AnadirGasto() {
 
     // Condición para saber si la categoría seleccionada requiere habilitar el select
     const esTransporte = categoria === 'Pasajes y Taxis' || categoria === 'Trasportación';
+    const requiereAreaManual = categoria === 'Pasajes y Taxis';
     const esInsumo = categoria === 'Insumo';
     const areaAutorizaResuelta = esTransporte ? areaAutoriza : (esInsumo ? 'Insumos' : null);
     const requiereAutorizacion = esTransporte || esInsumo;
@@ -242,6 +243,14 @@ function AnadirGasto() {
     // 2. LÓGICA DE SIMULACIÓN DE IA
     const handleValidarGasto = async () => {
         if (cargandoValidacion) return;
+
+        if (requiereAreaManual && !areaAutoriza.trim()) {
+            const mensaje = 'Selecciona el área que autoriza para Pasajes y Taxis.';
+            setEstadoValidacion('error');
+            setMensajeValidacion(mensaje);
+            alert(mensaje);
+            return;
+        }
 
         const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
         if (errorDocumento) {
@@ -626,7 +635,7 @@ function AnadirGasto() {
                             ...styles.label,
                             opacity: muestraAreaAutoriza ? 1 : 0.4
                         }}>
-                            Área que autoriza {esTransporte ? '*' : esInsumo ? '(automática)' : ''}
+                            Área que autoriza {requiereAreaManual ? '*' : esInsumo ? '(automática)' : ''}
                         </label>
                         <select 
                             value={esInsumo ? 'Insumos' : areaAutoriza}

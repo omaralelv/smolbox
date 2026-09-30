@@ -89,7 +89,7 @@ def test_insumos_plural_always_routes_to_insumos(
     assert body["authorization_area_name"] == "Insumos"
 
 
-def test_pasajes_y_taxis_routes_to_supervisores(
+def test_pasajes_y_taxis_requires_manual_authorization_area(
     client: TestClient,
     base_records: dict[str, str],
 ) -> None:
@@ -105,10 +105,45 @@ def test_pasajes_y_taxis_routes_to_supervisores(
         },
     )
 
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "AUTHORIZATION_AREA_REQUIRED"
+
+
+def test_pasajes_y_taxis_uses_selected_authorization_area(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    systems_area_expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Sistemas Demo",
+            "amount": "1.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "Equipo de Cómputo Menor",
+        },
+    )
+    assert systems_area_expense.status_code == 201, systems_area_expense.text
+    systems_area_id = systems_area_expense.json()["authorization_area_id"]
+
+    response = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Taxi Demo",
+            "amount": "150.00",
+            "currency": "MXN",
+            "spent_on": "2026-08-07",
+            "category": "Pasajes y Taxis",
+            "authorization_area_id": systems_area_id,
+        },
+    )
+
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["requires_authorization"] is True
-    assert body["authorization_area_name"] == "Supervisores"
+    assert body["authorization_area_name"] == "Sistemas"
 
 
 def test_agua_never_requires_category_authorization(
