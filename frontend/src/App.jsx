@@ -8,7 +8,16 @@ import Header from './components/shared/Header';
 import TabsNav from './components/shared/TabsNav';
 import AppRouter from './app/AppRouter';
 
-import { clearSession, currentStoredRole, currentToken, getFrontendContext } from './lib/api';
+import {
+  clearSession,
+  currentStoredRole,
+  currentToken,
+  getAppHealth,
+  getFrontendContext,
+} from './lib/api';
+
+const VERSION_CHECK_INTERVAL_MS = 30_000;
+const VERSION_RELOAD_STORAGE_KEY = 'smolboxLastReloadVersion';
 
 function MainContent({ rolLogueado, setRolLogueado }) {
   const location = useLocation();
@@ -72,6 +81,57 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let activo = true;
+    let versionInicial = '';
+
+    const revisarVersion = async () => {
+      try {
+        const [health, pageSignature] = await Promise.all([
+          getAppHealth(),
+          obtenerFirmaPagina(),
+        ]);
+        if (!activo) return;
+
+        const versionActual = [health?.version, pageSignature].filter(Boolean).join('|');
+        if (!versionActual) return;
+
+        if (!versionInicial) {
+          versionInicial = versionActual;
+          return;
+        }
+
+        if (versionActual !== versionInicial) {
+          const ultimaRecarga = sessionStorage.getItem(VERSION_RELOAD_STORAGE_KEY);
+          if (ultimaRecarga !== versionActual) {
+            sessionStorage.setItem(VERSION_RELOAD_STORAGE_KEY, versionActual);
+            window.location.reload();
+          }
+        }
+      } catch {
+        // Si la verificacion falla, la app sigue funcionando y se reintenta despues.
+      }
+    };
+
+    const revisarAlVolver = () => {
+      if (document.visibilityState === 'visible') {
+        revisarVersion();
+      }
+    };
+
+    revisarVersion();
+    const intervalo = window.setInterval(revisarVersion, VERSION_CHECK_INTERVAL_MS);
+    window.addEventListener('focus', revisarVersion);
+    document.addEventListener('visibilitychange', revisarAlVolver);
+
+    return () => {
+      activo = false;
+      window.clearInterval(intervalo);
+      window.removeEventListener('focus', revisarVersion);
+      document.removeEventListener('visibilitychange', revisarAlVolver);
+    };
+  }, []);
+
   return (
     <BrowserRouter>
       <MainContent 
@@ -80,6 +140,21 @@ function App() {
       />
     </BrowserRouter>
   );
+}
+
+async function obtenerFirmaPagina() {
+  const response = await fetch(`/?smolboxVersionCheck=${Date.now()}`, {
+    cache: 'no-store',
+  });
+  if (!response.ok) return '';
+
+  const html = await response.text();
+  const assets = Array.from(
+    html.matchAll(/(?:src|href)=["']([^"']+\.(?:js|css)(?:\?[^"']*)?)["']/gi),
+    (match) => match[1]
+  ).sort();
+
+  return assets.length > 0 ? assets.join('|') : String(html.length);
 }
 
 export default App;

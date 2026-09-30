@@ -187,6 +187,10 @@ export async function getFrontendContext() {
     return request('/frontend/context/me');
 }
 
+export async function getAppHealth() {
+    return request('/health', { skipAuth: true });
+}
+
 export async function getFrontendBandeja() {
     return request('/frontend/bandeja/me');
 }

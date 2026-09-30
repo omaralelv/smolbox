@@ -42,6 +42,13 @@ def test_frontend_origin_is_allowed_by_main_app() -> None:
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
+def test_health_includes_application_version(client: TestClient) -> None:
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["version"]
+
+
 def test_work_queue_and_request_detail_include_frontend_payload(
     client: TestClient,
     base_records: dict[str, str],
