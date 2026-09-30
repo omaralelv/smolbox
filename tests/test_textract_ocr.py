@@ -76,6 +76,93 @@ def test_analyze_expense_suggests_cfdi_uuid_from_spaced_ocr_text() -> None:
     assert result.suggested_cfdi_uuid == "11111111-2222-3333-4444-AAAAAAAAAAAA"
 
 
+def test_analyze_expense_parses_invoice_date_with_time_from_summary() -> None:
+    result = _parse_analyze_expense_response(
+        {
+            "ExpenseDocuments": [
+                {
+                    "Blocks": [],
+                    "SummaryFields": [
+                        {
+                            "Type": {"Text": "INVOICE_RECEIPT_DATE"},
+                            "ValueDetection": {"Text": "2026-08-07T12:30:00"},
+                        }
+                    ],
+                }
+            ]
+        },
+        store_raw_response=False,
+    )
+
+    assert result.extracted_date == date(2026, 8, 7)
+
+
+def test_analyze_expense_falls_back_to_ocr_text_for_spanish_invoice_date() -> None:
+    result = _parse_analyze_expense_response(
+        {
+            "ExpenseDocuments": [
+                {
+                    "Blocks": [
+                        {"BlockType": "LINE", "Text": "Factura A-123"},
+                        {
+                            "BlockType": "LINE",
+                            "Text": "Fecha de emisión: 07 de agosto de 2026",
+                        },
+                    ],
+                    "SummaryFields": [],
+                }
+            ]
+        },
+        store_raw_response=False,
+    )
+
+    assert result.extracted_date == date(2026, 8, 7)
+
+
+def test_analyze_expense_prioritizes_invoice_date_over_stamp_date() -> None:
+    result = _parse_analyze_expense_response(
+        {
+            "ExpenseDocuments": [
+                {
+                    "Blocks": [
+                        {
+                            "BlockType": "LINE",
+                            "Text": "Fecha de certificación: 09/08/2026",
+                        },
+                        {
+                            "BlockType": "LINE",
+                            "Text": "Fecha de emisión: 07/08/2026",
+                        },
+                    ],
+                    "SummaryFields": [],
+                }
+            ]
+        },
+        store_raw_response=False,
+    )
+
+    assert result.extracted_date == date(2026, 8, 7)
+
+
+def test_analyze_expense_parses_invoice_date_when_label_is_on_previous_line() -> None:
+    result = _parse_analyze_expense_response(
+        {
+            "ExpenseDocuments": [
+                {
+                    "Blocks": [
+                        {"BlockType": "LINE", "Text": "Fecha factura"},
+                        {"BlockType": "LINE", "Text": "7 AGO 2026"},
+                    ],
+                    "SummaryFields": [],
+                }
+            ]
+        },
+        store_raw_response=False,
+    )
+
+    assert result.extracted_date == date(2026, 8, 7)
+
+
 def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_settings) -> None:
     test_settings.textract_enabled = True
 

@@ -14,6 +14,56 @@ SUPPORTED_TEXTRACT_CONTENT_TYPES = {
     "image/jpeg",
     "image/png",
 }
+SPANISH_MONTH_NUMBERS = {
+    "ENE": 1,
+    "ENERO": 1,
+    "FEB": 2,
+    "FEBRERO": 2,
+    "MAR": 3,
+    "MARZO": 3,
+    "ABR": 4,
+    "ABRIL": 4,
+    "MAY": 5,
+    "MAYO": 5,
+    "JUN": 6,
+    "JUNIO": 6,
+    "JUL": 7,
+    "JULIO": 7,
+    "AGO": 8,
+    "AGOSTO": 8,
+    "SEP": 9,
+    "SEPT": 9,
+    "SEPTIEMBRE": 9,
+    "SET": 9,
+    "SETIEMBRE": 9,
+    "OCT": 10,
+    "OCTUBRE": 10,
+    "NOV": 11,
+    "NOVIEMBRE": 11,
+    "DIC": 12,
+    "DICIEMBRE": 12,
+}
+SPANISH_MONTH_PATTERN = "|".join(
+    sorted((re.escape(month) for month in SPANISH_MONTH_NUMBERS), key=len, reverse=True)
+)
+DATE_CONTEXT_HINTS = (
+    "FECHADEEMISION",
+    "FECHAEMISION",
+    "FECHADEEXPEDICION",
+    "FECHAEXPEDICION",
+    "FECHAFACTURA",
+    "EXPEDIDO",
+    "EMISION",
+    "FECHA",
+)
+DEPRIORITIZED_DATE_CONTEXT_HINTS = (
+    "CERTIFICACION",
+    "TIMBRADO",
+    "VENCIMIENTO",
+    "PAGO",
+    "PAGADO",
+    "CERTIFICADO",
+)
 
 OCR_UNREADABLE_DOCUMENT_MESSAGE = (
     "No se pudo leer el documento con OCR.\n"
@@ -147,9 +197,7 @@ def _parse_analyze_expense_response(
         _first_summary_value(values_by_type, "TOTAL", "AMOUNT_DUE", "GRAND_TOTAL")
     )
     supplier = _first_summary_value(values_by_type, "VENDOR_NAME", "NAME")
-    extracted_date = _date_from_text(
-        _first_summary_value(values_by_type, "INVOICE_RECEIPT_DATE", "DATE")
-    )
+    extracted_date = _date_from_summary_or_text(values_by_type, raw_text)
     suggested_cfdi_uuid = _cfdi_uuid_from_text(raw_text)
     confidence = _average_confidence(summary_fields)
 
@@ -218,22 +266,107 @@ def _money_from_text(value: str | None) -> Decimal | None:
         return None
 
 
+def _date_from_summary_or_text(
+    values_by_type: dict[str, list[str]],
+    raw_text: str,
+) -> date | None:
+    for field_type in ("INVOICE_RECEIPT_DATE", "DATE"):
+        for value in values_by_type.get(field_type, []):
+            parsed = _date_from_text(value)
+            if parsed is not None:
+                return parsed
+
+    return _date_from_ocr_text(raw_text)
+
+
+def _date_from_ocr_text(raw_text: str | None) -> date | None:
+    if not raw_text:
+        return None
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    candidates: list[tuple[int, int, date]] = []
+
+    for index, line in enumerate(lines):
+        parsed = _date_from_text(line)
+        if parsed is not None:
+            candidates.append((_date_context_rank(line), index, parsed))
+
+        if index + 1 < len(lines) and _has_date_context(line):
+            parsed_next = _date_from_text(f"{line} {lines[index + 1]}")
+            if parsed_next is not None:
+                candidates.append((_date_context_rank(line), index, parsed_next))
+
+    if not candidates:
+        return None
+
+    return min(candidates, key=lambda candidate: (candidate[0], candidate[1]))[2]
+
+
 def _date_from_text(value: str | None) -> date | None:
     if not value:
         return None
 
-    normalized = value.strip()
-    iso_match = re.fullmatch(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", normalized)
+    normalized = re.sub(r"\s+", " ", value.strip())
+    normalized_without_accents = _text_without_accents(normalized).upper()
+
+    month_match = re.search(
+        rf"\b(\d{{1,2}})(?:\s+|[-/])(?:DE\s+)?({SPANISH_MONTH_PATTERN})(?:\s+|[-/])(?:DE\s+)?(\d{{2,4}})\b",
+        normalized_without_accents,
+    )
+    if month_match:
+        day = int(month_match.group(1))
+        month = SPANISH_MONTH_NUMBERS[month_match.group(2)]
+        year = _normalize_year(int(month_match.group(3)))
+        return _safe_date(year, month, day)
+
+    iso_match = re.search(
+        r"\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s]\d{1,2}:\d{2}(?::\d{2})?)?\b",
+        normalized,
+    )
     if iso_match:
         year, month, day = (int(part) for part in iso_match.groups())
         return _safe_date(year, month, day)
 
-    short_match = re.fullmatch(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", normalized)
+    short_match = re.search(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b", normalized)
     if not short_match:
         return None
 
     first, second, year = (int(part) for part in short_match.groups())
+    year = _normalize_year(year)
     return _safe_date(year, second, first) or _safe_date(year, first, second)
+
+
+def _date_context_rank(value: str) -> int:
+    compact = _compact_search_text(value)
+    has_positive_context = any(hint in compact for hint in DATE_CONTEXT_HINTS)
+    has_deprioritized_context = any(
+        hint in compact for hint in DEPRIORITIZED_DATE_CONTEXT_HINTS
+    )
+
+    if has_positive_context and not has_deprioritized_context:
+        return 0
+    if not has_deprioritized_context:
+        return 1
+    return 2
+
+
+def _has_date_context(value: str) -> bool:
+    compact = _compact_search_text(value)
+    return any(hint in compact for hint in DATE_CONTEXT_HINTS)
+
+
+def _text_without_accents(value: str) -> str:
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(character)
+    )
+
+
+def _normalize_year(year: int) -> int:
+    if year < 100:
+        return 2000 + year if year < 70 else 1900 + year
+    return year
 
 
 def _cfdi_uuid_from_text(value: str | None) -> str | None:
@@ -292,6 +425,8 @@ def _format_compact_uuid(value: str) -> str:
 
 
 def _safe_date(year: int, month: int, day: int) -> date | None:
+    if year < 1900 or year > 2100:
+        return None
     try:
         return date(year, month, day)
     except ValueError:
