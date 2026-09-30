@@ -110,6 +110,10 @@ class TextractOcrService:
         if not self.is_enabled or not self.supports_content_type(content_type):
             return None
 
+        pdf_text_result = _extract_text_pdf_expense(content, content_type=content_type)
+        if _text_pdf_result_is_sufficient(pdf_text_result):
+            return pdf_text_result
+
         client = self._client()
         try:
             # Aqui vive la llamada real a AWS Textract.
@@ -280,6 +284,14 @@ def _extract_text_pdf_expense(
         confidence=None,
         raw_response=None,
     )
+
+
+def _text_pdf_result_is_sufficient(result: TextractOcrResult | None) -> bool:
+    if result is None:
+        return False
+    if result.suggested_cfdi_uuid and result.extracted_date and result.extracted_total:
+        return True
+    return bool(result.extracted_date and result.extracted_total)
 
 
 def _pdf_text_from_bytes(content: bytes) -> str | None:
