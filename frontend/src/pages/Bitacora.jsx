@@ -443,6 +443,7 @@ function actionLabel(action, toStatus) {
         request_updated: 'Solicitud editada',
         sap_policy_placeholder_prepared: 'Póliza preparada',
         download_invoices_zip: 'Descargar ZIP de facturas',
+        download_policy_zip: 'Descargar ZIP de pólizas',
     };
 
     if (action === 'request_status_changed') {
@@ -529,6 +530,7 @@ function translateMessage(message) {
         'Reimbursement request updated.': 'Solicitud actualizada.',
         'Sap policy placeholder prepared.': 'Póliza preparada.',
         'Downloaded invoices ZIP':'Descarga de ZIP de facturas.',
+        'Downloaded policy ZIP':'Descarga de ZIP de pólizas.',
     };
     return messages[message] || message;
 }

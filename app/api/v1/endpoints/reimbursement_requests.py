@@ -229,6 +229,16 @@ def download_request_invoices_zip_as_current_user(
         )
     db.commit()
 
+    db.add(
+            AuditLog(
+                    reimbursement_request_id=reimbursement_request.id,
+                    actor_user_id=current_user.id,
+                    action="download_policy_zip",
+                    message="Downloaded policy ZIP",
+                )
+            )
+    db.commit()
+
     zip_buffer.seek(0)
     filename = f"{_safe_filename(reimbursement_request.folio or str(reimbursement_request.id))}-facturas.zip"
     return StreamingResponse(
