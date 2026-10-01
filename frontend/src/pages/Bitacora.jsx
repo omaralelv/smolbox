@@ -441,6 +441,7 @@ function actionLabel(action, toStatus) {
         request_created: 'Solicitud cargada',
         request_created_from_frontend: 'Solicitud cargada',
         request_updated: 'Solicitud editada',
+        sap_policy_placeholder_prepared: 'Póliza preparada',
         download_invoices_zip: 'Descargar ZIP de facturas',
     };
 
@@ -526,7 +527,8 @@ function translateMessage(message) {
         'Reimbursement request created.': 'Solicitud creada.',
         'Reimbursement request created from frontend-compatible API.': 'Solicitud creada desde la app.',
         'Reimbursement request updated.': 'Solicitud actualizada.',
-        'SAP policy placeholder prepared.': 'Póliza preparada.',
+        'Sap policy placeholder prepared.': 'Póliza preparada.',
+        'Downloaded invoices ZIP':'Descarga de ZIP de facturas.',
     };
     return messages[message] || message;
 }
