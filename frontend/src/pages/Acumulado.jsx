@@ -5,6 +5,7 @@ import {
     apiErrorMessage,
     currentToken,
     downloadProtectedFile,
+    downloadRequestInvoicesZip,
     executeRequestAction,
     getFrontendSolicitud,
     uploadReimbursementExcel,
@@ -21,6 +22,7 @@ function Acumulado( {currentRole} ) {
     // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
     const [solicitudActual, setSolicitudActual] = useState(location.state?.solicitud || null);
     const [subiendoReembolso, setSubiendoReembolso] = useState(false);
+    const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
     const solicitudSeleccionada = solicitudActual || location.state?.solicitud || null;
     const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.reimbursementRequestId || solicitudSeleccionada?.id;
     const reembolsoDownloadUrl = solicitudSeleccionada?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolso_download_url || null;
@@ -37,6 +39,10 @@ function Acumulado( {currentRole} ) {
 
     // Validar si la solicitud ya está aprobada por dirección para liberar el botón de confirmar pago
     const puedeConfirmarPago = ['direction_approved', 'approved_for_payment'].includes(currentBackendStatus);
+
+    // ESTADO PARA BOTON DE DESCARGAR ZIP
+    const [descargandoFacturas, setDescargandoFacturas] = useState(false);
+
 
 
     // ESTADOS PARA EL MODAL DE DEVOLUCIÓN Y BANNER AMARILLO
@@ -218,7 +224,25 @@ function Acumulado( {currentRole} ) {
         }
     }
 
+    // LÓGICA DE DESCARGA DE COMPROBANTES
+    const handleDescargarFacturas = async () => {
+            if (!solicitudBackendId) {
+                alert('No hay una solicitud de backend para descargar facturas.');
+                return;
+            }
 
+            try {
+                setDescargandoFacturas(true);
+                await downloadRequestInvoicesZip(
+                    solicitudBackendId,
+                    `${solicitudFolio || 'solicitud'}-facturas.zip`
+                );
+            } catch (error) {
+                alert(apiErrorMessage(error));
+            } finally {
+                setDescargandoFacturas(false);
+            }
+        };
 
 
     // MANEJADORES DE DEVOLUCIÓN (MODAL)
@@ -658,9 +682,23 @@ function Acumulado( {currentRole} ) {
             {/* CABECERA DE LA SOLICITUD */}
             <div style={styles.headerRow}>
                 <h2 style={styles.title}> Solicitud {datosSolicitud.folio}</h2>
-                <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
-                    Regresar
-                </button>
+
+                <div style={styles.headerButtonsGroup}>
+                    <button
+                        style={{
+                            ...styles.facturasZipBtn,
+                            opacity: !solicitudBackendId || descargandoFacturas ? 0.55 : 1,
+                        }}
+                        onClick={handleDescargarFacturas}
+                        disabled={!solicitudBackendId || descargandoFacturas}
+                    >
+                        {descargandoFacturas ? 'Descargando...' : 'Descargar Comprobantes'}
+                    </button>
+
+                    <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
+                        Regresar
+                    </button>
+                </div>
             </div>
 
 
@@ -820,6 +858,26 @@ const styles = {
         fontSize: '22px',
         color: '#333',
     },
+
+
+    facturasZipBtn: {
+        border: '1px solid var(--sb-btnBorder)',
+        background: 'var(--sb-sendBtnBg)',
+        color: 'var(--text-CBtn)',
+        borderRadius: '20px',
+        padding: '6px 15px',
+        cursor: 'pointer',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow)',
+    },
+
+    headerButtonsGroup: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px', // Espacio entre "Descargar facturas" y "Regresar"
+    },
+
     regresarBtn: {
         backgroundColor: 'transparent',
         border: '1px solid var(--sb-btnBorder)',
