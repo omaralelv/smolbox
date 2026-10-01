@@ -202,6 +202,16 @@ def download_request_invoices_zip_as_current_user(
             file_path = (upload_root / Path(attachment.storage_path)).resolve()
             if not _is_relative_to(file_path, upload_root) or not file_path.is_file():
                 continue
+    # Record audit event for ZIP download
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=current_user.id,
+            action="download_invoices_zip",
+            message="Downloaded invoices ZIP",
+        )
+    )
+    db.commit()
 
             archive_name = _unique_zip_name(
                 _invoice_zip_name(index, expense, attachment),
