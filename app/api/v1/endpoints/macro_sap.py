@@ -390,7 +390,16 @@ def generar_polizas(
 
     poliza_detallada.append(registro_acreedor)
     poliza_agrupada.append(registro_acreedor)
-    nuevo_inicio=str_fin_ant + timedelta(days=1) 
+    # Convert previous period end string to date and add one day
+    if str_fin_ant:
+        try:
+            prev_end_date = datetime.strptime(str_fin_ant, "%d/%m/%Y").date()
+        except Exception:
+            prev_end_date = None
+        nuevo_inicio = prev_end_date + timedelta(days=1) if prev_end_date else datetime.now().date()
+    else:
+        nuevo_inicio = datetime.now().date()
+
 
     # D) Creación del Archivo 1: SAP (En memoria)
     wb_sap = Workbook()
