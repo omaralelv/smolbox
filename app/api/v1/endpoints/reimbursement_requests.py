@@ -1411,8 +1411,7 @@ def _invoice_attachments_for_zip(
             continue
 
         for attachment in sorted(expense.attachments, key=lambda item: item.uploaded_at):
-            if _attachment_is_invoice(attachment):
-                invoice_attachments.append((index, expense, attachment))
+            invoice_attachments.append((index, expense, attachment))
     return invoice_attachments
 
 
@@ -1425,7 +1424,7 @@ def _attachment_is_invoice(attachment: Attachment) -> bool:
     if extraction is not None and extraction.suggested_cfdi_uuid:
         return True
     filename = (attachment.filename or "").lower()
-    return any(term in filename for term in ("factura", "invoice", "cfdi", "xml"))
+    return any(term in filename for term in ("factura", "invoice", "cfdi", "xml", "vale", "ticket", "nota", "comprobante", "receipt"))
 
 
 def _invoice_zip_name(index: int, expense: Expense, attachment: Attachment) -> str:
