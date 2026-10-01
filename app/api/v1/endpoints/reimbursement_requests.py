@@ -213,11 +213,11 @@ def download_request_invoices_zip_as_current_user(
     )
     db.commit()
 
-            archive_name = _unique_zip_name(
-                _invoice_zip_name(index, expense, attachment),
-                used_names,
-            )
-            zip_file.write(file_path, archive_name)
+    archive_name = _unique_zip_name(
+        _invoice_zip_name(index, expense, attachment),
+        used_names,
+    )
+    zip_file.write(file_path, archive_name)
 
     if not used_names:
         raise HTTPException(
