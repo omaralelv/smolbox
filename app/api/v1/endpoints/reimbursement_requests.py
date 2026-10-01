@@ -197,27 +197,18 @@ def download_request_invoices_zip_as_current_user(
     zip_buffer = BytesIO()
     used_names: set[str] = set()
     upload_root = settings.upload_dir.resolve()
+
     with ZipFile(zip_buffer, mode="w", compression=ZIP_DEFLATED) as zip_file:
         for index, expense, attachment in invoice_attachments:
             file_path = (upload_root / Path(attachment.storage_path)).resolve()
             if not _is_relative_to(file_path, upload_root) or not file_path.is_file():
                 continue
-    # Record audit event for ZIP download
-    db.add(
-        AuditLog(
-            reimbursement_request_id=reimbursement_request.id,
-            actor_user_id=current_user.id,
-            action="download_invoices_zip",
-            message="Downloaded invoices ZIP",
-        )
-    )
-    db.commit()
 
-    archive_name = _unique_zip_name(
-        _invoice_zip_name(index, expense, attachment),
-        used_names,
-    )
-    zip_file.write(file_path, archive_name)
+            archive_name = _unique_zip_name(
+                        _invoice_zip_name(index, expense, attachment),
+                        used_names,
+                    )
+            zip_file.write(file_path, archive_name)
 
     if not used_names:
         raise HTTPException(
@@ -227,6 +218,16 @@ def download_request_invoices_zip_as_current_user(
                 "message": "Invoice files were not found on disk.",
             },
         )
+
+    db.add(
+        AuditLog(
+                reimbursement_request_id=reimbursement_request.id,
+                actor_user_id=current_user.id,
+                action="download_invoices_zip",
+                message="Downloaded invoices ZIP",
+            )
+        )
+    db.commit()
 
     zip_buffer.seek(0)
     filename = f"{_safe_filename(reimbursement_request.folio or str(reimbursement_request.id))}-facturas.zip"
