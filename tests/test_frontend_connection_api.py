@@ -1,3 +1,6 @@
+from io import BytesIO
+from zipfile import ZipFile
+
 from conftest import create_expense
 from fastapi.testclient import TestClient
 
@@ -143,3 +146,51 @@ def test_work_queue_and_request_detail_include_frontend_payload(
         f"/api/v1/attachments/{receipt.json()['id']}/download/me"
     )
     assert frontend_expense["urlRecibo"] == frontend_expense["urlGasto"]
+
+
+def test_download_request_invoices_zip_includes_invoice_attachments(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "invoice.zip@example.com",
+            "full_name": "Invoice Zip",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert user.status_code == 201, user.text
+    assignment = client.post(
+        f"/api/v1/stores/{base_records['store_id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+    headers = _auth_headers(client, "invoice.zip@example.com")
+
+    expense = create_expense(client, base_records)
+    cfdi = client.post(
+        f"/api/v1/expenses/{expense['id']}/cfdi/validate",
+        files={
+            "file": (
+                "factura-demo.xml",
+                _cfdi_xml("22222222-2222-3333-4444-AAAAAAAAAAAA"),
+                "application/xml",
+            )
+        },
+    )
+    assert cfdi.status_code == 200, cfdi.text
+
+    response = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/invoices.zip/me",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    assert "facturas.zip" in response.headers["content-disposition"]
+
+    with ZipFile(BytesIO(response.content)) as zip_file:
+        names = zip_file.namelist()
+        assert any(name.endswith("factura-demo.xml") for name in names)

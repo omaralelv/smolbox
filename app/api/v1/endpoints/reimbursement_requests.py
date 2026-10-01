@@ -1,9 +1,13 @@
 from datetime import UTC, datetime
 from decimal import Decimal
+from io import BytesIO
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -164,6 +168,63 @@ def get_reimbursement_request_detail_as_current_user(
         db,
     )
     return _build_request_detail(reimbursement_request, current_user, db)
+
+
+@router.get("/{request_id}/invoices.zip/me")
+def download_request_invoices_zip_as_current_user(
+    request_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StreamingResponse:
+    reimbursement_request = _get_request_detail_or_404(request_id, db)
+    _ensure_request_visible_to_user(reimbursement_request, current_user, db)
+
+    invoice_attachments = _invoice_attachments_for_zip(
+        reimbursement_request,
+        current_user,
+        db,
+    )
+    if not invoice_attachments:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_INVOICE_ATTACHMENTS",
+                "message": "No invoice attachments were found for this request.",
+            },
+        )
+
+    zip_buffer = BytesIO()
+    used_names: set[str] = set()
+    upload_root = settings.upload_dir.resolve()
+    with ZipFile(zip_buffer, mode="w", compression=ZIP_DEFLATED) as zip_file:
+        for index, expense, attachment in invoice_attachments:
+            file_path = (upload_root / Path(attachment.storage_path)).resolve()
+            if not _is_relative_to(file_path, upload_root) or not file_path.is_file():
+                continue
+
+            archive_name = _unique_zip_name(
+                _invoice_zip_name(index, expense, attachment),
+                used_names,
+            )
+            zip_file.write(file_path, archive_name)
+
+    if not used_names:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "INVOICE_FILES_NOT_FOUND",
+                "message": "Invoice files were not found on disk.",
+            },
+        )
+
+    zip_buffer.seek(0)
+    filename = f"{_safe_filename(reimbursement_request.folio or str(reimbursement_request.id))}-facturas.zip"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.patch("/{request_id}", response_model=ReimbursementRequestRead)
@@ -976,21 +1037,24 @@ def _transition_request_with_actor(
         db.flush()
 
     summary = summarize_reimbursement_request(reimbursement_request)
-    if not user_can_transition_store_request(db, actor, reimbursement_request.store_id):
-        if not _authorizer_can_transition_by_area_without_store_assignment(
-            reimbursement_request,
-            actor=actor,
-            target_status=target_status,
-            summary=summary,
-            db=db,
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "code": "STORE_ASSIGNMENT_REQUIRED",
-                    "message": "Actor must be assigned to the request store for this transition",
-                },
-            )
+    if not user_can_transition_store_request(
+        db,
+        actor,
+        reimbursement_request.store_id,
+    ) and not _authorizer_can_transition_by_area_without_store_assignment(
+        reimbursement_request,
+        actor=actor,
+        target_status=target_status,
+        summary=summary,
+        db=db,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store for this transition",
+            },
+        )
     if _is_duplicate_rejected_transition(
         reimbursement_request,
         actor=actor,
@@ -1233,19 +1297,22 @@ def _ensure_request_visible_to_user(
     current_user: User,
     db: Session,
 ) -> None:
-    if not user_can_transition_store_request(db, current_user, reimbursement_request.store_id):
-        if not _authorizer_can_view_request_by_area_without_store_assignment(
-            reimbursement_request,
-            current_user,
-            db,
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "code": "STORE_ASSIGNMENT_REQUIRED",
-                    "message": "Actor must be assigned to the request store",
-                },
-            )
+    if not user_can_transition_store_request(
+        db,
+        current_user,
+        reimbursement_request.store_id,
+    ) and not _authorizer_can_view_request_by_area_without_store_assignment(
+        reimbursement_request,
+        current_user,
+        db,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store",
+            },
+        )
     if (
         current_user.role != UserRole.authorizer
         or reimbursement_request.status
@@ -1310,6 +1377,85 @@ def _mark_accounting_request_taken_if_needed(
     )
     db.commit()
     return _get_request_detail_or_404(reimbursement_request.id, db)
+
+
+def _invoice_attachments_for_zip(
+    reimbursement_request: ReimbursementRequest,
+    current_user: User,
+    db: Session,
+) -> list[tuple[int, Expense, Attachment]]:
+    invoice_attachments: list[tuple[int, Expense, Attachment]] = []
+    for index, expense in enumerate(
+        sorted(reimbursement_request.expenses, key=lambda item: (item.spent_on, item.merchant)),
+        start=1,
+    ):
+        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}:
+            continue
+        if not expense_is_visible_to_authorizer(
+            db,
+            current_user,
+            expense,
+            store_id=reimbursement_request.store_id,
+        ):
+            continue
+
+        for attachment in sorted(expense.attachments, key=lambda item: item.uploaded_at):
+            if _attachment_is_invoice(attachment):
+                invoice_attachments.append((index, expense, attachment))
+    return invoice_attachments
+
+
+def _attachment_is_invoice(attachment: Attachment) -> bool:
+    if attachment.attachment_type == AttachmentType.cfdi_xml:
+        return True
+    if attachment.content_type == "application/xml":
+        return True
+    extraction = attachment.ocr_extraction
+    if extraction is not None and extraction.suggested_cfdi_uuid:
+        return True
+    filename = (attachment.filename or "").lower()
+    return any(term in filename for term in ("factura", "invoice", "cfdi", "xml"))
+
+
+def _invoice_zip_name(index: int, expense: Expense, attachment: Attachment) -> str:
+    category = _safe_filename(expense.category or "gasto")
+    merchant = _safe_filename(expense.merchant or "proveedor")
+    filename = _safe_filename(attachment.filename or f"factura-{attachment.id}")
+    return f"{index:02d}-{category}-{merchant}/{filename}"
+
+
+def _safe_filename(value: str) -> str:
+    cleaned = "".join(
+        character if character.isalnum() or character in {"-", "_", ".", " "} else "-"
+        for character in str(value).strip()
+    )
+    cleaned = "-".join(cleaned.split())
+    return cleaned[:120] or "archivo"
+
+
+def _unique_zip_name(name: str, used_names: set[str]) -> str:
+    if name not in used_names:
+        used_names.add(name)
+        return name
+
+    path = Path(name)
+    stem = str(path.with_suffix(""))
+    suffix = path.suffix
+    counter = 2
+    while True:
+        candidate = f"{stem}-{counter}{suffix}"
+        if candidate not in used_names:
+            used_names.add(candidate)
+            return candidate
+        counter += 1
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
 
 
 def _build_request_detail(

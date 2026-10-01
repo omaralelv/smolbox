@@ -573,6 +573,13 @@ export async function downloadProtectedFile(path, fallbackFilename = 'archivo') 
     URL.revokeObjectURL(objectUrl);
 }
 
+export async function downloadRequestInvoicesZip(requestId, fallbackFilename = 'facturas.zip') {
+    return downloadProtectedFile(
+        `/reimbursement-requests/${encodeURIComponent(requestId)}/invoices.zip/me`,
+        fallbackFilename
+    );
+}
+
 export async function fetchProtectedBlob(url, options = {}) {
     const response = await fetchWithAuthRetry(url, options);
     if (!response.ok) {

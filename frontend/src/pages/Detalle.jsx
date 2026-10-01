@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
     addExpenseObservation,
     apiErrorMessage,
+    downloadRequestInvoicesZip,
     getRequestAuditEvents,
     removeExpense,
     updateExpenseForReview,
@@ -105,6 +106,7 @@ function Detalle({ currentRole }) {
     const [categoriaEditada, setCategoriaEditada] = useState('');
     const [impuestoEditado, setImpuestoEditado] = useState('16');
     const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+    const [descargandoFacturas, setDescargandoFacturas] = useState(false);
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
@@ -226,6 +228,25 @@ function Detalle({ currentRole }) {
     const handleToggleObservaciones = (gasto) => {
         setGastoSeleccionado(gasto);
         setObservacionesAbiertas(!observacionesAbiertas);
+    };
+
+    const handleDescargarFacturas = async () => {
+        if (!solicitudBackendId) {
+            alert('No hay una solicitud de backend para descargar facturas.');
+            return;
+        }
+
+        try {
+            setDescargandoFacturas(true);
+            await downloadRequestInvoicesZip(
+                solicitudBackendId,
+                `${solicitudFolio || 'solicitud'}-facturas.zip`
+            );
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setDescargandoFacturas(false);
+        }
     };
 
     const handleEnviarObservacion = async (e) => {
@@ -453,9 +474,21 @@ function Detalle({ currentRole }) {
                 {/* ENCABEZADO */}
                 <div style={styles.headerRow}>
                     <h2 style={styles.title}>{solicitudFolio} / {categoria}</h2>
-                    <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
-                        Regresar
-                    </button>
+                    <div style={styles.headerActions}>
+                        <button
+                            style={{
+                                ...styles.facturasZipBtn,
+                                opacity: !solicitudBackendId || descargandoFacturas ? 0.55 : 1,
+                            }}
+                            onClick={handleDescargarFacturas}
+                            disabled={!solicitudBackendId || descargandoFacturas}
+                        >
+                            {descargandoFacturas ? 'Descargando...' : 'Descargar facturas'}
+                        </button>
+                        <button style={styles.regresarBtn} onClick={() => navigate(-1)}>
+                            Regresar
+                        </button>
+                    </div>
                 </div>
 
 
@@ -715,6 +748,22 @@ const styles = {
         fontSize: '20px',
         color: '#333',
         fontWeight: 'bold'
+    },
+    headerActions: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+    },
+    facturasZipBtn: {
+        border: '1px solid var(--sb-btnBorder)',
+        background: '#fff7f8',
+        color: 'var(--text-WBtn)',
+        borderRadius: '20px',
+        padding: '6px 16px',
+        cursor: 'pointer',
+        fontSize: '13px',
+        fontWeight: 'bold',
+        boxShadow: 'var(--shadow)',
     },
     regresarBtn: {
         border: '1px solid var(--sb-btnBorder)',

@@ -14,10 +14,11 @@ export default function Drawer({
     onEnviarObservacion,   // Función al dar submit al comentario
     currentRole,
 }) {
-    if (!documentoActivo && !observacionesAbiertas) return null;
+    const [documentoAmpliado, setDocumentoAmpliado] = useState(false);
 
     const rolNormalizado = String(currentRole).toLowerCase().trim();
     const documento = documentoActivo ? obtenerDocumento(gasto, documentoActivo) : null;
+    const hayPanelAbierto = Boolean(documentoActivo || observacionesAbiertas);
 
     const tituloDocumento =
         documentoActivo === 'factura' ? 'Factura' :
@@ -25,6 +26,11 @@ export default function Drawer({
         documentoActivo === 'recibo' ? 'Gasto' :
         documentoActivo === 'documento' ? 'Documento' : '';
 
+    useEffect(() => {
+        setDocumentoAmpliado(false);
+    }, [documentoActivo, documento]);
+
+    if (!hayPanelAbierto) return null;
 
     return (
         <div style={styles.drawerWrapper}>
@@ -36,7 +42,18 @@ export default function Drawer({
                         <h3 style={styles.title}>
                             {tituloDocumento} {gasto?.nombre || gasto?.id || ''}
                         </h3>
-                        <button style={styles.closeBtn} onClick={onCloseDocumento}>✕</button>
+                        <div style={styles.headerControls}>
+                            {documento && (
+                                <button
+                                    type="button"
+                                    style={styles.ampliarBtn}
+                                    onClick={() => setDocumentoAmpliado(true)}
+                                >
+                                    Ampliar
+                                </button>
+                            )}
+                            <button style={styles.closeBtn} onClick={onCloseDocumento}>✕</button>
+                        </div>
                     </div>
 
                     <div style={styles.documentoBody}>
@@ -44,6 +61,32 @@ export default function Drawer({
                             key={documentoKey(documentoActivo, documento)}
                             documento={documento}
                         />
+                    </div>
+                </div>
+            )}
+
+            {documentoActivo && documentoAmpliado && (
+                <div style={styles.modalDocumentoOverlay}>
+                    <div style={styles.modalDocumento}>
+                        <div style={styles.modalDocumentoHeader}>
+                            <h3 style={styles.title}>
+                                {tituloDocumento} {gasto?.nombre || gasto?.id || ''}
+                            </h3>
+                            <button
+                                type="button"
+                                style={styles.closeBtn}
+                                onClick={() => setDocumentoAmpliado(false)}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div style={styles.modalDocumentoBody}>
+                            <DocumentoPreview
+                                key={`grande:${documentoKey(documentoActivo, documento)}`}
+                                documento={documento}
+                                ampliado
+                            />
+                        </div>
                     </div>
                 </div>
             )}
@@ -112,7 +155,7 @@ export default function Drawer({
     );
 }
 
-function DocumentoPreview({ documento }) {
+function DocumentoPreview({ documento, ampliado = false }) {
     const [estado, setEstado] = useState(() => estadoInicialDocumento(documento));
 
     useEffect(() => {
@@ -206,7 +249,7 @@ function DocumentoPreview({ documento }) {
     }
     if (estado.status === 'xml') {
         return (
-            <pre style={styles.xmlPreview}>
+            <pre style={{ ...styles.xmlPreview, ...(ampliado ? styles.xmlPreviewGrande : {}) }}>
                 {estado.xml || 'El XML está vacío.'}
             </pre>
         );
@@ -219,7 +262,7 @@ function DocumentoPreview({ documento }) {
         <iframe
             src={estado.url}
             title="Comprobante"
-            style={styles.iframe}
+            style={{ ...styles.iframe, ...(ampliado ? styles.iframeGrande : {}) }}
         />
     );
 }
@@ -475,6 +518,22 @@ const styles = {
         cursor: 'pointer',
         color: '#6b7280',
     },
+    headerControls: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        flexShrink: 0,
+    },
+    ampliarBtn: {
+        border: '1px solid #fecdd3',
+        borderRadius: '16px',
+        background: '#ffffff',
+        color: '#9f5d68',
+        padding: '4px 11px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    },
     documentoBody: {
         flex: 1,
         backgroundColor: '#f9fafb',
@@ -494,6 +553,9 @@ const styles = {
         height: '100%',
         border: 'none',
     },
+    iframeGrande: {
+        backgroundColor: '#ffffff',
+    },
     xmlPreview: {
         margin: 0,
         width: '100%',
@@ -509,6 +571,42 @@ const styles = {
         fontSize: '13px',
         lineHeight: '1.5',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+    },
+    xmlPreviewGrande: {
+        fontSize: '14px',
+    },
+    modalDocumentoOverlay: {
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(17, 24, 39, 0.55)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '28px',
+        boxSizing: 'border-box',
+    },
+    modalDocumento: {
+        width: 'min(1180px, 96vw)',
+        height: 'min(840px, 92vh)',
+        backgroundColor: '#ffffff',
+        border: '1px solid #fecdd3',
+        boxShadow: '0 24px 70px rgba(17, 24, 39, 0.32)',
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    modalDocumentoHeader: {
+        padding: '12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderBottom: '1px solid #fecdd3',
+        flexShrink: 0,
+    },
+    modalDocumentoBody: {
+        flex: 1,
+        minHeight: 0,
+        backgroundColor: '#f9fafb',
     },
     chatBody: {
         flex: 1,
