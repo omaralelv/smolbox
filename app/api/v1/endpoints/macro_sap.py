@@ -2,7 +2,7 @@ import io
 import os
 import uuid
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 from zoneinfo import ZoneInfo 
@@ -390,6 +390,7 @@ def generar_polizas(
 
     poliza_detallada.append(registro_acreedor)
     poliza_agrupada.append(registro_acreedor)
+    nuevo_inicio=str_fin_ant + timedelta(days=1) 
 
     # D) Creación del Archivo 1: SAP (En memoria)
     wb_sap = Workbook()
@@ -419,7 +420,7 @@ def generar_polizas(
     ws_sap['D1'] = f'{fecha_poliza_sap}' # Si el identificador es K, no se escribe nada
     ws_sap['E1'] = 'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
     ws_sap['F1'] = f'{numero_tienda} CAJA CHICA' 
-    ws_sap['G1'] = f'{numero_tienda} {str_primer_gasto} AL {str_ultimo_gasto} {gerente}' 
+    ws_sap['G1'] = f'{numero_tienda} {nuevo_inicio.strftime("%d/%m/%Y")} AL {str_ultimo_gasto} {gerente}' 
     ws_sap['H1'] = ' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja}
 
     for mov in poliza_detallada:
@@ -429,7 +430,7 @@ def generar_polizas(
         col_d = '' if es_k else mov['Indice_IVA']
         col_e = '' if es_k else numero_tienda
 
-        col_h = f'{numero_tienda} {str_primer_gasto} AL {str_ultimo_gasto} {gerente}' if es_k else mov['UIDD']
+        col_h = f'{numero_tienda} {nuevo_inicio.strftime("%d/%m/%Y")} AL {str_ultimo_gasto} {gerente}' if es_k else mov['UIDD']
         ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, "", f'{numero_tienda} CAJA CHICA', col_h])
         _resaltar_uidd_necesario(ws_sap, ws_sap.max_row, col_h)
 
@@ -462,7 +463,7 @@ def generar_polizas(
     ws_solicitud['D16'] = cuenta_tienda
     ws_solicitud['D18'] = float(total_gran_factura)
     ws_solicitud['D20'] = fondo
-    ws_solicitud['F29'] = str_inicio_caja
+    ws_solicitud['F29'] = nuevo_inicio.strftime("%d/%m/%Y")
     ws_solicitud['I29'] = str_ultimo_gasto
     ws_solicitud['F31'] = str_inicio_ant
     ws_solicitud['I31'] = str_fin_ant

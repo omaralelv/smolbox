@@ -152,7 +152,7 @@ def determinar_iva_e_indice(
 
     # Forzar No Deducibles a 0%: W0
     if descripcion_normalizada in NO_DEDUCIBLES_IVA_CERO:
-        return Decimal(0), "W0"
+        return Decimal(0), " "
 
     # Regla 4: Regla general
     return porcentaje_iva, "W1"
