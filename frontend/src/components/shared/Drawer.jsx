@@ -46,13 +46,20 @@ export default function Drawer({
                             {documento && (
                                 <button
                                     type="button"
-                                    style={styles.ampliarBtn}
+                                    title="Expandir"
+                                    style={styles.iconBtn}
                                     onClick={() => setDocumentoAmpliado(true)}
                                 >
-                                    Ampliar
+                                    <img src="/Expand.png" alt="Expandir" style={styles.iconImg} />
                                 </button>
                             )}
-                            <button style={styles.closeBtn} onClick={onCloseDocumento}>✕</button>
+                            <button 
+                                style={styles.closeBtn} 
+                                onClick={onCloseDocumento}
+                                title="Cerrar"
+                                >
+                                    ✕
+                            </button>
                         </div>
                     </div>
 
@@ -516,7 +523,7 @@ const styles = {
         border: 'none',
         fontSize: '16px',
         cursor: 'pointer',
-        color: '#6b7280',
+        color: '#000000',
     },
     headerControls: {
         display: 'flex',
@@ -524,6 +531,25 @@ const styles = {
         gap: '8px',
         flexShrink: 0,
     },
+
+
+    iconBtn: {
+        background: 'none',
+        border: '1px solid #000000',
+        cursor: 'pointer',
+        padding: 0,
+        display: 'flex',
+        alignItems: 'center',
+        padding: '3px',
+        borderRadius: '3px'
+    },
+    iconImg: {
+        width: '13px',
+        height: '13px',
+        objectFit: 'contain'
+    },
+
+
     ampliarBtn: {
         border: '1px solid #fecdd3',
         borderRadius: '16px',
