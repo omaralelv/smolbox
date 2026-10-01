@@ -421,8 +421,8 @@ def update_expense(
         )
 
     updates = expense_in.model_dump(exclude_unset=True)
-    _apply_expense_updates(expense, updates, db)
     changed_fields = sorted(updates)
+    _apply_expense_updates(expense, updates, db)
     if expense.reimbursement_request_id is not None and changed_fields:
         db.add(
             AuditLog(
@@ -633,13 +633,13 @@ def _review_update_expense_with_actor(
     )
     _ensure_expense_not_excluded(expense)
 
+    changed_fields = sorted(updates)
     _apply_expense_updates(expense, updates, db)
     if note:
         expense.review_note = note
     if {"amount", "currency", "supplier_tax_id", "requires_authorization"} & set(updates):
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 
-    changed_fields = sorted(updates)
     db.add(
         AuditLog(
             reimbursement_request_id=expense.reimbursement_request_id,

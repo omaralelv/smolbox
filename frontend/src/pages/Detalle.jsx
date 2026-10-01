@@ -386,11 +386,29 @@ function Detalle({ currentRole }) {
 
         try {
             setGuardandoEdicion(true);
-            const gastoActualizado = await updateExpenseForReview(expenseId, {
-                category: cleanCategoria,
-                cfdi_tax_rate: taxRate.toFixed(2),
-                note: `Cambio de categoría a ${cleanCategoria} e impuesto a ${taxRate.toFixed(2)}%.`,
-            });
+            const categoriaOriginal = categoriaParaEdicion(gastoParaEditar, categoria);
+            const impuestoOriginal = tasaImpuestoRegistrada(gastoParaEditar)
+                ?? tasaImpuestoParaEdicion(gastoParaEditar);
+            const cambioCategoria = !categoriasIguales(categoriaOriginal, cleanCategoria);
+            const cambioImpuesto = !tasasImpuestoIguales(impuestoOriginal, taxRate);
+
+            if (!cambioCategoria && !cambioImpuesto) {
+                alert('No hay cambios para guardar.');
+                return;
+            }
+
+            const payload = {
+                note: notaEdicionGasto({
+                    cambioCategoria,
+                    cambioImpuesto,
+                    categoria: cleanCategoria,
+                    impuesto: taxRate,
+                }),
+            };
+            if (cambioCategoria) payload.category = cleanCategoria;
+            if (cambioImpuesto) payload.cfdi_tax_rate = taxRate.toFixed(2);
+
+            const gastoActualizado = await updateExpenseForReview(expenseId, payload);
 
             const gastoVista = normalizarGastoActualizado(gastoParaEditar, gastoActualizado);
             setGastosDesglosados((actuales) =>
@@ -1157,6 +1175,50 @@ function tasaImpuestoParaEdicion(gasto) {
     if (tasaInferida !== null) return tasaInferida;
 
     return '16';
+}
+
+function tasaImpuestoRegistrada(gasto) {
+    const tasaDirecta = tasaImpuestoNormalizada(
+        gasto?.cfdiTaxRate ?? gasto?.cfdi_tax_rate
+    );
+    if (tasaDirecta !== null) return tasaDirecta;
+
+    const tasaInferida = tasaImpuestoDesdeMontos(gasto);
+    if (tasaInferida !== null) return tasaInferida;
+
+    return null;
+}
+
+function categoriaParaEdicion(gasto, fallbackCategoria = 'Gasto General') {
+    return gasto?.tipo || gasto?.type || gasto?.category || fallbackCategoria || 'Gasto General';
+}
+
+function categoriasIguales(una, otra) {
+    return normalizarCategoriaImpuesto(una) === normalizarCategoriaImpuesto(otra);
+}
+
+function tasasImpuestoIguales(una, otra) {
+    const primera = numeroTasaImpuesto(una);
+    const segunda = numeroTasaImpuesto(otra);
+    if (primera === null || segunda === null) return false;
+    return Math.abs(primera - segunda) < 0.01;
+}
+
+function numeroTasaImpuesto(value) {
+    const tasa = tasaImpuestoNormalizada(value);
+    if (tasa === null) return null;
+
+    const numero = Number(tasa);
+    return Number.isNaN(numero) ? null : Number(numero.toFixed(2));
+}
+
+function notaEdicionGasto({ cambioCategoria, cambioImpuesto, categoria, impuesto }) {
+    const partes = [];
+    if (cambioCategoria) partes.push(`categoría a ${categoria}`);
+    if (cambioImpuesto) partes.push(`impuesto a ${Number(impuesto).toFixed(2)}%`);
+
+    if (partes.length === 1) return `Cambio de ${partes[0]}.`;
+    return `Cambio de ${partes[0]} e ${partes[1]}.`;
 }
 
 function tasaImpuestoForzadaPorCategoria(categoria) {

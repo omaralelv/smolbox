@@ -52,6 +52,8 @@ const STATUS_LABELS = {
 
 const FIELD_LABELS = {
     amount: 'monto',
+    category: 'categoría',
+    cfdi_tax_rate: 'impuesto',
     cfdi_uuid: 'folio fiscal',
     currency: 'moneda',
     folio: 'folio',
@@ -60,6 +62,13 @@ const FIELD_LABELS = {
     supplier_tax_id: 'RFC',
     requires_authorization: 'autorización',
 };
+
+const CFDI_CALCULATED_FIELDS = new Set([
+    'cfdi_currency',
+    'cfdi_subtotal',
+    'cfdi_tax_amount',
+    'cfdi_total',
+]);
 
 function Bitacora() {
     const navigate = useNavigate();
@@ -477,7 +486,12 @@ function eventDetail(event, payload) {
     if (event.message) details.push(translateMessage(event.message));
 
     if (Array.isArray(payload.changed_fields) && payload.changed_fields.length) {
-        details.push(`Campos editados: ${payload.changed_fields.map(fieldLabel).join(', ')}.`);
+        const changedFields = payload.changed_fields.filter(
+            (field) => !CFDI_CALCULATED_FIELDS.has(field)
+        );
+        if (changedFields.length) {
+            details.push(`Campos editados: ${changedFields.map(fieldLabel).join(', ')}.`);
+        }
     }
     if (payload.original_merchant || payload.original_amount) {
         const merchant = payload.original_merchant ? `Proveedor: ${payload.original_merchant}.` : '';

@@ -288,6 +288,17 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert body["cfdi_tax_amount"] == "0.00"
     assert body["cfdi_subtotal"] == "1500.00"
     assert body["cfdi_total"] == "1500.00"
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    review_event = next(
+        event
+        for event in audit_events.json()
+        if event["action"] == "expense_review_updated"
+        and event["message"] == "Ajuste contable de categoria e IVA."
+    )
+    assert review_event["event_payload"]["changed_fields"] == ["category", "cfdi_tax_rate"]
 
     updated_zero_tax = client.patch(
         f"/api/v1/expenses/{expense['id']}/review",
@@ -305,3 +316,42 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert zero_tax_body["cfdi_tax_amount"] == "0.00"
     assert zero_tax_body["cfdi_subtotal"] == "1500.00"
     assert zero_tax_body["cfdi_total"] == "1500.00"
+
+    updated_taxable = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "category": "Papelería",
+            "cfdi_tax_rate": "16.00",
+            "note": "Ajuste contable a categoria con IVA.",
+        },
+    )
+    assert updated_taxable.status_code == 200, updated_taxable.text
+    taxable_body = updated_taxable.json()
+    assert taxable_body["category"] == "Papelería"
+    assert taxable_body["cfdi_tax_rate"] == "16.00"
+
+    updated_tax_only = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "cfdi_tax_rate": "8.00",
+            "note": "Cambio de impuesto a 8.00%.",
+        },
+    )
+    assert updated_tax_only.status_code == 200, updated_tax_only.text
+    tax_only_body = updated_tax_only.json()
+    assert tax_only_body["category"] == "Papelería"
+    assert tax_only_body["cfdi_tax_rate"] == "8.00"
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    tax_only_event = next(
+        event
+        for event in audit_events.json()
+        if event["action"] == "expense_review_updated"
+        and event["message"] == "Cambio de impuesto a 8.00%."
+    )
+    assert tax_only_event["event_payload"]["changed_fields"] == ["cfdi_tax_rate"]
