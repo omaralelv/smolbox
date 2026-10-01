@@ -185,8 +185,9 @@ def create_expense(
                 expense_id=expense.id,
                 actor_type=AuditActorType.system,
                 action="expense_created",
-                message=f"Expense created for {expense.merchant}.",
+                message=f"Expense created for {_expense_display_name(expense)}.",
                 event_payload={
+                    "expense_name": _expense_display_name(expense),
                     "amount": str(expense.amount),
                     "currency": expense.currency,
                     "category": expense.category,
@@ -197,6 +198,10 @@ def create_expense(
     db.commit()
     db.refresh(expense)
     return expense
+
+
+def _expense_display_name(expense: Expense) -> str:
+    return f"Gasto - {expense.category or 'Gasto General'}"
 
 
 @router.get("/", response_model=list[ExpenseRead])
@@ -633,10 +638,19 @@ def _review_update_expense_with_actor(
     )
     _ensure_expense_not_excluded(expense)
 
-    changed_fields = sorted(updates)
+    requested_fields = set(updates)
+    previous_values = _review_tracked_values(expense)
     _apply_expense_updates(expense, updates, db)
-    if note:
-        expense.review_note = note
+    new_values = _review_tracked_values(expense)
+    changed_fields = _review_changed_fields(requested_fields, previous_values, new_values)
+    changed_previous_values = _review_payload_values(previous_values, changed_fields)
+    changed_new_values = _review_payload_values(new_values, changed_fields)
+    event_message = (
+        _review_change_message(changed_previous_values, changed_new_values)
+        or note
+    )
+    if event_message:
+        expense.review_note = event_message
     if {"amount", "currency", "supplier_tax_id", "requires_authorization"} & set(updates):
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 
@@ -647,11 +661,13 @@ def _review_update_expense_with_actor(
             actor_user_id=actor.id,
             actor_type=AuditActorType.user,
             action="expense_review_updated",
-            message=note,
+            message=event_message,
             event_payload={
                 "actor_role": actor.role.value,
                 "request_status": reimbursement_request.status.value,
                 "changed_fields": changed_fields,
+                "previous_values": changed_previous_values,
+                "new_values": changed_new_values,
                 "reported_total": str(reimbursement_request.reported_total),
                 "authenticated": require_store_assignment,
             },
@@ -660,6 +676,111 @@ def _review_update_expense_with_actor(
     db.commit()
     db.refresh(expense)
     return expense
+
+
+def _review_tracked_values(expense: Expense) -> dict[str, object]:
+    return {
+        "category": expense.category,
+        "cfdi_tax_rate": expense.cfdi_tax_rate,
+    }
+
+
+def _review_changed_fields(
+    requested_fields: set[str],
+    previous_values: dict[str, object],
+    new_values: dict[str, object],
+) -> list[str]:
+    changed_fields = set(requested_fields)
+
+    if "category" in requested_fields and _same_review_category(
+        previous_values.get("category"),
+        new_values.get("category"),
+    ):
+        changed_fields.discard("category")
+
+    if "cfdi_tax_rate" in requested_fields and _same_review_tax_rate(
+        previous_values.get("cfdi_tax_rate"),
+        new_values.get("cfdi_tax_rate"),
+    ):
+        changed_fields.discard("cfdi_tax_rate")
+
+    return sorted(changed_fields)
+
+
+def _review_payload_values(
+    values: dict[str, object],
+    changed_fields: list[str],
+) -> dict[str, str | None]:
+    return {
+        field: _serialize_review_value(field, values.get(field))
+        for field in changed_fields
+        if field in values
+    }
+
+
+def _review_change_message(
+    previous_values: dict[str, str | None],
+    new_values: dict[str, str | None],
+) -> str | None:
+    parts = []
+
+    if "category" in previous_values and "category" in new_values:
+        parts.append(
+            "categoría de "
+            f"{_format_review_category(previous_values['category'])} "
+            f"a {_format_review_category(new_values['category'])}"
+        )
+
+    if "cfdi_tax_rate" in previous_values and "cfdi_tax_rate" in new_values:
+        parts.append(
+            "impuesto de "
+            f"{_format_review_tax_rate(previous_values['cfdi_tax_rate'])} "
+            f"a {_format_review_tax_rate(new_values['cfdi_tax_rate'])}"
+        )
+
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return f"Cambio de {parts[0]}."
+    return f"Cambio de {parts[0]} e {parts[1]}."
+
+
+def _same_review_category(previous: object, new: object) -> bool:
+    return str(previous or "").strip().casefold() == str(new or "").strip().casefold()
+
+
+def _same_review_tax_rate(previous: object, new: object) -> bool:
+    previous_rate = _review_tax_rate_decimal(previous)
+    new_rate = _review_tax_rate_decimal(new)
+    if previous_rate is None or new_rate is None:
+        return previous_rate is new_rate
+    return previous_rate == new_rate
+
+
+def _review_tax_rate_decimal(value: object) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    rate = Decimal(str(value))
+    return rate.quantize(Decimal("0.01"))
+
+
+def _serialize_review_value(field: str, value: object) -> str | None:
+    if value is None:
+        return None
+    if field == "cfdi_tax_rate":
+        return str(_review_tax_rate_decimal(value))
+    return str(value)
+
+
+def _format_review_category(value: str | None) -> str:
+    return value or "sin categoría"
+
+
+def _format_review_tax_rate(value: str | None) -> str:
+    if value is None:
+        return "sin impuesto"
+    rate = Decimal(value).normalize()
+    return f"{rate}%"
 
 
 def _remove_expense_with_actor(

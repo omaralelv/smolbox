@@ -642,6 +642,17 @@ def create_frontend_request(
             actor=current_user,
             db=db,
         )
+        db.add(
+            AuditLog(
+                reimbursement_request_id=request.id,
+                expense_id=expense.id,
+                actor_user_id=current_user.id,
+                actor_type=AuditActorType.user,
+                action="expense_created_from_frontend",
+                message=_expense_created_message(expense),
+                event_payload=_expense_created_payload(expense),
+            )
+        )
 
     try:
         db.commit()
@@ -712,7 +723,8 @@ def add_frontend_expense(
             actor_user_id=current_user.id,
             actor_type=AuditActorType.user,
             action="expense_created_from_frontend",
-            message=f"Expense created for {expense.merchant}.",
+            message=_expense_created_message(expense),
+            event_payload=_expense_created_payload(expense),
         )
     )
     db.commit()
@@ -765,11 +777,12 @@ def delete_frontend_draft_expense(
     previous_expense_status = expense.status
     deleted_expense_payload = {
         "expense_id": str(expense.id),
+        "expense_name": _expense_display_name(expense),
         "merchant": expense.merchant,
         "amount": str(_money(expense.amount)),
         "category": expense.category,
     }
-    removal_reason = "Gasto eliminado por tienda antes de enviar la solicitud."
+    removal_reason = f"Gasto eliminado por tienda: {_expense_display_name(expense)}."
     request.reported_total = _active_frontend_expense_total(
         request,
         excluding_expense_id=expense.id,
@@ -818,6 +831,25 @@ def _active_frontend_expense_total(
             Decimal("0.00"),
         )
     )
+
+
+def _expense_display_name(expense: Expense) -> str:
+    return f"Gasto - {expense.category or 'Gasto General'}"
+
+
+def _expense_created_message(expense: Expense) -> str:
+    return f"Expense created for {_expense_display_name(expense)}."
+
+
+def _expense_created_payload(expense: Expense) -> dict[str, str]:
+    return {
+        "expense_name": _expense_display_name(expense),
+        "merchant": expense.merchant,
+        "amount": str(_money(expense.amount)),
+        "currency": expense.currency,
+        "category": expense.category or "Gasto General",
+        "spent_on": expense.spent_on.isoformat(),
+    }
 
 
 def _request_detail_statement():

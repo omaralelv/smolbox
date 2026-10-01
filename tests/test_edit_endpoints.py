@@ -296,9 +296,11 @@ def test_accounting_review_can_edit_category_and_tax_rate(
         event
         for event in audit_events.json()
         if event["action"] == "expense_review_updated"
-        and event["message"] == "Ajuste contable de categoria e IVA."
+        and event["message"] == "Cambio de impuesto de sin impuesto a 0%."
     )
-    assert review_event["event_payload"]["changed_fields"] == ["category", "cfdi_tax_rate"]
+    assert review_event["event_payload"]["changed_fields"] == ["cfdi_tax_rate"]
+    assert review_event["event_payload"]["previous_values"] == {"cfdi_tax_rate": None}
+    assert review_event["event_payload"]["new_values"] == {"cfdi_tax_rate": "0.00"}
 
     updated_zero_tax = client.patch(
         f"/api/v1/expenses/{expense['id']}/review",
@@ -330,6 +332,26 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     taxable_body = updated_taxable.json()
     assert taxable_body["category"] == "Papelería"
     assert taxable_body["cfdi_tax_rate"] == "16.00"
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    taxable_event = next(
+        event
+        for event in audit_events.json()
+        if event["action"] == "expense_review_updated"
+        and event["message"]
+        == "Cambio de categoría de No Deducibles a Papelería e impuesto de 0% a 16%."
+    )
+    assert taxable_event["event_payload"]["changed_fields"] == ["category", "cfdi_tax_rate"]
+    assert taxable_event["event_payload"]["previous_values"] == {
+        "category": "No Deducibles",
+        "cfdi_tax_rate": "0.00",
+    }
+    assert taxable_event["event_payload"]["new_values"] == {
+        "category": "Papelería",
+        "cfdi_tax_rate": "16.00",
+    }
 
     updated_tax_only = client.patch(
         f"/api/v1/expenses/{expense['id']}/review",
@@ -352,6 +374,8 @@ def test_accounting_review_can_edit_category_and_tax_rate(
         event
         for event in audit_events.json()
         if event["action"] == "expense_review_updated"
-        and event["message"] == "Cambio de impuesto a 8.00%."
+        and event["message"] == "Cambio de impuesto de 16% a 8%."
     )
     assert tax_only_event["event_payload"]["changed_fields"] == ["cfdi_tax_rate"]
+    assert tax_only_event["event_payload"]["previous_values"] == {"cfdi_tax_rate": "16.00"}
+    assert tax_only_event["event_payload"]["new_values"] == {"cfdi_tax_rate": "8.00"}

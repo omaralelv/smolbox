@@ -402,6 +402,19 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
     created_body = created.json()
     deleted_expense = next(gasto for gasto in created_body["gastos"] if gasto["monto"] == 100.0)
     deleted_expense_id = deleted_expense["backendId"]
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    created_messages = [
+        event["message"]
+        for event in audit_events.json()
+        if event["action"] == "expense_created_from_frontend"
+    ]
+    assert set(created_messages) == {
+        "Expense created for Gasto - Limpieza.",
+        "Expense created for Gasto - Papelería.",
+    }
 
     deleted = client.delete(
         (
@@ -418,6 +431,17 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
 
     with session_factory() as db:
         assert db.get(Expense, UUID(deleted_expense_id)) is None
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    removed_event = next(
+        event for event in audit_events.json() if event["action"] == "expense_removed_from_request"
+    )
+    assert removed_event["message"] == "Gasto eliminado por tienda: Gasto - Papelería."
+    assert removed_event["event_payload"]["expense_id"] == deleted_expense_id
+    assert removed_event["event_payload"]["expense_name"] == "Gasto - Papelería"
 
 
 def test_frontend_taxi_expense_routes_request_to_authorization(

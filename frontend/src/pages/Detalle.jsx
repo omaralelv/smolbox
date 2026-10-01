@@ -992,7 +992,8 @@ function historialDesdeEventos(eventos = []) {
 
 function observacionDesdeEvento(evento) {
     const action = evento.action;
-    const expenseId = evento.expense_id || evento.expenseId;
+    const payload = evento.event_payload || evento.payload || {};
+    const expenseId = evento.expense_id || evento.expenseId || payload.expense_id || payload.expenseId;
     const textoBase = evento.message || '';
 
     if (!expenseId || !textoBase) return null;
