@@ -184,6 +184,35 @@ class FrontendObservationCreate(BaseModel):
     visibilidad: str | None = None
 
 
+class FrontendClickAuditCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    button_label: str = Field(
+        min_length=1,
+        max_length=160,
+        validation_alias=AliasChoices("button_label", "buttonLabel", "label"),
+    )
+    page_path: str | None = Field(
+        default=None,
+        max_length=240,
+        validation_alias=AliasChoices("page_path", "pagePath"),
+    )
+    element_type: str | None = Field(
+        default=None,
+        max_length=40,
+        validation_alias=AliasChoices("element_type", "elementType"),
+    )
+    action_key: str | None = Field(
+        default=None,
+        max_length=80,
+        validation_alias=AliasChoices("action_key", "actionKey"),
+    )
+    expense_id: UUID | None = Field(
+        default=None,
+        validation_alias=AliasChoices("expense_id", "expenseId"),
+    )
+
+
 class FrontendGastoCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

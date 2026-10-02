@@ -488,7 +488,12 @@ function AutorizacionBandeja( { currentRole } ) {
                         const montoGasto = gasto.monto ?? gasto.totalAmount ?? gasto.amount ?? 0;
 
                         return (
-                        <div key={gasto.id} style={styles.rowCard}>
+                        <div
+                            key={gasto.id}
+                            style={styles.rowCard}
+                            data-audit-request-id={gasto.solicitudBackendId || undefined}
+                            data-audit-expense-id={gasto.backendId || undefined}
+                        >
                             {/* NOMBRE DEL GASTO */}
                             <div style={{ flex: 1.5, paddingLeft: '20px', fontWeight: '500', color: '#333' }}>
                                 {gasto.nombre}
@@ -584,10 +589,16 @@ function AutorizacionBandeja( { currentRole } ) {
                 )}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                auditRequestId={gastoSeleccionado?.solicitudBackendId}
+                auditExpenseId={gastoSeleccionado?.backendId}
             />
 
             {confirmacionAutorizacion && (
-                <div style={styles.modalOverlay}>
+                <div
+                    style={styles.modalOverlay}
+                    data-audit-request-id={confirmacionAutorizacion.gasto?.solicitudBackendId || undefined}
+                    data-audit-expense-id={confirmacionAutorizacion.gasto?.backendId || undefined}
+                >
                     <div style={styles.modal}>
                         <h3 style={styles.modalTitle}>
                             {confirmacionAutorizacion.nuevoEstado === 'Autorizada'

@@ -415,6 +415,19 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
         "Expense created for Gasto - Limpieza.",
         "Expense created for Gasto - Papelería.",
     }
+    created_positions = {
+        (
+            event["event_payload"]["category"],
+            event["event_payload"]["expense_sequence"],
+            event["event_payload"]["expense_count"],
+        )
+        for event in audit_events.json()
+        if event["action"] == "expense_created_from_frontend"
+    }
+    assert created_positions == {
+        ("Papelería", "1", "2"),
+        ("Limpieza", "2", "2"),
+    }
 
     deleted = client.delete(
         (
@@ -451,6 +464,93 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
     assert remove_button_event["message"] == "Botón seleccionado: Eliminar gasto."
     assert remove_button_event["event_payload"]["button_label"] == "Eliminar gasto"
     assert remove_button_event["event_payload"]["expense_id"] == deleted_expense_id
+
+
+def test_frontend_clicks_are_registered_in_request_audit_log(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
+    user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "frontend.click-audit@example.com",
+            "full_name": "Frontend Click Audit",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert user.status_code == 201, user.text
+    store = client.post(
+        "/api/v1/stores/",
+        json={
+            "code": "T996",
+            "name": "Tienda Click Audit",
+            "manager_name": "Karen Ponce Hernandez",
+            "bank_account": "101328508",
+            "state_region": "CDMX",
+        },
+    )
+    assert store.status_code == 201, store.text
+    assignment = client.post(
+        f"/api/v1/stores/{store.json()['id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+    _create_opening_cutoff(session_factory, store.json()["id"])
+    period = client.post(
+        "/api/v1/periods/",
+        json={
+            "name": "Agosto Click Audit",
+            "starts_on": "2026-08-01",
+            "ends_on": "2026-08-31",
+        },
+    )
+    assert period.status_code == 201, period.text
+
+    headers = _auth_headers(client, "frontend.click-audit@example.com")
+    created = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=headers,
+        json={
+            "tienda": "T996",
+            "montoTotal": "125.00",
+            "gastos": [
+                {
+                    "fecha": "07/08/2026",
+                    "categoria": "Papelería",
+                    "monto": "125.00",
+                    "folio": "33333333-3333-4333-8333-333333333333",
+                },
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    created_body = created.json()
+    expense_id = created_body["gastos"][0]["backendId"]
+
+    click = client.post(
+        f"/api/v1/frontend/solicitudes/{created_body['backendId']}/clicks/me",
+        headers=headers,
+        json={
+            "buttonLabel": "Ver Documento",
+            "pagePath": "/detalle",
+            "elementType": "button",
+            "expenseId": expense_id,
+        },
+    )
+    assert click.status_code == 201, click.text
+    click_body = click.json()
+    assert click_body["action"] == "ui_click"
+    assert click_body["message"] == "Click registrado: Ver Documento."
+    assert click_body["expense_id"] == expense_id
+    assert click_body["event_payload"]["button_label"] == "Ver Documento"
+    assert click_body["event_payload"]["page_path"] == "/detalle"
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    assert any(event["action"] == "ui_click" for event in audit_events.json())
 
 
 def test_frontend_taxi_expense_routes_request_to_authorization(
@@ -1075,6 +1175,45 @@ def test_accounting_queue_status_is_single_until_accountant_opens_request(
     )
     assert audit_events.status_code == 200, audit_events.text
     assert "accounting_request_taken" in {event["action"] for event in audit_events.json()}
+
+
+def test_admin_opening_submitted_request_does_not_mark_accounting_queue_taken(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "1500.00",
+        uuid="77777777-7777-4777-8777-777777777777",
+    )
+
+    admin_user_id = _create_user(client, "admin", "frontend.admin.single@example.com")
+    submitted = _transition(
+        client,
+        base_records["request_id"],
+        "submitted",
+        admin_user_id,
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["accounting_queue_status"] == "single"
+
+    admin_headers = _auth_headers(client, "frontend.admin.single@example.com")
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=admin_headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["accountingQueueStatus"] == "single"
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    assert "accounting_request_taken" not in {
+        event["action"] for event in audit_events.json()
+    }
 
 
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:

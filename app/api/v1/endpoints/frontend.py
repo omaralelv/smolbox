@@ -23,7 +23,9 @@ from app.models.reimbursement_request import (
 from app.models.store import Store, StoreUserAssignment
 from app.models.store_spending_baseline import StoreSpendingBaseline
 from app.models.user import User, UserRole
+from app.schemas.audit_log import AuditLogRead
 from app.schemas.frontend import (
+    FrontendClickAuditCreate,
     FrontendContextRead,
     FrontendGastoCreate,
     FrontendGastoRead,
@@ -589,6 +591,7 @@ def create_frontend_request(
     )
     db.add(request)
     db.flush()
+    audit_base_time = datetime.now(UTC)
     db.add(
         AuditLog(
             reimbursement_request_id=request.id,
@@ -597,10 +600,12 @@ def create_frontend_request(
             action="request_created_from_frontend",
             to_status=request.status.value,
             message="Reimbursement request created from frontend-compatible API.",
+            created_at=audit_base_time,
         )
     )
 
-    for expense_in in request_in.gastos:
+    expense_count = len(request_in.gastos)
+    for expense_index, expense_in in enumerate(request_in.gastos, start=1):
         expense = _expense_from_frontend(expense_in, request=request, period=period, db=db)
         db.add(expense)
         db.flush()
@@ -619,7 +624,12 @@ def create_frontend_request(
                 actor_type=AuditActorType.user,
                 action="expense_created_from_frontend",
                 message=_expense_created_message(expense),
-                event_payload=_expense_created_payload(expense),
+                event_payload=_expense_created_payload(
+                    expense,
+                    expense_sequence=expense_index,
+                    expense_count=expense_count,
+                ),
+                created_at=audit_base_time + timedelta(microseconds=expense_index),
             )
         )
 
@@ -799,6 +809,49 @@ def delete_frontend_draft_expense(
     return _request_payload(request, current_user, db)
 
 
+@router.post(
+    "/solicitudes/{request_identifier}/clicks/me",
+    response_model=AuditLogRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_frontend_click(
+    request_identifier: str,
+    click_in: FrontendClickAuditCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> AuditLog:
+    request = _get_request_by_frontend_identifier(request_identifier, db)
+    _ensure_request_visible(request, current_user, db)
+
+    expense_id = None
+    if click_in.expense_id and any(expense.id == click_in.expense_id for expense in request.expenses):
+        expense_id = click_in.expense_id
+
+    button_label = click_in.button_label.strip()
+    audit_event = AuditLog(
+        reimbursement_request_id=request.id,
+        expense_id=expense_id,
+        actor_user_id=current_user.id,
+        actor_type=AuditActorType.user,
+        action="ui_click",
+        message=f"Click registrado: {button_label}.",
+        event_payload={
+            "actor_role": current_user.role.value,
+            "button_label": button_label,
+            "page_path": click_in.page_path,
+            "element_type": click_in.element_type,
+            "action_key": click_in.action_key,
+            "expense_id": str(expense_id) if expense_id else None,
+            "request_status": request.status.value,
+            "authenticated": True,
+        },
+    )
+    db.add(audit_event)
+    db.commit()
+    db.refresh(audit_event)
+    return audit_event
+
+
 def _active_frontend_expense_total(
     request: ReimbursementRequest,
     *,
@@ -826,8 +879,13 @@ def _expense_created_message(expense: Expense) -> str:
     return f"Expense created for {_expense_display_name(expense)}."
 
 
-def _expense_created_payload(expense: Expense) -> dict[str, str]:
-    return {
+def _expense_created_payload(
+    expense: Expense,
+    *,
+    expense_sequence: int | None = None,
+    expense_count: int | None = None,
+) -> dict[str, str]:
+    payload = {
         "expense_name": _expense_display_name(expense),
         "merchant": expense.merchant,
         "amount": str(_money(expense.amount)),
@@ -835,6 +893,11 @@ def _expense_created_payload(expense: Expense) -> dict[str, str]:
         "category": expense.category or "Gasto General",
         "spent_on": expense.spent_on.isoformat(),
     }
+    if expense_sequence is not None:
+        payload["expense_sequence"] = str(expense_sequence)
+    if expense_count is not None:
+        payload["expense_count"] = str(expense_count)
+    return payload
 
 
 def _add_frontend_button_selected_audit_event(

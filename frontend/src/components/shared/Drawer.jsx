@@ -13,6 +13,8 @@ export default function Drawer({
     historial,            // Array con el historial de comentarios
     onEnviarObservacion,   // Función al dar submit al comentario
     currentRole,
+    auditRequestId,
+    auditExpenseId,
 }) {
     const [documentoAmpliado, setDocumentoAmpliado] = useState(false);
 
@@ -33,7 +35,11 @@ export default function Drawer({
     if (!hayPanelAbierto) return null;
 
     return (
-        <div style={styles.drawerWrapper}>
+        <div
+            style={styles.drawerWrapper}
+            data-audit-request-id={auditRequestId || undefined}
+            data-audit-expense-id={auditExpenseId || undefined}
+        >
             
             {/* 1. SECCIÓN DE FACTURA / VALE */}
             {documentoActivo && (

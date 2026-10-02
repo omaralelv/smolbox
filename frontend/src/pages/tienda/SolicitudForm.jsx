@@ -482,8 +482,10 @@ function SolicitudForm({ currentRole }) {
     };
     
     
+    const auditRequestId = solicitudBackendId || loadDraftRequest()?.backendId || null;
+
     return (
-        <div style={styles.mainLayout}>
+        <div style={styles.mainLayout} data-audit-request-id={auditRequestId || undefined}>
             <div style={styles.container}>
             
             {/* TÍTULO Y BOTÓN DE AÑADIR */}
@@ -541,7 +543,11 @@ function SolicitudForm({ currentRole }) {
                     const gastoId = gastoHistorialId(gasto);
                     const borrandoEsteGasto = idsIguales(borrandoGastoId, gastoId);
                     return (
-                        <div key={gasto.id} style={styles.tableRow}>
+                        <div
+                            key={gasto.id}
+                            style={styles.tableRow}
+                            data-audit-expense-id={gasto.backendId || undefined}
+                        >
                             {/* 1. CONCEPTO (flex: 2) */}
                             <span style={{ flex: 1.5, textAlign: 'left', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {gasto.nombre}
@@ -641,6 +647,8 @@ function SolicitudForm({ currentRole }) {
                 )}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                auditRequestId={auditRequestId}
+                auditExpenseId={gastoSeleccionado?.backendId}
             />
         </div>
     );

@@ -220,6 +220,13 @@ export async function getRequestAuditEvents(requestId) {
     return request(`/reimbursement-requests/${requestId}/audit-events`);
 }
 
+export async function recordFrontendClick(requestIdOrFolio, payload) {
+    return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/clicks/me`, {
+        method: 'POST',
+        body: payload,
+    });
+}
+
 export async function listUsers() {
     return request('/users/');
 }

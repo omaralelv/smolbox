@@ -17,6 +17,7 @@ const ACTION_GROUPS = [
     { value: 'autorizacion', label: 'Autorizaciones/Rechazos' },
     { value: 'edicion', label: 'Ediciones' },
     { value: 'documento', label: 'Documentos' },
+    { value: 'click', label: 'Clicks' },
     { value: 'flujo', label: 'Flujo' },
 ];
 
@@ -542,6 +543,7 @@ function actionLabel(action, toStatus) {
         request_created_from_frontend: 'Solicitud cargada',
         request_updated: 'Solicitud editada',
         sap_policy_placeholder_prepared: 'Póliza preparada',
+        ui_click: 'Click registrado',
         download_invoices_zip: 'Descargar ZIP de facturas',
         download_policy_zip: 'Descargar ZIP de pólizas',
     };
@@ -580,6 +582,10 @@ function actionGroup(action) {
         'request_attachment_uploaded',
         'reimbursement_excel_uploaded',
     ].includes(action)) return 'documento';
+    if ([
+        'button_selected',
+        'ui_click',
+    ].includes(action)) return 'click';
     return 'flujo';
 }
 
@@ -599,6 +605,9 @@ function eventDetail(event, payload) {
     if (payload.expense_name && !translatedMessage.includes(payload.expense_name)) {
         details.push(`Gasto: ${payload.expense_name}.`);
     }
+    if (payload.expense_sequence && payload.expense_count) {
+        details.push(`Gasto ${payload.expense_sequence} de ${payload.expense_count}.`);
+    }
     if (payload.category) details.push(`Categoría: ${payload.category}.`);
     if (payload.amount) {
         const currency = payload.currency ? ` ${payload.currency}` : '';
@@ -616,6 +625,11 @@ function eventDetail(event, payload) {
     if (payload.file_name || payload.filename) {
         details.push(`Archivo: ${payload.file_name || payload.filename}.`);
     }
+    if (payload.button_label && !translatedMessage.includes(payload.button_label)) {
+        details.push(`Botón: ${payload.button_label}.`);
+    }
+    if (payload.page_path) details.push(`Pantalla: ${payload.page_path}.`);
+    if (payload.element_type) details.push(`Elemento: ${payload.element_type}.`);
     if (event.from_status || event.to_status || event.fromStatus || event.toStatus) {
         const fromStatus = event.from_status || event.fromStatus;
         const toStatus = event.to_status || event.toStatus;

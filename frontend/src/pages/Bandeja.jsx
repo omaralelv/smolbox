@@ -349,7 +349,11 @@ function Bandeja({currentRole}) {
                     const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
                     
                     return (
-                        <div key={sol.id} style={rowStyle}>
+                        <div
+                            key={sol.id}
+                            style={rowStyle}
+                            data-audit-request-id={sol.backendId || sol.backend_id || undefined}
+                        >
                             {/* 1. Nombre / ID Solicitud */}
                             <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
                                 {sol.id}

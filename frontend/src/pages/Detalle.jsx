@@ -485,7 +485,7 @@ function Detalle({ currentRole }) {
 
 
     return (
-        <div style={styles.mainLayout}>
+        <div style={styles.mainLayout} data-audit-request-id={solicitudBackendId || undefined}>
             {/* VISTA PRINCIPAL (IZQUIERDA) */}
             <div style={styles.container}>
                 {/* ENCABEZADO */}
@@ -528,6 +528,7 @@ function Detalle({ currentRole }) {
                         <div 
                             key={gastoKey} 
                             style={{...styles.tableRow, ...(estaDesactivado ? styles.rowGris : {})}}
+                            data-audit-expense-id={gasto.backendId || undefined}
                         >
                             <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
                                 {gasto.nombre || `Gasto ${index + 1}`}
@@ -621,6 +622,8 @@ function Detalle({ currentRole }) {
                 )}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                auditRequestId={solicitudBackendId}
+                auditExpenseId={gastoSeleccionado?.backendId}
             />
 
 
