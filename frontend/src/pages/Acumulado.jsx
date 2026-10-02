@@ -720,7 +720,7 @@ function Acumulado( {currentRole} ) {
                         <strong>{esResuelto ? 'Solicitud Resuelta' : 'Solicitud Regresada'}</strong>
                     </div>
                     <p style={styles.bannerText}>
-                        <strong>Motivo de devolución: </strong> {motivoAMostrar}
+                        <strong>Motivo de devolución: </strong> "{motivoAMostrar}"
                     </p>
                 </div>
             )}

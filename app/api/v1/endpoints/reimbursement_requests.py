@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -255,22 +255,12 @@ def download_request_invoices_zip_as_current_user(
 
     db.add(
         AuditLog(
-                reimbursement_request_id=reimbursement_request.id,
-                actor_user_id=current_user.id,
-                action="download_invoices_zip",
-                message="Downloaded invoices ZIP",
-            )
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=current_user.id,
+            action="download_invoices_zip",
+            message="Downloaded invoices ZIP",
         )
-    db.commit()
-
-    db.add(
-            AuditLog(
-                    reimbursement_request_id=reimbursement_request.id,
-                    actor_user_id=current_user.id,
-                    action="download_policy_zip",
-                    message="Downloaded policy ZIP",
-                )
-            )
+    )
     db.commit()
 
     zip_buffer.seek(0)
@@ -476,47 +466,13 @@ def prepare_reimbursement_request_sap_policy(
             },
         )
 
-    try:
-        payload = prepare_sap_policy_placeholder(
-            reimbursement_request,
-            actor=actor,
-            reference=policy_in.reference,
-        )
-    except SapPolicyPreparationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
-        ) from exc
-
-    _add_button_selected_audit_event(
-        db,
-        reimbursement_request=reimbursement_request,
+    return _prepare_sap_policy_with_actor(
+        reimbursement_request,
         actor=actor,
-        action_key="prepare_sap_policy",
+        reference=policy_in.reference,
+        note=policy_in.note,
         authenticated=False,
-    )
-    db.add(
-        AuditLog(
-            reimbursement_request_id=reimbursement_request.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="sap_policy_placeholder_prepared",
-            message=policy_in.note or "SAP policy placeholder prepared.",
-            event_payload={
-                "reference": reimbursement_request.sap_policy_reference,
-                "payload": payload,
-            },
-        )
-    )
-    db.commit()
-    db.refresh(reimbursement_request)
-    return SapPolicyRead(
-        request_id=reimbursement_request.id,
-        status="prepared",
-        reference=reimbursement_request.sap_policy_reference or "",
-        generated_at=reimbursement_request.sap_policy_generated_at,
-        generated_by_user_id=actor.id,
-        payload=reimbursement_request.sap_policy_payload or {},
+        db=db,
     )
 
 
@@ -715,7 +671,7 @@ def list_reimbursement_request_audit_events(
     statement = (
         select(AuditLog)
         .where(AuditLog.reimbursement_request_id == request_id)
-        .order_by(AuditLog.created_at.desc())
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -1080,6 +1036,7 @@ async def upload_reimbursement_excel_as_current_user(
         size_bytes=stored.size_bytes,
         checksum_sha256=stored.checksum_sha256,
     )
+    audit_now = datetime.now(UTC)
     db.add(attachment)
     db.add(
         AuditLog(
@@ -1088,6 +1045,7 @@ async def upload_reimbursement_excel_as_current_user(
             actor_type=AuditActorType.user,
             action="reimbursement_excel_uploaded",
             message=f"Excel de reembolso cargado: {stored.filename}",
+            created_at=audit_now,
             event_payload={
                 "attachment_type": AttachmentType.cash_box_format.value,
                 "filename": stored.filename,
@@ -1201,12 +1159,14 @@ def _transition_request_with_actor(
         reimbursement_request.correction_return_status = to_status
         reimbursement_request.correction_reason = note
 
+    audit_now = datetime.now(UTC)
     _add_button_selected_audit_event(
         db,
         reimbursement_request=reimbursement_request,
         actor=actor,
         action_key=action_key,
         authenticated=authenticated,
+        created_at=audit_now,
     )
     db.add(
         AuditLog(
@@ -1217,6 +1177,7 @@ def _transition_request_with_actor(
             from_status=from_status.value,
             to_status=to_status.value,
             message=note,
+            created_at=audit_now + timedelta(microseconds=1),
             event_payload={
                 "ready_for_submission": summary.ready_for_submission,
                 "ready_for_authorization_approval": summary.ready_for_authorization_approval,
@@ -1237,6 +1198,7 @@ def _add_button_selected_audit_event(
     actor: User,
     action_key: str | None,
     authenticated: bool,
+    created_at: datetime | None = None,
 ) -> None:
     if not action_key:
         return
@@ -1249,6 +1211,7 @@ def _add_button_selected_audit_event(
             actor_type=AuditActorType.user,
             action="button_selected",
             message=f"Botón seleccionado: {button_label}.",
+            created_at=created_at,
             event_payload={
                 "action_key": action_key,
                 "button_label": button_label,
@@ -1711,12 +1674,14 @@ def _prepare_sap_policy_with_actor(
             detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
         ) from exc
 
+    audit_now = datetime.now(UTC)
     _add_button_selected_audit_event(
         db,
         reimbursement_request=reimbursement_request,
         actor=actor,
         action_key="prepare_sap_policy",
         authenticated=authenticated,
+        created_at=audit_now,
     )
     db.add(
         AuditLog(
@@ -1725,6 +1690,7 @@ def _prepare_sap_policy_with_actor(
             actor_type=AuditActorType.user,
             action="sap_policy_placeholder_prepared",
             message=note or "SAP policy placeholder prepared.",
+            created_at=audit_now + timedelta(microseconds=1),
             event_payload={
                 "reference": reimbursement_request.sap_policy_reference,
                 "payload": payload,
