@@ -22,6 +22,7 @@ function formatearMonto(monto) {
 
 function Historico({currentRole}) {
     const navigate = useNavigate();
+    const [filtroTienda, setFiltroTienda] = useState('todas');
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem(HISTORICO_CACHE_KEY) || localStorage.getItem(BANDEJA_CACHE_KEY);
         const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
@@ -61,6 +62,21 @@ function Historico({currentRole}) {
     }, [currentRole, navigate]);
 
 
+    // Lógica para el filtro por tienda idéntica a Bandeja.jsx
+    const obtenerTienda = (solicitud) => solicitud.tienda || 'T-001';
+
+    const tiendasDisponibles = Array.from(
+        new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
+    ).sort();
+
+    
+    // Filtrado seguro de históricas + filtro por tienda seleccionada
+    const solicitudesHistoricas = solicitudes.filter(esSolicitudHistorica);
+
+    const solicitudesFiltradas = filtroTienda === 'todas'
+        ? solicitudesHistoricas
+        : solicitudesHistoricas.filter((sol) => obtenerTienda(sol) === filtroTienda);
+
 
   // Función para asignar colores exactos a cada Badge
     const getBadgeStyle = (status) => {
@@ -76,15 +92,31 @@ function Historico({currentRole}) {
         };
     };
 
-
-    // Filtrado de seguridad en render
-    const solicitudesHistoricas = solicitudes.filter(esSolicitudHistorica);
     
     
     return (
         <div style={styles.container}>
 
-        {/* ENCABEZADOS DE LA TABLA */}
+            {/* FILTRO DE TIENDA */}
+            <div style={styles.filtersRow}>
+                <label style={styles.filterLabel}>
+                    Tienda
+                    <select
+                        value={filtroTienda}
+                        onChange={(event) => setFiltroTienda(event.target.value)}
+                        style={styles.filterSelect}
+                    >
+                        <option value="todas">Todas</option>
+                        {tiendasDisponibles.map((tienda) => (
+                            <option key={tienda} value={tienda}>
+                                {tienda}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </div>
+
+            {/* ENCABEZADOS DE LA TABLA */}
             <div style={styles.tableHeader}>
                 <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
                 <span style={{ flex: 1, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px' }}>
@@ -100,7 +132,7 @@ function Historico({currentRole}) {
             </div>
 
 
-        {/* LISTA DE FILAS DE SOLICITUDES */}
+            {/* LISTA DE FILAS DE SOLICITUDES */}
             <div style={styles.listContainer}>
                 {solicitudesHistoricas.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
@@ -165,6 +197,31 @@ const styles = {
         textAlign: 'left',
         width: '95%'
     },
+
+    filtersRow: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        marginBottom: '16px',
+    },
+    filterLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '13px',
+        fontWeight: '700',
+        color: '#333',
+    },
+    filterSelect: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        backgroundColor: '#ffffff',
+        color: '#333',
+        fontSize: '13px',
+        padding: '7px 10px',
+        minWidth: '120px',
+    },
+
     tableHeader: {
         display: 'flex',
         alignItems: 'center',
