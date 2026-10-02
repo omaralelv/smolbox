@@ -368,6 +368,7 @@ export async function executeRequestAction(requestId, action) {
         body: {
             target_status: targetStatus,
             note: `Acción ejecutada desde frontend: ${action}`,
+            action_key: action,
         },
     });
 }

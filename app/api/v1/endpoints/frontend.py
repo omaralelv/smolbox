@@ -51,7 +51,7 @@ from app.services.expense_authorization_rules import (
     category_requires_manual_authorization_area,
     resolve_expense_authorization,
 )
-from app.services.frontend_actions import available_actions_for_request
+from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_periods import (
     obtener_contexto_periodo_reembolso,
@@ -141,37 +141,6 @@ GLOBAL_POST_ACCOUNTING_ROLES = {
     UserRole.treasury,
     UserRole.director,
 }
-
-ACTION_LABELS = {
-    "edit_request": "Editar solicitud",
-    "add_expense": "Añadir gasto",
-    "upload_request_attachment": "Cargar reembolso",
-    "submit_request": "Enviar solicitud",
-    "start_authorization_review": "Iniciar autorización",
-    "authorize_expense": "Autorizar gasto",
-    "reject_expense": "Rechazar gasto",
-    "remove_authorization_expense": "Eliminar gasto",
-    "approve_authorization": "Autorizar solicitud",
-    "start_accounting_review": "Revisión contable",
-    "edit_expense": "Editar gasto",
-    "observe_expense": "Observaciones",
-    "remove_expense": "Eliminar gasto",
-    "prepare_sap_policy": "Póliza y Reembolso",
-    "mark_accounting_reviewed": "Cerrar contabilidad",
-    "start_accounting_manager_review": "Enviar a Juanita",
-    "approve_accounting_manager": "Enviar a Samuel",
-    "return_to_accounting": "Regresar acumulado",
-    "start_treasury_review": "Revisión tesorería",
-    "send_to_direction": "Enviar Dirección",
-    "return_to_manager": "Regresar acumulado",
-    "approve_direction": "Aprobar pago",
-    "return_to_treasury": "Regresar acumulado",
-    "mark_approved_for_payment": "Aprobar pago",
-    "record_payment": "Confirmar pago",
-    "close_request": "Cerrar solicitud",
-    "reject_request": "Rechazar solicitud",
-}
-
 
 @router.get("/context/me", response_model=FrontendContextRead)
 def get_frontend_context(
@@ -716,6 +685,14 @@ def add_frontend_expense(
         actor=current_user,
         db=db,
     )
+    _add_frontend_button_selected_audit_event(
+        db,
+        request=request,
+        actor=current_user,
+        action_key="add_expense",
+        expense=expense,
+        authenticated=True,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=request.id,
@@ -787,6 +764,14 @@ def delete_frontend_draft_expense(
         request,
         excluding_expense_id=expense.id,
     )
+    _add_frontend_button_selected_audit_event(
+        db,
+        request=request,
+        actor=current_user,
+        action_key="remove_expense",
+        expense=expense,
+        authenticated=True,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=request.id,
@@ -850,6 +835,35 @@ def _expense_created_payload(expense: Expense) -> dict[str, str]:
         "category": expense.category or "Gasto General",
         "spent_on": expense.spent_on.isoformat(),
     }
+
+
+def _add_frontend_button_selected_audit_event(
+    db: Session,
+    *,
+    request: ReimbursementRequest,
+    actor: User,
+    action_key: str,
+    authenticated: bool,
+    expense: Expense | None = None,
+) -> None:
+    button_label = ACTION_LABELS.get(action_key, action_key)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id if expense else None,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="button_selected",
+            message=f"Botón seleccionado: {button_label}.",
+            event_payload={
+                "action_key": action_key,
+                "button_label": button_label,
+                "request_status": request.status.value,
+                "expense_id": str(expense.id) if expense else None,
+                "authenticated": authenticated,
+            },
+        )
+    )
 
 
 def _request_detail_statement():
@@ -1307,8 +1321,9 @@ def _ensure_request_visible(
     current_user: User,
     db: Session,
 ) -> None:
-    if not user_can_transition_store_request(db, current_user, request.store_id):
-        if (
+    if (
+        not user_can_transition_store_request(db, current_user, request.store_id)
+        and (
             current_user.role != UserRole.authorizer
             or request.status
             not in {
@@ -1316,14 +1331,15 @@ def _ensure_request_visible(
                 ReimbursementRequestStatus.authorization_review,
             }
             or not _request_is_visible_for_role(request, current_user, db)
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "code": "STORE_ASSIGNMENT_REQUIRED",
-                    "message": "Actor must be assigned to the request store",
-                },
-            )
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "STORE_ASSIGNMENT_REQUIRED",
+                "message": "Actor must be assigned to the request store",
+            },
+        )
     if not _request_is_visible_for_role(request, current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1482,12 +1498,10 @@ def _should_scope_queue_to_assigned_stores(current_user: User, db: Session) -> b
         *GLOBAL_POST_ACCOUNTING_ROLES,
     }:
         return False
-    if (
+    return not (
         current_user.role == UserRole.authorizer
         and authorizer_has_global_authorization_area(db, current_user)
-    ):
-        return False
-    return True
+    )
 
 
 def _frontend_role(role: UserRole) -> str:

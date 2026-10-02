@@ -442,6 +442,15 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
     assert removed_event["message"] == "Gasto eliminado por tienda: Gasto - Papelería."
     assert removed_event["event_payload"]["expense_id"] == deleted_expense_id
     assert removed_event["event_payload"]["expense_name"] == "Gasto - Papelería"
+    remove_button_event = next(
+        event
+        for event in audit_events.json()
+        if event["action"] == "button_selected"
+        and event["event_payload"]["action_key"] == "remove_expense"
+    )
+    assert remove_button_event["message"] == "Botón seleccionado: Eliminar gasto."
+    assert remove_button_event["event_payload"]["button_label"] == "Eliminar gasto"
+    assert remove_button_event["event_payload"]["expense_id"] == deleted_expense_id
 
 
 def test_frontend_taxi_expense_routes_request_to_authorization(
@@ -699,8 +708,19 @@ def test_frontend_accounting_actions_follow_sap_policy_order(
         base_records["request_id"],
         "under_accounting_review",
         accountant_user_id,
+        action_key="start_accounting_review",
     )
     assert review.status_code == 200, review.text
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    button_event = next(
+        event for event in audit_events.json() if event["action"] == "button_selected"
+    )
+    assert button_event["message"] == "Botón seleccionado: Revisión contable."
+    assert button_event["event_payload"]["action_key"] == "start_accounting_review"
+    assert button_event["event_payload"]["button_label"] == "Revisión contable"
 
     review_detail = client.get(
         f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
@@ -1110,14 +1130,19 @@ def _transition(
     request_id: str,
     target_status: str,
     actor_user_id: str,
+    action_key: str | None = None,
 ):
+    payload = {
+        "target_status": target_status,
+        "actor_user_id": actor_user_id,
+        "note": f"Move to {target_status}",
+    }
+    if action_key:
+        payload["action_key"] = action_key
+
     return client.post(
         f"/api/v1/reimbursement-requests/{request_id}/transition",
-        json={
-            "target_status": target_status,
-            "actor_user_id": actor_user_id,
-            "note": f"Move to {target_status}",
-        },
+        json=payload,
     )
 
 

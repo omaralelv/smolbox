@@ -36,6 +36,7 @@ from app.services.expense_authorization_rules import (
     category_requires_manual_authorization_area,
     resolve_expense_authorization,
 )
+from app.services.frontend_actions import ACTION_LABELS
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
@@ -202,6 +203,40 @@ def create_expense(
 
 def _expense_display_name(expense: Expense) -> str:
     return f"Gasto - {expense.category or 'Gasto General'}"
+
+
+def _add_expense_button_selected_audit_event(
+    db: Session,
+    *,
+    reimbursement_request: ReimbursementRequest,
+    expense: Expense,
+    actor: User,
+    action_key: str,
+    authenticated: bool,
+) -> None:
+    button_label = ACTION_LABELS.get(action_key, action_key)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="button_selected",
+            message=f"Botón seleccionado: {button_label}.",
+            event_payload={
+                "action_key": action_key,
+                "button_label": button_label,
+                "request_status": reimbursement_request.status.value,
+                "authenticated": authenticated,
+            },
+        )
+    )
+
+
+def _remove_expense_action_key(request_status: ReimbursementRequestStatus) -> str:
+    if request_status == ReimbursementRequestStatus.authorization_review:
+        return "remove_authorization_expense"
+    return "remove_expense"
 
 
 @router.get("/", response_model=list[ExpenseRead])
@@ -478,6 +513,14 @@ def _authorize_expense_with_actor(
     expense.authorized_by_user_id = actor.id
     expense.authorization_note = note
     expense.status = ExpenseStatus.approved
+    _add_expense_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        expense=expense,
+        actor=actor,
+        action_key="authorize_expense",
+        authenticated=require_store_assignment,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=expense.reimbursement_request_id,
@@ -540,6 +583,14 @@ def _reject_expense_with_actor(
     if adjust_reported_total:
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 
+    _add_expense_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        expense=expense,
+        actor=actor,
+        action_key="reject_expense",
+        authenticated=require_store_assignment,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=expense.reimbursement_request_id,
@@ -587,6 +638,14 @@ def _add_observation_with_actor(
     _ensure_expense_not_excluded(expense)
 
     expense.review_note = note
+    _add_expense_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        expense=expense,
+        actor=actor,
+        action_key="observe_expense",
+        authenticated=require_store_assignment,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=expense.reimbursement_request_id,
@@ -654,6 +713,14 @@ def _review_update_expense_with_actor(
     if {"amount", "currency", "supplier_tax_id", "requires_authorization"} & set(updates):
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 
+    _add_expense_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        expense=expense,
+        actor=actor,
+        action_key="edit_expense",
+        authenticated=require_store_assignment,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=expense.reimbursement_request_id,
@@ -823,6 +890,14 @@ def _remove_expense_with_actor(
     if adjust_reported_total:
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 
+    _add_expense_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        expense=expense,
+        actor=actor,
+        action_key=_remove_expense_action_key(request_status_before_removal),
+        authenticated=require_store_assignment,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=expense.reimbursement_request_id,

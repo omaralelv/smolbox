@@ -80,6 +80,8 @@ function Bitacora() {
     const [storeFilter, setStoreFilter] = useState('all');
     const [requestFilter, setRequestFilter] = useState('all');
     const [actionFilter, setActionFilter] = useState('all');
+    const [roleFilter, setRoleFilter] = useState('all');
+    const [userFilter, setUserFilter] = useState('all');
 
     useEffect(() => {
         if (!followToday) return undefined;
@@ -189,6 +191,38 @@ function Bitacora() {
             .sort((a, b) => a.label.localeCompare(b.label, 'es-MX'));
     }, [dayEvents, storeFilter]);
 
+    const roleOptions = useMemo(() => {
+        const options = new Map();
+        dayEvents.forEach((event) => {
+            if (storeFilter !== 'all' && event.storeKey !== storeFilter) return;
+            if (requestFilter !== 'all' && event.requestId !== requestFilter) return;
+            if (actionFilter !== 'all' && event.group !== actionFilter) return;
+            if (userFilter !== 'all' && event.actorKey !== userFilter) return;
+            if (event.roleKey) {
+                options.set(event.roleKey, event.roleLabel);
+            }
+        });
+        return [...options.entries()]
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'es-MX'));
+    }, [dayEvents, storeFilter, requestFilter, actionFilter, userFilter]);
+
+    const userOptions = useMemo(() => {
+        const options = new Map();
+        dayEvents.forEach((event) => {
+            if (storeFilter !== 'all' && event.storeKey !== storeFilter) return;
+            if (requestFilter !== 'all' && event.requestId !== requestFilter) return;
+            if (actionFilter !== 'all' && event.group !== actionFilter) return;
+            if (roleFilter !== 'all' && event.roleKey !== roleFilter) return;
+            if (event.actorKey) {
+                options.set(event.actorKey, event.actorName);
+            }
+        });
+        return [...options.entries()]
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'es-MX'));
+    }, [dayEvents, storeFilter, requestFilter, actionFilter, roleFilter]);
+
     useEffect(() => {
         if (
             storeFilter !== 'all'
@@ -207,13 +241,33 @@ function Bitacora() {
         }
     }, [requestFilter, requestOptions]);
 
+    useEffect(() => {
+        if (
+            roleFilter !== 'all'
+            && !roleOptions.some((option) => option.value === roleFilter)
+        ) {
+            setRoleFilter('all');
+        }
+    }, [roleFilter, roleOptions]);
+
+    useEffect(() => {
+        if (
+            userFilter !== 'all'
+            && !userOptions.some((option) => option.value === userFilter)
+        ) {
+            setUserFilter('all');
+        }
+    }, [userFilter, userOptions]);
+
     const filteredEvents = useMemo(() => (
         dayEvents.filter((event) => (
             (storeFilter === 'all' || event.storeKey === storeFilter)
             && (requestFilter === 'all' || event.requestId === requestFilter)
             && (actionFilter === 'all' || event.group === actionFilter)
+            && (roleFilter === 'all' || event.roleKey === roleFilter)
+            && (userFilter === 'all' || event.actorKey === userFilter)
         ))
-    ), [dayEvents, storeFilter, requestFilter, actionFilter]);
+    ), [dayEvents, storeFilter, requestFilter, actionFilter, roleFilter, userFilter]);
 
     const summary = useMemo(() => ({
         movements: filteredEvents.length,
@@ -244,6 +298,9 @@ function Bitacora() {
                             setFollowToday(event.target.value === todayDateInput());
                             setStoreFilter('all');
                             setRequestFilter('all');
+                            setActionFilter('all');
+                            setRoleFilter('all');
+                            setUserFilter('all');
                         }}
                         style={styles.selectCal}
                     />
@@ -299,6 +356,38 @@ function Bitacora() {
                     </select>
                 </label>
 
+                <label style={styles.filterLabel}>
+                    Rol
+                    <select
+                        value={roleFilter}
+                        onChange={(event) => setRoleFilter(event.target.value)}
+                        style={styles.select}
+                    >
+                        <option value="all">Todos</option>
+                        {roleOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+
+                <label style={styles.filterLabel}>
+                    Usuario
+                    <select
+                        value={userFilter}
+                        onChange={(event) => setUserFilter(event.target.value)}
+                        style={styles.select}
+                    >
+                        <option value="all">Todos</option>
+                        {userOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+
                 <button
                     type="button"
                     onClick={() => {
@@ -306,6 +395,9 @@ function Bitacora() {
                         setFollowToday(true);
                         setStoreFilter('all');
                         setRequestFilter('all');
+                        setActionFilter('all');
+                        setRoleFilter('all');
+                        setUserFilter('all');
                     }}
                     style={styles.todayButton}
                 >
@@ -397,9 +489,14 @@ function normalizeAuditEvent(event, request, usersById) {
     const actorId = event.actor_user_id || event.actorUserId;
     const actor = actorId ? usersById.get(String(actorId)) : null;
     const actorRole = payload.actor_role || actor?.role || event.actor_type || 'system';
+    const actorDisplayName = actorName(actor, event.actor_type || event.actorType, actorId);
     const requestId = String(request.backendId || request.backend_id || request.id || '');
     const timestamp = Date.parse(event.created_at || event.createdAt || '');
     const storeLabel = request.tienda || request.storeCode || request.store_code || 'N/A';
+    const roleKey = normalizeFilterKey(actorRole || 'system') || 'system';
+    const actorKey = actorId
+        ? String(actorId)
+        : `name:${normalizeFilterKey(actorDisplayName) || 'sistema'}`;
 
     return {
         id: String(event.id),
@@ -409,7 +506,9 @@ function normalizeAuditEvent(event, request, usersById) {
         storeLabel,
         actionLabel: actionLabel(event.action, event.to_status || event.toStatus),
         group: actionGroup(event.action),
-        actorName: actorName(actor, event.actor_type || event.actorType, actorId),
+        actorKey,
+        actorName: actorDisplayName,
+        roleKey,
         roleLabel: roleLabel(actorRole),
         detail: eventDetail(event, payload),
         timestamp: Number.isNaN(timestamp) ? 0 : timestamp,
@@ -422,6 +521,7 @@ function actionLabel(action, toStatus) {
     const labels = {
         accounting_request_taken: 'Solicitud tomada',
         automated_review_completed: 'Validación automática',
+        button_selected: 'Botón seleccionado',
         expense_attachment_uploaded: 'Documento cargado',
         expense_authorization_rejected: 'Gasto rechazado',
         expense_authorized: 'Gasto autorizado',
@@ -485,7 +585,8 @@ function actionGroup(action) {
 
 function eventDetail(event, payload) {
     const details = [];
-    if (event.message) details.push(translateMessage(event.message));
+    const translatedMessage = event.message ? translateMessage(event.message) : '';
+    if (translatedMessage) details.push(translatedMessage);
 
     if (Array.isArray(payload.changed_fields) && payload.changed_fields.length) {
         const changedFields = payload.changed_fields.filter(
@@ -495,6 +596,16 @@ function eventDetail(event, payload) {
             details.push(`Campos editados: ${changedFields.map(fieldLabel).join(', ')}.`);
         }
     }
+    if (payload.expense_name && !translatedMessage.includes(payload.expense_name)) {
+        details.push(`Gasto: ${payload.expense_name}.`);
+    }
+    if (payload.category) details.push(`Categoría: ${payload.category}.`);
+    if (payload.amount) {
+        const currency = payload.currency ? ` ${payload.currency}` : '';
+        details.push(`Monto: ${payload.amount}${currency}.`);
+    }
+    if (payload.spent_on) details.push(`Fecha del gasto: ${payload.spent_on}.`);
+    if (payload.merchant) details.push(`Proveedor: ${payload.merchant}.`);
     if (payload.original_merchant || payload.original_amount) {
         const merchant = payload.original_merchant ? `Proveedor: ${payload.original_merchant}.` : '';
         const amount = payload.original_amount ? `Monto: ${payload.original_amount}.` : '';
@@ -546,6 +657,14 @@ function actorName(actor, actorType, actorId) {
 function roleLabel(role) {
     const normalized = String(role || 'system').toLowerCase().trim();
     return ROLE_LABELS[normalized] || humanize(normalized);
+}
+
+function normalizeFilterKey(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
 }
 
 function statusLabel(status) {

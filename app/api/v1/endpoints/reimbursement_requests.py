@@ -52,7 +52,7 @@ from app.services.automation_review import build_automated_review
 from app.services.expense_authorization_rules import resolve_expense_authorization
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
-from app.services.frontend_actions import available_actions_for_request
+from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
@@ -385,6 +385,7 @@ def transition_request(
         actor=actor,
         target_status=transition_in.target_status,
         note=transition_in.note,
+        action_key=transition_in.action_key,
         authenticated=False,
         db=db,
     )
@@ -402,6 +403,7 @@ def transition_request_as_current_user(
         actor=current_user,
         target_status=transition_in.target_status,
         note=transition_in.note,
+        action_key=transition_in.action_key,
         authenticated=True,
         db=db,
     )
@@ -444,6 +446,13 @@ def prepare_reimbursement_request_sap_policy(
             detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
         ) from exc
 
+    _add_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        actor=actor,
+        action_key="prepare_sap_policy",
+        authenticated=False,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=reimbursement_request.id,
@@ -619,6 +628,13 @@ def record_reimbursement_request_payment_as_current_user(
     reimbursement_request.status = ReimbursementRequestStatus.paid
     reimbursement_request.paid_at = now
     db.add(payment)
+    _add_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        actor=current_user,
+        action_key="record_payment",
+        authenticated=True,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=reimbursement_request.id,
@@ -1027,6 +1043,7 @@ def _transition_request_with_actor(
     actor: User,
     target_status: ReimbursementRequestStatus,
     note: str | None,
+    action_key: str | None,
     authenticated: bool,
     db: Session,
 ) -> ReimbursementRequest:
@@ -1115,6 +1132,13 @@ def _transition_request_with_actor(
         reimbursement_request.correction_return_status = to_status
         reimbursement_request.correction_reason = note
 
+    _add_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        actor=actor,
+        action_key=action_key,
+        authenticated=authenticated,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=reimbursement_request.id,
@@ -1135,6 +1159,35 @@ def _transition_request_with_actor(
     db.commit()
     db.refresh(reimbursement_request)
     return reimbursement_request
+
+
+def _add_button_selected_audit_event(
+    db: Session,
+    *,
+    reimbursement_request: ReimbursementRequest,
+    actor: User,
+    action_key: str | None,
+    authenticated: bool,
+) -> None:
+    if not action_key:
+        return
+
+    button_label = ACTION_LABELS.get(action_key, action_key)
+    db.add(
+        AuditLog(
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="button_selected",
+            message=f"Botón seleccionado: {button_label}.",
+            event_payload={
+                "action_key": action_key,
+                "button_label": button_label,
+                "request_status": reimbursement_request.status.value,
+                "authenticated": authenticated,
+            },
+        )
+    )
 
 
 def _is_duplicate_rejected_transition(
@@ -1589,6 +1642,13 @@ def _prepare_sap_policy_with_actor(
             detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
         ) from exc
 
+    _add_button_selected_audit_event(
+        db,
+        reimbursement_request=reimbursement_request,
+        actor=actor,
+        action_key="prepare_sap_policy",
+        authenticated=authenticated,
+    )
     db.add(
         AuditLog(
             reimbursement_request_id=reimbursement_request.id,

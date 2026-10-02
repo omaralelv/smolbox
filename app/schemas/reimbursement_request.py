@@ -114,11 +114,13 @@ class ReimbursementRequestTransition(BaseModel):
     target_status: ReimbursementRequestStatus
     actor_user_id: UUID
     note: str | None = Field(default=None, max_length=1000)
+    action_key: str | None = Field(default=None, max_length=80)
 
 
 class AuthenticatedReimbursementRequestTransition(BaseModel):
     target_status: ReimbursementRequestStatus
     note: str | None = Field(default=None, max_length=1000)
+    action_key: str | None = Field(default=None, max_length=80)
 
 
 class SapPolicyPrepare(BaseModel):

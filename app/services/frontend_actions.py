@@ -2,6 +2,36 @@ from app.models.reimbursement_request import ReimbursementRequest, Reimbursement
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import ReimbursementValidationSummary
 
+ACTION_LABELS = {
+    "edit_request": "Editar solicitud",
+    "add_expense": "Añadir gasto",
+    "upload_request_attachment": "Cargar reembolso",
+    "submit_request": "Enviar solicitud",
+    "start_authorization_review": "Iniciar autorización",
+    "authorize_expense": "Autorizar gasto",
+    "reject_expense": "Rechazar gasto",
+    "remove_authorization_expense": "Eliminar gasto",
+    "approve_authorization": "Autorizar solicitud",
+    "start_accounting_review": "Revisión contable",
+    "edit_expense": "Editar gasto",
+    "observe_expense": "Observaciones",
+    "remove_expense": "Eliminar gasto",
+    "prepare_sap_policy": "Póliza y Reembolso",
+    "mark_accounting_reviewed": "Cerrar contabilidad",
+    "start_accounting_manager_review": "Enviar a Juanita",
+    "approve_accounting_manager": "Enviar a Samuel",
+    "return_to_accounting": "Regresar acumulado",
+    "start_treasury_review": "Revisión tesorería",
+    "send_to_direction": "Enviar Dirección",
+    "return_to_manager": "Regresar acumulado",
+    "approve_direction": "Aprobar pago",
+    "return_to_treasury": "Regresar acumulado",
+    "mark_approved_for_payment": "Aprobar pago",
+    "record_payment": "Confirmar pago",
+    "close_request": "Cerrar solicitud",
+    "reject_request": "Rechazar solicitud",
+}
+
 
 def available_actions_for_request(
     request: ReimbursementRequest,
