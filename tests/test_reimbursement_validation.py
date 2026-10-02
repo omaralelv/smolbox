@@ -120,6 +120,7 @@ def test_summarize_reimbursement_request_allows_submission_with_voucher_only_exp
     request = SimpleNamespace(
         id=uuid4(),
         reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 1),
         expenses=[voucher_expense],
     )
 
@@ -157,6 +158,7 @@ def test_summarize_reimbursement_request_allows_submission_with_ocr_voucher() ->
     request = SimpleNamespace(
         id=uuid4(),
         reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 1),
         expenses=[voucher_expense],
     )
 
@@ -193,6 +195,7 @@ def test_summarize_reimbursement_request_allows_submission_with_pdf_ocr_invoice(
     request = SimpleNamespace(
         id=uuid4(),
         reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 1),
         expenses=[pdf_invoice],
     )
 
@@ -229,6 +232,7 @@ def test_summarize_reimbursement_request_allows_pdf_ocr_date_mismatch() -> None:
     request = SimpleNamespace(
         id=uuid4(),
         reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 1),
         expenses=[pdf_invoice],
     )
 
@@ -265,6 +269,7 @@ def test_summarize_reimbursement_request_allows_pdf_ocr_invoice_total_mismatch()
     request = SimpleNamespace(
         id=uuid4(),
         reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 1),
         expenses=[pdf_invoice],
     )
 
@@ -406,3 +411,72 @@ def test_summarize_reimbursement_request_reports_no_payable_expenses() -> None:
     assert summary.ready_for_accounting_approval is False
     assert summary.is_balanced is False
     assert "no_payable_expenses" in {issue.code for issue in summary.issues}
+
+
+def test_previous_close_day_is_included_in_allowed_expense_dates() -> None:
+    expense = _expense(
+        "100.00",
+        "papeleria",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+    )
+    expense.spent_on = date(2026, 9, 26)
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 26),
+        expenses=[expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.ready_for_submission is True
+    assert summary.out_of_period_expense_ids == []
+    assert summary.issues == []
+
+
+def test_expense_before_previous_close_blocks_submission_with_generic_message() -> None:
+    expense = _expense(
+        "100.00",
+        "papeleria",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+    )
+    expense.spent_on = date(2026, 9, 25)
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 26),
+        expenses=[expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.ready_for_submission is False
+    assert summary.out_of_period_expense_ids == []
+    issue = next(issue for issue in summary.issues if issue.code == "expense_outside_period")
+    assert issue.severity == "error"
+    assert issue.message == "El gasto está fuera de periodo."
+    assert "2026" not in issue.message
+
+
+def test_request_without_reimbursement_boundary_cannot_be_submitted() -> None:
+    expense = _expense(
+        "100.00",
+        "papeleria",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+    )
+    expense.spent_on = date(2026, 9, 26)
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        expenses=[expense],
+    )
+
+    summary = summarize_reimbursement_request(request)
+
+    assert summary.ready_for_submission is False
+    issue = next(
+        issue
+        for issue in summary.issues
+        if issue.code == "reimbursement_period_unavailable"
+    )
+    assert issue.message == "No se pudo validar el periodo. Contacta a soporte."

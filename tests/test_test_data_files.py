@@ -1,8 +1,13 @@
 import json
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.store_reimbursement_opening_cutoff import StoreReimbursementOpeningCutoff
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "docs" / "test-data"
 
@@ -128,12 +133,25 @@ def test_cfdi_and_receipt_test_data_are_accepted(
     assert mismatch_issues["total_mismatch"]["severity"] == "warning"
 
 
-def test_test_data_can_drive_end_user_backend_flow(client: TestClient) -> None:
+def test_test_data_can_drive_end_user_backend_flow(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
     store = client.post(
         "/api/v1/stores/",
         json={"code": "E2E-001", "name": "Tienda E2E"},
     )
     assert store.status_code == 201, store.text
+    with session_factory() as session:
+        session.add(
+            StoreReimbursementOpeningCutoff(
+                store_id=UUID(store.json()["id"]),
+                starts_on=date(2026, 1, 1),
+                ends_on=date(2026, 7, 31),
+                reimbursed_amount=Decimal("0.00"),
+            )
+        )
+        session.commit()
 
     period = client.post(
         "/api/v1/periods/",

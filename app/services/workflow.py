@@ -192,6 +192,11 @@ def transition_reimbursement_request(
         )
 
     if target_status == ReimbursementRequestStatus.submitted:
+        if any(
+            issue.code == "expense_outside_period" and issue.severity == "error"
+            for issue in summary.issues
+        ):
+            raise WorkflowTransitionError("El gasto está fuera de periodo.")
         if (
             summary.missing_cfdi_expense_ids
             or summary.invalid_cfdi_expense_ids

@@ -7,7 +7,10 @@ import pytest
 from app.models.expense import Expense, ExpenseStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.user import User, UserRole
-from app.schemas.reimbursement_request import ReimbursementValidationSummary
+from app.schemas.reimbursement_request import (
+    ReimbursementValidationIssue,
+    ReimbursementValidationSummary,
+)
 from app.services.workflow import WorkflowTransitionError, transition_reimbursement_request
 
 
@@ -96,6 +99,35 @@ def test_store_user_cannot_submit_without_cfdi() -> None:
         )
 
     assert "valid CFDI evidence" in str(exc_info.value)
+    assert request.status == ReimbursementRequestStatus.draft
+
+
+def test_store_user_gets_generic_message_for_expense_outside_period() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
+    actor = User(
+        email="tienda.fuera.periodo@example.com",
+        full_name="Tienda Fuera de Periodo",
+        role=UserRole.store,
+        is_active=True,
+    )
+    summary = _summary(ready_for_submission=False)
+    summary.issues = [
+        ReimbursementValidationIssue(
+            code="expense_outside_period",
+            message="El gasto está fuera de periodo.",
+            severity="error",
+        )
+    ]
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.submitted,
+            summary=summary,
+        )
+
+    assert str(exc_info.value) == "El gasto está fuera de periodo."
     assert request.status == ReimbursementRequestStatus.draft
 
 

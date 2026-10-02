@@ -11,6 +11,11 @@ from app.schemas.reimbursement_request import (
     ReimbursementValidationSummary,
 )
 from app.services.cfdi_validator import normalize_cfdi_uuid
+from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
+    validate_expense_date_for_reimbursement,
+)
 
 
 class AttachmentLike(Protocol):
@@ -26,6 +31,7 @@ class ExpenseLike(Protocol):
     id: UUID
     amount: Decimal
     category: str | None
+    spent_on: date | datetime | None
     attachments: list[AttachmentLike]
     cfdi_validations: list[CfdiValidationLike]
 
@@ -34,6 +40,7 @@ class ReimbursementRequestLike(Protocol):
     id: UUID
     reported_total: Decimal | None
     expenses: list[ExpenseLike]
+    previous_reimbursement_ends_on: date | None
 
 
 def summarize_reimbursement_request(
@@ -50,11 +57,18 @@ def summarize_reimbursement_request(
     duplicate_cfdi_uuids: list[str] = []
     invalid_cfdi_expense_ids: list[UUID] = []
     seen_cfdi_uuids: dict[str, UUID] = {}
+    reimbursement_boundary_unavailable = False
+    has_late_expense = False
 
     calculated_total = Decimal("0.00")
     period = getattr(request, "period", None)
     period_starts_on = getattr(period, "starts_on", None)
     period_ends_on = getattr(period, "ends_on", None)
+    previous_reimbursement_ends_on = getattr(
+        request,
+        "previous_reimbursement_ends_on",
+        None,
+    )
 
     active_expenses = []
     for expense in request.expenses:
@@ -94,6 +108,16 @@ def summarize_reimbursement_request(
         spent_on = getattr(expense, "spent_on", None)
         if _is_outside_period(spent_on, period_starts_on, period_ends_on):
             out_of_period_expense_ids.append(expense.id)
+        if spent_on is not None:
+            try:
+                validate_expense_date_for_reimbursement(
+                    spent_on,
+                    previous_ends_on=previous_reimbursement_ends_on,
+                )
+            except ExpenseOutsideReimbursementPeriod:
+                has_late_expense = True
+            except ReimbursementPeriodBoundaryUnavailable:
+                reimbursement_boundary_unavailable = True
 
         cfdi_uuid = getattr(expense, "cfdi_uuid", None) or _valid_ocr_cfdi_uuid(expense)
         if cfdi_uuid:
@@ -167,15 +191,27 @@ def summarize_reimbursement_request(
             )
         )
 
-    if out_of_period_expense_ids:
+    if out_of_period_expense_ids or has_late_expense:
         issues.append(
             ReimbursementValidationIssue(
                 code="expense_outside_period",
                 message=(
-                    "One or more expenses are outside "
-                    "the reimbursement period."
+                    "El gasto está fuera de periodo."
+                    if has_late_expense
+                    else (
+                        "One or more expenses are outside "
+                        "the reimbursement period."
+                    )
                 ),
-                severity="warning",
+                severity="error" if has_late_expense else "warning",
+            )
+        )
+
+    if reimbursement_boundary_unavailable:
+        issues.append(
+            ReimbursementValidationIssue(
+                code="reimbursement_period_unavailable",
+                message="No se pudo validar el periodo. Contacta a soporte.",
             )
         )
 

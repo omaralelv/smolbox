@@ -38,6 +38,11 @@ from app.services.expense_authorization_rules import (
 )
 from app.services.frontend_actions import ACTION_LABELS
 from app.services.permissions import user_can_transition_store_request
+from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
+    validate_expense_date_for_reimbursement,
+)
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
 from app.services.tax_rules import (
@@ -146,6 +151,27 @@ def create_expense(
             expense_data["period_id"] = reimbursement_request.period_id
         elif expense_data["period_id"] != reimbursement_request.period_id:
             raise HTTPException(...)
+        try:
+            validate_expense_date_for_reimbursement(
+                expense_data["spent_on"],
+                previous_ends_on=reimbursement_request.previous_reimbursement_ends_on,
+            )
+        except ExpenseOutsideReimbursementPeriod as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "EXPENSE_OUTSIDE_PERIOD",
+                    "message": "El gasto está fuera de periodo.",
+                },
+            ) from exc
+        except ReimbursementPeriodBoundaryUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                    "message": "No se pudo validar el periodo. Contacta a soporte.",
+                },
+            ) from exc
 
     period = db.get(Period, expense_data["period_id"])
     if period is None:
@@ -975,6 +1001,31 @@ def _reject_request_if_no_payable_expenses(
 
 def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Session) -> None:
     _reject_null_fields(updates, {"merchant", "amount", "currency", "spent_on"})
+
+    if "spent_on" in updates and expense.reimbursement_request is not None:
+        try:
+            validate_expense_date_for_reimbursement(
+                updates["spent_on"],
+                previous_ends_on=(
+                    expense.reimbursement_request.previous_reimbursement_ends_on
+                ),
+            )
+        except ExpenseOutsideReimbursementPeriod as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "EXPENSE_OUTSIDE_PERIOD",
+                    "message": "El gasto está fuera de periodo.",
+                },
+            ) from exc
+        except ReimbursementPeriodBoundaryUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                    "message": "No se pudo validar el periodo. Contacta a soporte.",
+                },
+            ) from exc
 
     period = db.get(Period, expense.period_id)
     if period is None:

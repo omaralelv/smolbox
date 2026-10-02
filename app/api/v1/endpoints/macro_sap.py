@@ -5,7 +5,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
-from zoneinfo import ZoneInfo 
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,21 +15,22 @@ from openpyxl.styles import PatternFill
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.utils.filenames import limpiar_nombre_archivo
+from app.db.session import get_db
+from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
+    validate_expense_date_for_reimbursement,
+)
 from app.services.spending_summary import obtener_resumen_gasto_tienda
 from app.services.store_catalog import cargar_base_tiendas
-
-
-from app.db.session import get_db
-
 from app.services.tax_rules import (
-    normalizar_texto,
+    cargar_tiendas_iva_w6,
     cargar_tipo_gastos,
     crear_indice_categorias,
-    cargar_tiendas_iva_w6,
-    determinar_iva_e_indice
+    determinar_iva_e_indice,
+    normalizar_texto,
 )
-
+from app.utils.filenames import limpiar_nombre_archivo
 
 router = APIRouter()
 
@@ -266,6 +267,29 @@ def generar_polizas(
             status_code=422,
             detail="La solicitud no tiene gastos activos asociados.",
         )
+
+    try:
+        for gasto in gastos_db:
+            validate_expense_date_for_reimbursement(
+                gasto["spent_on"],
+                previous_ends_on=fin_ant,
+            )
+    except ExpenseOutsideReimbursementPeriod as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "EXPENSE_OUTSIDE_PERIOD",
+                "message": "El gasto está fuera de periodo.",
+            },
+        ) from exc
+    except ReimbursementPeriodBoundaryUnavailable as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
 
     str_ultimo_gasto = _formatear_fecha_ultimo_gasto(gastos_db)
     str_primer_gasto = _formatear_fecha_primer_gasto(gastos_db)

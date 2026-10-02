@@ -54,6 +54,12 @@ from app.services.expense_import import ExpenseImportUnsupported, parse_expense_
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.permissions import user_can_transition_store_request
+from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
+    obtener_contexto_periodo_reembolso,
+    validate_expense_date_for_reimbursement,
+)
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
@@ -68,6 +74,7 @@ from app.services.workflow import (
     WorkflowTransitionError,
     transition_reimbursement_request,
 )
+from app.utils.folio_dates import obtener_fecha_desde_folio
 
 router = APIRouter()
 
@@ -90,7 +97,34 @@ def create_reimbursement_request(
         )
 
     request_data = request_in.model_dump()
-    request_data["folio"] = request_data.get("folio") or _generate_request_folio(store, db)
+    folio = request_data.get("folio") or _generate_request_folio(store, db)
+    try:
+        reimbursement_ends_on = obtener_fecha_desde_folio(folio)
+        period_context = obtener_contexto_periodo_reembolso(
+            db,
+            store.id,
+            fecha_fin_actual=reimbursement_ends_on,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INVALID_REIMBURSEMENT_PERIOD",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
+
+    request_data.update(
+        {
+            "folio": folio,
+            "reimbursement_starts_on": period_context.current_starts_on,
+            "reimbursement_ends_on": reimbursement_ends_on,
+            "previous_reimbursement_request_id": period_context.previous_request_id,
+            "previous_reimbursement_starts_on": period_context.previous_starts_on,
+            "previous_reimbursement_ends_on": period_context.previous_ends_on,
+            "previous_reimbursement_amount": period_context.previous_amount,
+        }
+    )
 
     reimbursement_request = ReimbursementRequest(**request_data)
     db.add(reimbursement_request)
@@ -263,6 +297,14 @@ def update_reimbursement_request(
 
     _ensure_request_editable(reimbursement_request)
     updates = request_in.model_dump(exclude_unset=True)
+    if "previous_reimbursement_ends_on" in updates:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_END_IMMUTABLE",
+                "message": "No se puede modificar este campo.",
+            },
+        )
     starts_on = updates.get(
         "previous_reimbursement_starts_on",
         reimbursement_request.previous_reimbursement_starts_on,
@@ -747,7 +789,34 @@ async def import_reimbursement_request_expenses(
         )
         for error in row_errors
     ]
-        
+
+    try:
+        for row in parsed_rows:
+            validate_expense_date_for_reimbursement(
+                row.spent_on,
+                previous_ends_on=(
+                    reimbursement_request.previous_reimbursement_ends_on
+                ),
+            )
+    except ExpenseOutsideReimbursementPeriod:
+        errors.extend(
+            ExpenseImportErrorRead(
+                row_number=row.row_number,
+                field="spent_on",
+                message="El gasto está fuera de periodo.",
+            )
+            for row in parsed_rows
+            if reimbursement_request.previous_reimbursement_ends_on is not None
+            and row.spent_on < reimbursement_request.previous_reimbursement_ends_on
+        )
+    except ReimbursementPeriodBoundaryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
 
     if not parsed_rows and not errors:
         errors.append(
