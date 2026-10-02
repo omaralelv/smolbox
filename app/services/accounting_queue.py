@@ -13,7 +13,7 @@ def mark_accounting_request_taken_on_open(
     actor: User,
     summary: ReimbursementValidationSummary,
 ) -> bool:
-    if actor.role not in {UserRole.accountant, UserRole.admin}:
+    if actor.role != UserRole.accountant:
         return False
     if request.accounting_queue_status != AccountingQueueStatus.single:
         return False

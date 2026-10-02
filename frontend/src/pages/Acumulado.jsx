@@ -671,7 +671,7 @@ function Acumulado( {currentRole} ) {
 
 
     return (
-        <div style={styles.container}>
+        <div style={styles.container} data-audit-request-id={solicitudBackendId || undefined}>
             <input
                 ref={reembolsoInputRef}
                 type="file"
@@ -761,7 +761,9 @@ function Acumulado( {currentRole} ) {
                         <span style={{ flex: 2, textAlign: 'left', paddingLeft: '20px' }}>{item.tipo}</span>
                         <span style={{ flex: 1, textAlign: 'center' }}>{item.facturas}</span>
                         <span style={{ flex: 1, textAlign: 'center' }}>{item.monto.toFixed(2)}</span>
-                        <span style={styles.verDetalleLink}
+                        <span
+                            style={styles.verDetalleLink}
+                            data-audit-label="Ver detalle"
                             onClick={() => {
                                 navigate('/detalle', { 
                                     state: { 

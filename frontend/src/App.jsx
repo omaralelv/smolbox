@@ -7,6 +7,7 @@ import './index.css'
 import Header from './components/shared/Header';
 import TabsNav from './components/shared/TabsNav';
 import AppRouter from './app/AppRouter';
+import ClickAuditTracker from './components/audit/ClickAuditTracker';
 
 import {
   clearSession,
@@ -31,6 +32,8 @@ function MainContent({ rolLogueado, setRolLogueado }) {
 
   return (
     <>
+      <ClickAuditTracker />
+
       {/* 1. SECCIÓN FIJA SUPERIOR (HEADER Y TABS) */}
       {!esPantallaAuth && (
         <div style={{ flexShrink: 0, zIndex: 100 }}>
