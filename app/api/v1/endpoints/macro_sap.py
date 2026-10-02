@@ -311,12 +311,25 @@ def generar_polizas(
             else porcentaje_iva_default
         )
 
-        porcentaje_iva, indice_iva = determinar_iva_e_indice(
-            descripcion=gasto_descripcion,
-            numero_tienda=numero_tienda,
-            porcentaje_iva=tasa_iva_bd,
-            tiendas_iva_w6=tiendas_iva_w6,
-        )
+        indice_iva_manual = gasto.get("sap_tax_index_override")
+        if indice_iva_manual is not None:
+            indice_iva = str(indice_iva_manual).strip()
+            if indice_iva not in {"W0", "W1", "W2", "W6"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"El índice SAP '{indice_iva}' del gasto "
+                        f"{gasto['id']} no es válido."
+                    ),
+                )
+            porcentaje_iva = tasa_iva_bd
+        else:
+            porcentaje_iva, indice_iva = determinar_iva_e_indice(
+                descripcion=gasto_descripcion,
+                numero_tienda=numero_tienda,
+                porcentaje_iva=tasa_iva_bd,
+                tiendas_iva_w6=tiendas_iva_w6,
+            )
 
         if (gasto["cfdi_tax_amount"] is not None and gasto["cfdi_subtotal"] is not None and porcentaje_iva not in {Decimal(0),}):
             iva_calculado = Decimal(

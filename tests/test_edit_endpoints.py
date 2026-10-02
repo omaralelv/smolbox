@@ -284,10 +284,11 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert updated.status_code == 200, updated.text
     body = updated.json()
     assert body["category"] == "Agua"
-    assert body["cfdi_tax_rate"] == "0.00"
-    assert body["cfdi_tax_amount"] == "0.00"
-    assert body["cfdi_subtotal"] == "1500.00"
+    assert body["cfdi_tax_rate"] == "8.00"
+    assert body["cfdi_tax_amount"] == "111.11"
+    assert body["cfdi_subtotal"] == "1388.89"
     assert body["cfdi_total"] == "1500.00"
+    assert body["sap_tax_index_override"] == "W6"
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
     )
@@ -314,10 +315,11 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert updated_zero_tax.status_code == 200, updated_zero_tax.text
     zero_tax_body = updated_zero_tax.json()
     assert zero_tax_body["category"] == "No Deducibles"
-    assert zero_tax_body["cfdi_tax_rate"] == "0.00"
-    assert zero_tax_body["cfdi_tax_amount"] == "0.00"
-    assert zero_tax_body["cfdi_subtotal"] == "1500.00"
+    assert zero_tax_body["cfdi_tax_rate"] == "16.00"
+    assert zero_tax_body["cfdi_tax_amount"] == "206.90"
+    assert zero_tax_body["cfdi_subtotal"] == "1293.10"
     assert zero_tax_body["cfdi_total"] == "1500.00"
+    assert zero_tax_body["sap_tax_index_override"] == "W1"
 
     updated_taxable = client.patch(
         f"/api/v1/expenses/{expense['id']}/review",
@@ -365,6 +367,48 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     tax_only_body = updated_tax_only.json()
     assert tax_only_body["category"] == "Papelería"
     assert tax_only_body["cfdi_tax_rate"] == "8.00"
+    assert tax_only_body["sap_tax_index_override"] == "W6"
+
+    changed_to_pasajes = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "category": "Pasajes y Taxis",
+            "note": "Cambio de categoría a pasajes.",
+        },
+    )
+    assert changed_to_pasajes.status_code == 200, changed_to_pasajes.text
+    pasajes_body = changed_to_pasajes.json()
+    assert pasajes_body["cfdi_tax_rate"] == "0.00"
+    assert pasajes_body["cfdi_tax_amount"] == "0.00"
+    assert pasajes_body["sap_tax_index_override"] is None
+
+    changed_from_pasajes = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "category": "Papelería",
+            "note": "Cambio a categoría ordinaria.",
+        },
+    )
+    assert changed_from_pasajes.status_code == 200, changed_from_pasajes.text
+    ordinary_body = changed_from_pasajes.json()
+    assert ordinary_body["cfdi_tax_rate"] == "16.00"
+    assert ordinary_body["sap_tax_index_override"] is None
+
+    manual_zero_tax = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review",
+        json={
+            "actor_user_id": accountant.json()["id"],
+            "cfdi_tax_rate": "0.00",
+            "note": "Cambio manual de impuesto a cero.",
+        },
+    )
+    assert manual_zero_tax.status_code == 200, manual_zero_tax.text
+    manual_zero_body = manual_zero_tax.json()
+    assert manual_zero_body["cfdi_tax_rate"] == "0.00"
+    assert manual_zero_body["cfdi_tax_amount"] == "0.00"
+    assert manual_zero_body["sap_tax_index_override"] == "W0"
 
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"

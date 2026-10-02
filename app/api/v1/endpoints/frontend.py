@@ -1014,6 +1014,7 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         cfdi_total=_float_or_none(expense.cfdi_total),
         cfdi_tax_amount=_float_or_none(expense.cfdi_tax_amount),
         cfdi_tax_rate=_float_or_none(expense.cfdi_tax_rate),
+        sap_tax_index_override=expense.sap_tax_index_override,
         cfdi_currency=expense.cfdi_currency,
         facturas=_invoice_count(expense),
         autorizacion=_frontend_authorization_status(expense),

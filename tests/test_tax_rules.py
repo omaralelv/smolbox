@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from app.services.tax_rules import (
     cargar_tipo_gastos,
     crear_indice_categorias,
+    determinar_indice_iva_manual,
     determinar_iva_e_indice,
 )
 
@@ -67,3 +68,27 @@ def test_agua_usa_iva_cero_pero_servicio_de_agua_sigue_regla_normal() -> None:
         porcentaje_iva=Decimal("16.00"),
         tiendas_iva_w6={"t001"},
     ) == (Decimal("16.00"), "W1")
+
+
+def test_pasajes_y_taxis_prevalece_sobre_la_regla_w6() -> None:
+    assert determinar_iva_e_indice(
+        descripcion="Pasajes y Taxis",
+        numero_tienda="T001",
+        porcentaje_iva=Decimal("16.00"),
+        tiendas_iva_w6={"t001"},
+    ) == (Decimal(0), "W2")
+
+
+@pytest.mark.parametrize(
+    ("porcentaje", "indice"),
+    [
+        (Decimal(0), "W0"),
+        (Decimal(8), "W6"),
+        (Decimal(16), "W1"),
+    ],
+)
+def test_tasa_manual_determina_indice_sap(
+    porcentaje: Decimal,
+    indice: str,
+) -> None:
+    assert determinar_indice_iva_manual(porcentaje) == indice

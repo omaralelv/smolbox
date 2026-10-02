@@ -136,6 +136,7 @@ function Acumulado( {currentRole} ) {
             cfdiTotal: valorFiscalOculto(g.cfdiTotal ?? g.cfdi_total),
             cfdiTaxAmount: valorFiscalOculto(g.cfdiTaxAmount ?? g.cfdi_tax_amount),
             cfdiTaxRate: valorFiscalOculto(g.cfdiTaxRate ?? g.cfdi_tax_rate),
+            sapTaxIndexOverride: g.sapTaxIndexOverride ?? g.sap_tax_index_override ?? null,
             cfdiCurrency: g.cfdiCurrency ?? g.cfdi_currency ?? null,
             autorizacion: g.autorizacion || '',
             status: g.status || '',

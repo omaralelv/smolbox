@@ -40,7 +40,12 @@ from app.services.frontend_actions import ACTION_LABELS
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
-from app.services.tax_rules import determinar_tasa_iva_para_gasto
+from app.services.tax_rules import (
+    categoria_tiene_iva_cero_por_regla,
+    determinar_indice_iva_manual,
+    determinar_tasa_iva_para_gasto,
+    normalizar_porcentaje_iva,
+)
 from app.services.workflow import transition_reimbursement_request
 
 router = APIRouter()
@@ -993,22 +998,54 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
 
 
 def _apply_tax_rate_update(expense: Expense, updates: dict[str, object], db: Session) -> None:
-    if "cfdi_tax_rate" not in updates:
-        return
-
-    tax_rate = updates["cfdi_tax_rate"]
-    if tax_rate is None:
-        updates["cfdi_tax_amount"] = None
-        updates["cfdi_subtotal"] = None
+    rate_was_explicit = "cfdi_tax_rate" in updates
+    category_was_changed = (
+        "category" in updates and updates["category"] != expense.category
+    )
+    if not rate_was_explicit and not category_was_changed:
         return
 
     amount = Decimal(updates.get("amount", expense.amount)).quantize(Decimal("0.01"))
     category = str(updates.get("category") or expense.category or "")
-    rate = determinar_tasa_iva_para_gasto(
-        descripcion=category,
-        numero_tienda=_store_code_for_expense(expense, db),
-        porcentaje_iva=tax_rate,
-    )
+    if rate_was_explicit:
+        tax_rate = updates["cfdi_tax_rate"]
+        if tax_rate is None:
+            updates["cfdi_tax_amount"] = None
+            updates["cfdi_subtotal"] = None
+            updates["sap_tax_index_override"] = None
+            return
+        if not isinstance(tax_rate, Decimal):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="cfdi_tax_rate must be a decimal percentage",
+            )
+        rate = normalizar_porcentaje_iva(tax_rate)
+        if rate is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="cfdi_tax_rate must be a valid decimal percentage",
+            )
+        updates["sap_tax_index_override"] = determinar_indice_iva_manual(rate)
+    else:
+        rate_base = expense.cfdi_tax_rate
+        category_was_automatically_zero = (
+            expense.cfdi_tax_rate == Decimal("0.00")
+            and categoria_tiene_iva_cero_por_regla(expense.category or "")
+        )
+        category_had_manual_override = expense.sap_tax_index_override is not None
+        if category_had_manual_override or (
+            category_was_automatically_zero
+            and not categoria_tiene_iva_cero_por_regla(category)
+        ):
+            rate_base = Decimal("16.00")
+        rate = determinar_tasa_iva_para_gasto(
+            descripcion=category,
+            numero_tienda=_store_code_for_expense(expense, db),
+            porcentaje_iva=rate_base,
+        )
+        updates["cfdi_tax_rate"] = rate
+        updates["sap_tax_index_override"] = None
+
     tax_amount = (
         amount
         / (Decimal(1) + rate / Decimal(100))
@@ -1051,6 +1088,7 @@ def _clear_current_cfdi_validation(db: Session, expense: Expense) -> None:
     expense.cfdi_currency = None
     expense.cfdi_tax_amount = None
     expense.cfdi_tax_rate = None
+    expense.sap_tax_index_override = None
 
 
 def _get_expense_or_404(expense_id: UUID, db: Session) -> Expense:

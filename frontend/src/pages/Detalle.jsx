@@ -104,6 +104,7 @@ function Detalle({ currentRole }) {
     const [gastoParaEditar, setGastoParaEditar] = useState(null);
     const [categoriaEditada, setCategoriaEditada] = useState('');
     const [impuestoEditado, setImpuestoEditado] = useState('16');
+    const [impuestoEditadoManualmente, setImpuestoEditadoManualmente] = useState(false);
     const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
     // Estado del chat de observaciones
@@ -326,20 +327,35 @@ function Detalle({ currentRole }) {
         setGastoParaEditar(gasto);
         setCategoriaEditada(categoriaGasto);
         setImpuestoEditado(tasaImpuestoParaEdicion(gasto));
+        setImpuestoEditadoManualmente(false);
     };
 
     const handleCategoriaEditadaChange = (nuevaCategoria) => {
+        const categoriaActual = categoriaEditada
+            || categoriaParaEdicion(gastoParaEditar, categoria);
+        const tieneOverrideManual = Boolean(
+            gastoParaEditar?.sapTaxIndexOverride
+            || gastoParaEditar?.sap_tax_index_override
+            || impuestoEditadoManualmente
+        );
         setCategoriaEditada(nuevaCategoria);
         const tasaForzada = tasaImpuestoForzadaPorCategoria(nuevaCategoria);
         if (tasaForzada !== null) {
             setImpuestoEditado(tasaForzada);
+        } else if (
+            tieneOverrideManual
+            || tasaImpuestoForzadaPorCategoria(categoriaActual) !== null
+        ) {
+            setImpuestoEditado('16');
         }
+        setImpuestoEditadoManualmente(false);
     };
 
     const cancelarEdicion = () => {
         setGastoParaEditar(null);
         setCategoriaEditada('');
         setImpuestoEditado('16');
+        setImpuestoEditadoManualmente(false);
     };
 
     const confirmarEdicion = async () => {
@@ -369,7 +385,11 @@ function Detalle({ currentRole }) {
             const impuestoOriginal = tasaImpuestoRegistrada(gastoParaEditar)
                 ?? tasaImpuestoParaEdicion(gastoParaEditar);
             const cambioCategoria = !categoriasIguales(categoriaOriginal, cleanCategoria);
-            const cambioImpuesto = !tasasImpuestoIguales(impuestoOriginal, taxRate);
+            const cambioImpuesto = impuestoEditadoManualmente
+                || (
+                    cambioCategoria
+                    && !tasasImpuestoIguales(impuestoOriginal, taxRate)
+                );
 
             if (!cambioCategoria && !cambioImpuesto) {
                 alert('No hay cambios para guardar.');
@@ -385,7 +405,7 @@ function Detalle({ currentRole }) {
                 }),
             };
             if (cambioCategoria) payload.category = cleanCategoria;
-            if (cambioImpuesto) payload.cfdi_tax_rate = taxRate.toFixed(2);
+            if (impuestoEditadoManualmente) payload.cfdi_tax_rate = taxRate.toFixed(2);
 
             const gastoActualizado = await updateExpenseForReview(expenseId, payload);
 
@@ -659,8 +679,11 @@ function Detalle({ currentRole }) {
                             <label style={styles.modalLabel}>Impuesto</label>
                             <select
 	                                value={impuestoEditado}
-	                                onChange={(event) => setImpuestoEditado(event.target.value)}
-	                                style={styles.modalInput}
+                                onChange={(event) => {
+                                        setImpuestoEditado(event.target.value);
+                                        setImpuestoEditadoManualmente(true);
+                                    }}
+                                style={styles.modalInput}
 	                                disabled={guardandoEdicion}
 	                            >
                                 <option value="0">0%</option>
@@ -1102,6 +1125,11 @@ function normalizarGastoActualizado(gastoOriginal, gastoActualizado) {
         cfdiTotal: numeroOculto(gastoActualizado.cfdi_total),
         cfdiTaxAmount: numeroOculto(gastoActualizado.cfdi_tax_amount),
         cfdiTaxRate: numeroOculto(gastoActualizado.cfdi_tax_rate),
+        sapTaxIndexOverride: (
+            gastoActualizado.sap_tax_index_override
+            ?? gastoActualizado.sapTaxIndexOverride
+            ?? null
+        ),
         cfdiCurrency: gastoActualizado.cfdi_currency || gastoOriginal.cfdiCurrency || null,
     };
 }
@@ -1121,15 +1149,15 @@ function calcularImpuesto(monto, impuesto) {
 }
 
 function tasaImpuestoParaEdicion(gasto) {
-    const tasaForzada = tasaImpuestoForzadaPorCategoria(
-        gasto?.tipo || gasto?.type || gasto?.category
-    );
-    if (tasaForzada !== null) return tasaForzada;
-
     const tasaDirecta = tasaImpuestoNormalizada(
         gasto?.cfdiTaxRate ?? gasto?.cfdi_tax_rate
     );
     if (tasaDirecta !== null) return tasaDirecta;
+
+    const tasaForzada = tasaImpuestoForzadaPorCategoria(
+        gasto?.tipo || gasto?.type || gasto?.category
+    );
+    if (tasaForzada !== null) return tasaForzada;
 
     const tasaInferida = tasaImpuestoDesdeMontos(gasto);
     if (tasaInferida !== null) return tasaInferida;

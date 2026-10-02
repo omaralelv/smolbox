@@ -142,13 +142,13 @@ def determinar_iva_e_indice(
     if descripcion_normalizada in HOSPEDAJE_IVA_CERO:
         return Decimal(0), "W0"
 
-    # Tiendas incluidas en el archivo W6
-    if tiendas_iva_w6 and normalizar_texto(numero_tienda) in tiendas_iva_w6:
-        return Decimal("8"), "W6"
-
-    # Pasajes y taxis siempre usa 0% y W2
+    # Pasajes y taxis siempre usa 0% y W2, incluso en tiendas W6
     if descripcion_normalizada in PASAJES_TAXIS_IVA_CERO:
         return Decimal(0), "W2"
+
+    # Tiendas incluidas en el archivo W6
+    if tiendas_iva_w6 and normalizar_texto(numero_tienda) in tiendas_iva_w6:
+        return Decimal(8), "W6"
 
     # Forzar No Deducibles a 0%: W0
     if descripcion_normalizada in NO_DEDUCIBLES_IVA_CERO:
@@ -177,6 +177,25 @@ def determinar_tasa_iva_para_gasto(
     )
     tasa_normalizada = normalizar_porcentaje_iva(tasa_iva)
     return tasa_normalizada if tasa_normalizada is not None else Decimal("16.00")
+
+
+def determinar_indice_iva_manual(porcentaje_iva: Decimal | float | str) -> str:
+    tasa = normalizar_porcentaje_iva(porcentaje_iva)
+    if tasa == Decimal("0.00"):
+        return "W0"
+    if tasa == Decimal("8.00"):
+        return "W6"
+    return "W1"
+
+
+def categoria_tiene_iva_cero_por_regla(descripcion: str) -> bool:
+    descripcion_normalizada = normalizar_texto(descripcion)
+    return descripcion_normalizada in (
+        AGUA_IVA_CERO
+        + HOSPEDAJE_IVA_CERO
+        + PASAJES_TAXIS_IVA_CERO
+        + NO_DEDUCIBLES_IVA_CERO
+    )
 
 
 def normalizar_porcentaje_iva(value: Decimal | float | str | None) -> Decimal | None:

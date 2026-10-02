@@ -309,6 +309,7 @@ async def validate_expense_cfdi(
         expense.cfdi_currency = parsed.currency
         expense.cfdi_tax_amount = parsed.tax_amount
         expense.cfdi_tax_rate = parsed.tax_rate
+        expense.sap_tax_index_override = None
         if expense.reimbursement_request_id is not None:
             db.add(
                 AuditLog(

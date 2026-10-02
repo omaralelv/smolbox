@@ -74,6 +74,7 @@ class ExpenseRead(ExpenseBase):
     cfdi_currency: str | None = None
     cfdi_tax_amount: Decimal | None = None
     cfdi_tax_rate: Decimal | None = None
+    sap_tax_index_override: str | None = None
     authorized_at: datetime | None = None
     authorized_by_user_id: UUID | None = None
     authorization_note: str | None = None

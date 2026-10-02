@@ -117,6 +117,10 @@ class FrontendGastoRead(BaseModel):
     cfdi_total: float | None = Field(default=None, alias="cfdiTotal")
     cfdi_tax_amount: float | None = Field(default=None, alias="cfdiTaxAmount")
     cfdi_tax_rate: float | None = Field(default=None, alias="cfdiTaxRate")
+    sap_tax_index_override: str | None = Field(
+        default=None,
+        alias="sapTaxIndexOverride",
+    )
     cfdi_currency: str | None = Field(default=None, alias="cfdiCurrency")
     facturas: int
     autorizacion: str

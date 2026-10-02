@@ -79,6 +79,17 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
             "cfdi_subtotal": "200",
             "spent_on": date(2026, 8, 11),
         },
+        {
+            "id": "expense-manual-w6",
+            "category": "Insumos",
+            "cfdi_uuid": "UUID-MANUAL-W6",
+            "amount": "108",
+            "cfdi_tax_rate": "8",
+            "cfdi_tax_amount": "8",
+            "cfdi_subtotal": "100",
+            "sap_tax_index_override": "W6",
+            "spent_on": date(2026, 8, 12),
+        },
     ]
 
     resultados = []
@@ -133,6 +144,7 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
     contenido_zip = asyncio.run(leer_respuesta())
     with zipfile.ZipFile(io.BytesIO(contenido_zip)) as archivo_zip:
         contenido_poliza = archivo_zip.read("Poliza Reembolso TEST-1.xlsx")
+        contenido_sap = archivo_zip.read("CAJA CHICA TEST-1.xlsx")
 
     poliza = load_workbook(io.BytesIO(contenido_poliza), data_only=True).active
     filas = {
@@ -143,3 +155,10 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
 
     assert ("601007", "Insumos") in filas
     assert ("601007", "Papelería") in filas
+
+    sap = load_workbook(io.BytesIO(contenido_sap), data_only=True).active
+    assert any(
+        sap[f"C{fila}"].value == 108
+        and sap[f"D{fila}"].value == "W6"
+        for fila in range(2, sap.max_row + 1)
+    )
