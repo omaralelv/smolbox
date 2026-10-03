@@ -85,6 +85,10 @@ function observacionInicialDesdeGasto(gasto) {
 }
 
 
+function crearParticionInicial() {
+    return { categoria: '', monto: 0, impuesto: '0' };
+}
+
 
 function Detalle({ currentRole }) {
     const navigate = useNavigate();
@@ -107,6 +111,17 @@ function Detalle({ currentRole }) {
     const [impuestoEditadoManualmente, setImpuestoEditadoManualmente] = useState(false);
     const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
+
+    // ESTADOS DE PARTICIONAR
+    const [gastoParaPartir, setGastoParaPartir] = useState(null);
+    const [numParticiones, setNumParticiones] = useState(2);
+    const [particiones, setParticiones] = useState([
+        crearParticionInicial(),
+        crearParticionInicial()
+    ]);
+    const [guardandoParticion, setGuardandoParticion] = useState(false);
+    const [confirmarAnularModal, setConfirmarAnularModal] = useState(false);
+
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
     const [historial, setHistorial] = useState(() => (solicitudBackendId ? [] : HISTORIAL_MOCK));
@@ -123,7 +138,7 @@ function Detalle({ currentRole }) {
                 nombre: 'Gasto 1', 
                 monto: 150.00, 
                 folioFiscal: '5FB2822E-396D-4725-8521-CDC4BDD20CCF', 
-                autorizacion: 'autorizado' // 'autorizado', 'no_autorizado', o ''
+                autorizacion: 'autorizado' 
             },
             { 
                 id: 2, 
@@ -137,7 +152,7 @@ function Detalle({ currentRole }) {
                 nombre: 'Gasto 3', 
                 monto: 118.01, 
                 folioFiscal: 'EF953B9E-8835-2EE7-L8R7-C94OQ8358JKI', 
-                estatus: 'no_autorizado', // 👈 Gasto deshabilitado de prueba
+                estatus: 'no_autorizado',
                 autorizacion: 'no_autorizado'
             }
         ]
@@ -155,27 +170,22 @@ function Detalle({ currentRole }) {
         recibo: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         observaciones: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         editar: ['contabilidad', 'gerencia', 'admin'],
+        particionar: ['contabilidad', 'admin'],
         eliminar: ['contabilidad', 'gerencia', 'admin']
     };
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
 
-
-
-
-    console.log("🔍 GASTOS DESGLOSADOS:", gastosDesglosados);
-    console.log("🔍 OBS INICIALES DETECTADAS:", (gastosDesglosados || []).map(observacionInicialDesdeGasto));
-
-
-
+    //console.log("🔍 GASTOS DESGLOSADOS:", gastosDesglosados);
+    //console.log("🔍 OBS INICIALES DETECTADAS:", (gastosDesglosados || []).map(observacionInicialDesdeGasto));
 
     useEffect(() => {
         let activo = true;
 
         // 1. Extraemos las notas iniciales ingresadas por la tienda en cada gasto
-                const obsIniciales = (gastosDesglosados || [])
-                    .map(observacionInicialDesdeGasto)
-                    .filter(Boolean);
+        const obsIniciales = (gastosDesglosados || [])
+            .map(observacionInicialDesdeGasto)
+            .filter(Boolean);
 
 
         if (!solicitudBackendId) return undefined;
@@ -275,6 +285,12 @@ function Detalle({ currentRole }) {
     // 3. CÁLCULO DEL TOTAL (REGLA 1: Solo suma gastos ACTIVOS)
     const totalCategoria = gastosDesglosados
         .filter(gastoActivo)
+        .filter(gasto => {
+            if (gasto.inactivo) return false;
+            const catGasto = normalizarCategoriaImpuesto(gasto.tipo || gasto.type || gasto.categoria || categoria);
+            const catVista = normalizarCategoriaImpuesto(categoria);
+            return catGasto === catVista;
+        })
         .reduce((acc, curr) => acc + (parseFloat(curr.monto) || 0), 0)
         .toFixed(2);
 
@@ -311,6 +327,30 @@ function Detalle({ currentRole }) {
     };
 
     const handleEditarGasto = (gasto) => {
+        // Si el gasto seleccionado es una partición hija, buscamos sus datos o los de sus hermanos
+        if (gasto.esHijoParticion || gasto.idOriginal) {
+            const parentId = gasto.idOriginal;
+            const gastoPadre = gastosDesglosados.find(item => (item.backendId || item.id) === parentId);
+            
+            // Recuperamos todas las particiones asociadas a este mismo padre
+            const particionesHijas = gastosDesglosados.filter(item => item.idOriginal === parentId);
+
+            if (gastoPadre) {
+                setGastoParaPartir(gastoPadre);
+                setNumParticiones(particionesHijas.length || 2);
+                setParticiones(
+                    particionesHijas.map(p => ({
+                        id: p.id,
+                        backendId: p.backendId,
+                        categoria: p.categoria || p.tipo || '',
+                        monto: p.monto || 0,
+                        impuesto: String(p.impuesto || '0')
+                    }))
+                );
+                return;
+            }
+        }
+
         const expenseId = gasto.backendId || gasto.id;
 
         if (!gastoActivo(gasto)) {
@@ -427,6 +467,186 @@ function Detalle({ currentRole }) {
         }
     };
 
+
+    const handlePartirGasto = (gasto) => {
+        const expenseId = gasto.backendId || gasto.id;
+
+        if (!gastoActivo(gasto)) {
+            alert('Los gastos eliminados no se pueden particionar.');
+            return;
+        }
+
+        if (!expenseId || typeof expenseId !== 'string') {
+            alert('Este gasto no tiene ID de backend para particionarse.');
+            return;
+        }
+
+        const parentId = gasto.backendId || gasto.id;
+        const particionesExistentes = gastosDesglosados.filter(item => item.idOriginal === parentId);
+        //const categoriaGasto = gasto.tipo || gasto.type || categoria || 'Gasto General';
+        setGastoParaPartir(gasto);
+
+        // Reconstruir o cargar estado si el gasto ya tenía particiones asociadas
+        if (particionesExistentes.length > 0) {
+            setNumParticiones(particionesExistentes.length);
+            setParticiones(
+                particionesExistentes.map(p => ({
+                    id: p.id,
+                    backendId: p.backendId,
+                    categoria: p.categoria || p.tipo || '',
+                    monto: p.monto || 0,
+                    impuesto: String(p.impuesto || '0')
+                }))
+                );
+        } else {
+            setNumParticiones(2);
+            setParticiones([crearParticionInicial(), crearParticionInicial()]);
+        }
+    };
+
+    const handleNumParticionesChange = (nuevoNum) => {
+        const num = Math.max(2, parseInt(nuevoNum) || 2);
+        setNumParticiones(num);
+        setParticiones(prev => {
+            const copia = [...prev];
+            if (num > copia.length) {
+                while (copia.length < num) copia.push(crearParticionInicial());
+            } else if (num < copia.length) {
+                copia.length = num;
+            }
+            return copia;
+        });
+    };
+
+    const handleParticionChange = (index, campo, valor) => {
+        setParticiones(prev => {
+            const copia = [...prev];
+            copia[index] = { ...copia[index], [campo]: valor };
+            return copia;
+        });
+    };
+
+    const anularParticion = (idOriginal) => {
+        const parentId = idOriginal || (gastoParaPartir?.backendId || gastoParaPartir?.id);
+        
+        if (!parentId) {
+            cancelarParticion();
+            return;
+        }
+        
+        setGastosDesglosados(prev => {
+            // Remueve los gastos generados como partición y restituye el original (quitando inactivo)
+            const sinHijos = prev.filter(item => item.idOriginal !== parentId);
+            return sinHijos.map(item => {
+                if ((item.backendId || item.id) === parentId) {
+                    return {
+                        ...item,
+                        inactivo: false,
+                        esParticionado: false,
+                        particionesGuardadas: null
+                    };
+                }
+                return item;
+            });
+        });
+        //setGastoParaPartir(null);
+        //setNumParticiones(2);
+        //setParticiones([crearParticionInicial(), crearParticionInicial()]);
+        
+        // Cerramos ambos modales y limpiamos selección
+        setConfirmarAnularModal(false);
+        cancelarParticion();
+    };
+
+    const cancelarParticion = () => {
+        setGastoParaPartir(null);
+        setNumParticiones(2);
+        setParticiones([crearParticionInicial(), crearParticionInicial()]);
+    };
+
+    const confirmarParticion = async () => {
+        const totalOriginal = Number(gastoParaPartir?.monto || 0);
+        const sumaParticiones = particiones.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+
+        if (Math.abs(totalOriginal - sumaParticiones) > 0.01) {
+            alert(`El total asignado (${formatoMonto(sumaParticiones)}) debe ser exactamente igual al Total Gasto (${formatoMonto(totalOriginal)}).`);
+            return;
+        }
+
+        for (let i = 0; i < particiones.length; i++) {
+            if (!particiones[i].categoria) {
+                alert(`Selecciona una categoría para la Partición ${i + 1}.`);
+                return;
+            }
+            if (Number(particiones[i].monto) <= 0) {
+                alert(`Indica un monto mayor a 0 para la Partición ${i + 1}.`);
+                return;
+            }
+        }
+
+        try {
+            //setGuardandoParticion(true);
+            // Aquí agregarías el llamado a la API cuando esté listo el endpoint backend
+            //alert('Gasto particionado correctamente.');
+            //cancelarParticion();
+
+            setGuardandoParticion(true);
+
+            const parentId = gastoParaPartir.backendId || gastoParaPartir.id;
+            const totalPart = particiones.length;
+
+            // Mantenemos o generamos los objetos actualizados para cada partición
+            const nuevosGastosParticionados = particiones.map((p, idx) => {
+                const childId = p.id || `part-${parentId}-${idx + 1}-${Date.now()}`;
+                return {
+                    ...gastoParaPartir,
+                    id: childId,
+                    backendId: p.backendId || (gastoParaPartir.backendId ? `${gastoParaPartir.backendId}-part-${idx + 1}` : undefined),
+                    nombre: `Partición ${idx + 1} / ${totalPart} - ${p.categoria}`,
+                    tipo: p.categoria,
+                    type: p.categoria,
+                    categoria: p.categoria,
+                    monto: Number(p.monto),
+                    esHijoParticion: true,
+                    idOriginal: parentId,
+                    particionIndex: idx + 1,
+                    totalParticiones: totalPart,
+                    impuesto: p.impuesto,
+                    inactivo: false
+                };
+            });
+
+            setGastosDesglosados(prev => {
+                // 1. Filtrar particiones previas si existían
+                const sinHijosPrevios = prev.filter(item => item.idOriginal !== parentId);
+
+                // 2. Marcar el gasto original como inactivo/archivado y guardar la estructura de partición
+                const actualizados = sinHijosPrevios.map(item => {
+                    if ((item.backendId || item.id) === parentId) {
+                        return {
+                            ...item,
+                            inactivo: true,
+                            esParticionado: true,
+                            particionesGuardadas: [...particiones]
+                        };
+                    }
+                    return item;
+                });
+
+                // 3. Insertar las particiones nuevas justo después del gasto original o al final
+                return [...actualizados, ...nuevosGastosParticionados];
+            });
+
+            alert('Gasto particionado correctamente.');
+            cancelarParticion();
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setGuardandoParticion(false);
+        }
+    };
+
+
     const cancelarEliminacion = () => {
         setGastoParaEliminar(null);
         setMotivoEliminacion('');
@@ -518,16 +738,28 @@ function Detalle({ currentRole }) {
                     
 
                     {/* FILAS DE GASTOS */}
-                    {gastosDesglosados.map((gasto, index) => {
-                        const gastoKey = gasto.backendId || gasto.id || index;
-                        const eliminado = !gastoActivo(gasto);
-                        const estaDesactivado = eliminado || gasto.estatus === 'no_autorizado';
+                    {gastosDesglosados
+                        .filter(gasto => !gasto.inactivo) // Filtrar/ocultar gasto original de la vista cuando está particionado
+                        .filter(gasto => {
+                            const catGasto = normalizarCategoriaImpuesto(gasto.tipo || gasto.type || gasto.categoria || categoria);
+                            const catVista = normalizarCategoriaImpuesto(categoria);
+                            return catGasto === catVista;
+                        })
+                        .map((gasto, index) => {
+                            const gastoKey = gasto.backendId || gasto.id || index;
+                            const eliminado = !gastoActivo(gasto);
+                            const estaDesactivado = eliminado || gasto.estatus === 'no_autorizado';
+                            const esParticion = gasto.esHijoParticion;
                     
                         return (
 
                         <div 
                             key={gastoKey} 
-                            style={{...styles.tableRow, ...(estaDesactivado ? styles.rowGris : {})}}
+                            style={{
+                                ...styles.tableRow, 
+                                ...(estaDesactivado ? styles.rowGris : {}),
+                                ...(esParticion ? styles.rowParticion : {}),
+                            }}
                             data-audit-expense-id={gasto.backendId || undefined}
                         >
                             <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
@@ -575,6 +807,22 @@ function Detalle({ currentRole }) {
                                         <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
                                     </button>
                                 )}
+
+                                {puedeVer('particionar') && (
+                                    <button
+                                        style={{
+                                            ...styles.iconBtn,
+                                            opacity: esParticion ? 0.4 : 1,
+                                            cursor: esParticion ? 'not-allowed' : 'pointer'
+                                        }}
+                                        title={esParticion ? "Gasto proveniente de una partición" : "Particionar Gasto"}
+                                        onClick={() => handlePartirGasto(gasto)}
+                                        disabled={eliminado || esParticion}
+                                    >
+                                        <img src="/ParticionV.png" alt="Particion" style={styles.iconImg} />
+                                    </button>
+                                )}
+
                                 {puedeVer('eliminar') && (
                                     <button
                                         style={{
@@ -667,28 +915,28 @@ function Detalle({ currentRole }) {
                         <h3 style={styles.modalTitle}>Editar gasto</h3>
                         <div style={styles.modalField}>
                             <label style={styles.modalLabel}>Categoría</label>
-	                            <select
-	                                value={categoriaEditada}
-	                                onChange={(event) => handleCategoriaEditadaChange(event.target.value)}
-	                                style={styles.modalInput}
-	                                disabled={guardandoEdicion}
-	                            >
-                                {CATEGORIAS_GASTO.map((cat) => (
-                                    <option key={cat} value={cat}>{cat}</option>
-                                ))}
+                            <select
+                                value={categoriaEditada}
+                                onChange={(event) => handleCategoriaEditadaChange(event.target.value)}
+                                style={styles.modalInput}
+                                disabled={guardandoEdicion}
+                            >
+                            {CATEGORIAS_GASTO.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
                             </select>
                         </div>
                         <div style={styles.modalField}>
                             <label style={styles.modalLabel}>Impuesto</label>
                             <select
-	                                value={impuestoEditado}
-                                onChange={(event) => {
-                                        setImpuestoEditado(event.target.value);
-                                        setImpuestoEditadoManualmente(true);
-                                    }}
-                                style={styles.modalInput}
-	                                disabled={guardandoEdicion}
-	                            >
+                            value={impuestoEditado}
+                            onChange={(event) => {
+                                setImpuestoEditado(event.target.value);
+                                setImpuestoEditadoManualmente(true);
+                            }}
+                            style={styles.modalInput}
+                            disabled={guardandoEdicion}
+                        >
                                 <option value="0">0%</option>
                                 <option value="8">8%</option>
                                 <option value="16">16%</option>
@@ -729,6 +977,179 @@ function Detalle({ currentRole }) {
                     </div>
                 </div>
             )}
+
+            
+            
+            {/* MODAL PARTICIONAR FACTURA */}
+            {gastoParaPartir && (() => {
+                const totalGasto = Number(gastoParaPartir.monto || 0);
+                const sumaMontos = particiones.reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+                const restante = totalGasto - sumaMontos;
+
+                return (
+                    <div style={styles.modalOverlay}>
+                        <div style={styles.partitionModal}>
+                            <h3 style={styles.modalTitle}>Particionar Factura</h3>
+
+                            {/* CABECERA CON TOTAL GASTO Y RESTANTE */}
+                            <div style={styles.partitionHeader}>
+                                <div style={styles.partitionSummaryRow}>
+                                    <strong>Total de Factura :</strong>
+                                    <strong>{formatoMonto(totalGasto)}</strong>
+                                </div>
+                                <div style={{ ...styles.partitionAvailableRow, color: restante != 0 ? '#d3211b' : '#386c03' }}>
+                                    <span>Restante :</span>
+                                    <span>{formatoMonto(restante)}</span>
+                                </div>
+                            </div>
+
+                            {/* CONTADOR DE NUM PARTICIONES */}
+                            <div style={styles.partitionNumRow}>
+                                <label style={styles.modalLabel}>Número de Particiones :</label>
+                                <input
+                                    type="number"
+                                    min="2"
+                                    value={numParticiones}
+                                    onChange={(e) => handleNumParticionesChange(e.target.value)}
+                                    style={styles.numInput}
+                                />
+                            </div>
+
+                            {/* FILAS DE PARTICIÓN */}
+                            <div style={styles.partitionList}>
+                                {particiones.map((part, idx) => {
+                                    const { subtotal, iva } = calcularImpuesto(part.monto, part.impuesto);
+                                    return (
+                                        <div key={idx} style={styles.partitionItem}>
+                                            <h4 style={styles.partitionSubTitle}>Partición {idx + 1}</h4>
+                                            
+                                            <div style={styles.partitionGrid}>
+                                                {/* 1. Categoría */}
+                                                <div style={styles.partitionField}>
+                                                    <label style={styles.fieldLabel}>Categoría</label>
+                                                    <select
+                                                        value={part.categoria}
+                                                        onChange={(e) => handleParticionChange(idx, 'categoria', e.target.value)}
+                                                        style={styles.modalInput}
+                                                    >
+                                                        <option value="">Seleccionar...</option>
+                                                        {CATEGORIAS_GASTO.map((cat) => (
+                                                            <option key={cat} value={cat}>{cat}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+
+                                                {/* 2. Monto Total */}
+                                                <div style={styles.partitionField}>
+                                                    <label style={styles.fieldLabel}>Monto Total</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={part.monto || ''}
+                                                        onChange={(e) => handleParticionChange(idx, 'monto', e.target.value)}
+                                                        placeholder="$ 0.00"
+                                                        style={styles.modalInput}
+                                                    />
+                                                </div>
+
+                                                {/* 3. Impuesto e Impuesto calculado */}
+                                                <div style={styles.partitionField}>
+                                                    <label style={styles.fieldLabel}>Impuesto</label>
+                                                    <select
+                                                        value={part.impuesto}
+                                                        onChange={(e) => handleParticionChange(idx, 'impuesto', e.target.value)}
+                                                        style={styles.modalInput}
+                                                    >
+                                                        <option value="0">0%</option>
+                                                        <option value="8">8%</option>
+                                                        <option value="16">16%</option>
+                                                    </select>
+                                                    <span style={styles.calculatedText}>
+                                                        {formatoMonto(iva)}
+                                                    </span>
+                                                </div>
+
+                                                {/* 4. Subtotal */}
+                                                <div style={styles.partitionField}>
+                                                    <label style={styles.fieldLabel}>Subtotal</label>
+                                                    <span style={styles.subtotalValue}>
+                                                        {formatoMonto(subtotal)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* BOTONES DE ACCIÓN */}
+                            <div style={styles.modalActions}>
+                                <button
+                                    type="button"
+                                    style={styles.modalCancelBtn}
+                                    /*onClick={() => anularParticion()}*/
+                                    onClick={() => setConfirmarAnularModal(true)}
+                                    disabled={guardandoParticion}
+                                >
+                                    Anular partición
+                                </button>
+                                <button
+                                    type="button"
+                                    style={styles.modalCancelBtn}
+                                    onClick={cancelarParticion}
+                                    disabled={guardandoParticion}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    style={styles.modalDeleteBtn}
+                                    onClick={confirmarParticion}
+                                    disabled={guardandoParticion}
+                                >
+                                    {guardandoParticion ? 'Guardando...' : 'Guardar Partición'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+
+
+            {/* MODAL DE CONFIRMACIÓN PARA ANULAR PARTICIPACIÓN */}
+            {confirmarAnularModal && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modal}>
+                        <h3 style={styles.modalTitle}>Anular partición</h3>
+                        <p style={styles.modalText}>
+                            ¿Seguro que quieres anular esta partición?
+                        </p>
+                        <p style={styles.modalText}>
+                            Los montos divididos se descartarán y se reestablecerá el gasto original.
+                        </p>
+                        <div style={styles.modalActions}>
+                            <button
+                                type="button"
+                                style={styles.modalCancelBtn}
+                                onClick={() => setConfirmarAnularModal(false)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                style={styles.modalDeleteBtn}
+                                onClick={() => anularParticion()}
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
         </div>
         
     );
@@ -877,6 +1298,7 @@ const styles = {
         margin: '0 0 20px',
         fontSize: '20px',
         color: 'var(--text-h)',
+        marginBottom: '30px',
     },
     modalText: {
         margin: '0 0 13px',
@@ -909,13 +1331,116 @@ const styles = {
     modalInput: {
         width: '100%',
         border: '1px solid var(--border)',
-        borderRadius: '8px',
-        padding: '9px 10px',
-        fontSize: '14px',
+        borderRadius: '10px',
+        padding: '9px 15px',
+        fontSize: '13px',
         boxSizing: 'border-box',
         backgroundColor: '#fff',
         color: 'var(--text)'
     },
+
+
+    // Estilo resaltado para particiones (Tono azul celeste)
+    rowParticion: {
+        backgroundColor: '#fffafc',
+        borderColor: 'var(--sb-btnBorder)',
+    },
+    partitionModal: {
+        width: 'min(900px, calc(100vw - 40px))',
+        maxHeight: '85vh',
+        backgroundColor: '#fff',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '10px',
+        boxShadow: 'var(--shadow)',
+        padding: '24px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: 'auto',
+    },
+    /* ESTILOS DE PARTICIONAR */
+    partitionHeader: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        alignItems: 'right',
+        marginBottom: '16px',
+    },
+    partitionSummaryRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        fontSize: '16px',
+        alignItems: 'right',
+        marginBottom: '5px',
+    },
+    partitionAvailableRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        fontSize: '16px',
+        alignItems: 'right',
+    },
+    partitionNumRow: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '15px',
+        marginBottom: '20px',
+    },
+    numInput: {
+        width: '65px',
+        border: '1px solid var(--border)',
+        backgroundColor: '#fff6f6',
+        color: '#000000',
+        borderRadius: '10px',
+        padding: '5px 0px',
+        fontSize: '15px',
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    partitionList: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px',
+    },
+    partitionItem: {
+        borderBottom: '1px solid #eee',
+        paddingBottom: '20px',
+    },
+    partitionSubTitle: {
+        margin: '0 0 20px 0',
+        fontSize: '15px',
+        color: '#000000',
+        borderBottom: '1px solid #333',
+        display: 'inline-block',
+        paddingBottom: '10px',
+    },
+    partitionGrid: {
+        display: 'grid',
+        gridTemplateColumns: '1.5fr 1fr 1fr 1fr',
+        gap: '50px',
+        alignItems: 'start',
+    },
+    partitionField: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+    },
+    fieldLabel: {
+        fontSize: '13px',
+        color: '#000000',
+        fontWeight: '700',
+    },
+    calculatedText: {
+        fontSize: '13px',
+        color: 'var(--sb-btnBorder)',
+        marginTop: '0px',
+    },
+    subtotalValue: {
+        fontSize: '13px',
+        fontWeight: '500',
+        color: '#333',
+        paddingTop: '8px',
+    },
+
+
     taxSummary: {
         marginTop: '14px',
         border: '1px solid var(--sb-btnBorder)',
