@@ -138,7 +138,7 @@ function Historico({currentRole}) {
                     <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
                         No hay solicitudes registradas en el histórico.
                     </div>
-                ) : (solicitudesHistoricas.map((sol) => {
+                ) : (solicitudesFiltradas.map((sol) => {
                     const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
                     return (
                         <div
