@@ -144,7 +144,7 @@ function Bitacora() {
                 const normalizedEvents = auditResults
                     .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
                     .filter(Boolean)
-                    .sort((a, b) => b.timestamp - a.timestamp);
+                    .sort(compareAuditEvents);
 
                 if (!active) return;
                 setEvents(normalizedEvents);
@@ -492,7 +492,8 @@ function normalizeAuditEvent(event, request, usersById) {
     const actorRole = payload.actor_role || actor?.role || event.actor_type || 'system';
     const actorDisplayName = actorName(actor, event.actor_type || event.actorType, actorId);
     const requestId = String(request.backendId || request.backend_id || request.id || '');
-    const timestamp = Date.parse(event.created_at || event.createdAt || '');
+    const createdAt = String(event.created_at || event.createdAt || '');
+    const timestamp = Date.parse(createdAt);
     const storeLabel = request.tienda || request.storeCode || request.store_code || 'N/A';
     const roleKey = normalizeFilterKey(actorRole || 'system') || 'system';
     const actorKey = actorId
@@ -513,9 +514,16 @@ function normalizeAuditEvent(event, request, usersById) {
         roleLabel: roleLabel(actorRole),
         detail: eventDetail(event, payload),
         timestamp: Number.isNaN(timestamp) ? 0 : timestamp,
-        dateKey: dateInputFromValue(event.created_at || event.createdAt),
-        dateLabel: dateLabel(event.created_at || event.createdAt),
+        createdAt,
+        dateKey: dateInputFromValue(createdAt),
+        dateLabel: dateLabel(createdAt),
     };
+}
+
+function compareAuditEvents(a, b) {
+    return (b.timestamp - a.timestamp)
+        || String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+        || String(b.id || '').localeCompare(String(a.id || ''));
 }
 
 function actionLabel(action, toStatus) {
@@ -542,10 +550,10 @@ function actionLabel(action, toStatus) {
         request_created: 'Solicitud cargada',
         request_created_from_frontend: 'Solicitud cargada',
         request_updated: 'Solicitud editada',
-        sap_policy_placeholder_prepared: 'Póliza preparada',
+        sap_policy_placeholder_prepared: 'Póliza preparada en flujo',
         ui_click: 'Click registrado',
         download_invoices_zip: 'Descargar ZIP de facturas',
-        download_policy_zip: 'Descargar ZIP de pólizas',
+        download_policy_zip: 'Póliza descargada',
     };
 
     if (action === 'request_status_changed') {
@@ -592,7 +600,10 @@ function actionGroup(action) {
 function eventDetail(event, payload) {
     const details = [];
     const translatedMessage = event.message ? translateMessage(event.message) : '';
-    if (translatedMessage) details.push(translatedMessage);
+    const messageForDetail = reasonMessageAction(event.action) && translatedMessage
+        ? `Motivo: "${translatedMessage}"`
+        : translatedMessage;
+    if (messageForDetail) details.push(messageForDetail);
 
     if (Array.isArray(payload.changed_fields) && payload.changed_fields.length) {
         const changedFields = payload.changed_fields.filter(
@@ -602,7 +613,7 @@ function eventDetail(event, payload) {
             details.push(`Campos editados: ${changedFields.map(fieldLabel).join(', ')}.`);
         }
     }
-    if (payload.expense_name && !translatedMessage.includes(payload.expense_name)) {
+    if (payload.expense_name && !messageForDetail.includes(payload.expense_name)) {
         details.push(`Gasto: ${payload.expense_name}.`);
     }
     if (payload.expense_sequence && payload.expense_count) {
@@ -625,7 +636,7 @@ function eventDetail(event, payload) {
     if (payload.file_name || payload.filename) {
         details.push(`Archivo: ${payload.file_name || payload.filename}.`);
     }
-    if (payload.button_label && !translatedMessage.includes(payload.button_label)) {
+    if (payload.button_label && !messageForDetail.includes(payload.button_label)) {
         details.push(`Botón: ${payload.button_label}.`);
     }
     if (payload.page_path) details.push(`Pantalla: ${payload.page_path}.`);
@@ -641,6 +652,13 @@ function eventDetail(event, payload) {
     return details.filter(Boolean).join(' ') || 'Movimiento registrado sin detalle adicional.';
 }
 
+function reasonMessageAction(action) {
+    return [
+        'expense_authorization_rejected',
+        'expense_removed_from_request',
+    ].includes(action);
+}
+
 function translateMessage(message) {
     const messages = {
         'Accounting request opened by user.': 'Solicitud abierta por contabilidad.',
@@ -653,9 +671,9 @@ function translateMessage(message) {
         'Reimbursement request created.': 'Solicitud creada.',
         'Reimbursement request created from frontend-compatible API.': 'Solicitud creada desde la app.',
         'Reimbursement request updated.': 'Solicitud actualizada.',
-        'Sap policy placeholder prepared.': 'Póliza preparada.',
+        'Sap policy placeholder prepared.': 'Póliza preparada en flujo.',
         'Downloaded invoices ZIP':'Descarga de ZIP de facturas.',
-        'Downloaded policy ZIP':'Descarga de ZIP de pólizas.',
+        'Downloaded policy ZIP':'Póliza descargada.',
     };
     return messages[message] || message;
 }
@@ -701,7 +719,7 @@ function dateLabel(value) {
     if (Number.isNaN(date.getTime())) return 'Sin fecha';
     return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'short',
-        timeStyle: 'short',
+        timeStyle: 'medium',
     }).format(date);
 }
 

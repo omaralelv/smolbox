@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,10 +10,10 @@ from app.models.reimbursement_request import (
     ReimbursementRequest,
     ReimbursementRequestStatus,
 )
-
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
 )
+
 
 @dataclass
 class ReimbursementPeriodContext:
@@ -23,6 +23,27 @@ class ReimbursementPeriodContext:
     previous_amount: Decimal
     previous_request_id: UUID | None
     source: str
+
+
+class ExpenseOutsideReimbursementPeriod(ValueError):
+    pass
+
+
+class ReimbursementPeriodBoundaryUnavailable(ValueError):
+    pass
+
+
+def validate_expense_date_for_reimbursement(
+    spent_on: date | datetime,
+    *,
+    previous_ends_on: date | None,
+) -> None:
+    if previous_ends_on is None:
+        raise ReimbursementPeriodBoundaryUnavailable
+    expense_date = spent_on.date() if isinstance(spent_on, datetime) else spent_on
+    if expense_date < previous_ends_on:
+        raise ExpenseOutsideReimbursementPeriod
+
 
 def obtener_ultima_solicitud_con_periodo(
     db: Session,

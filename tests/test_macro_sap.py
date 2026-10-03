@@ -5,6 +5,8 @@ import zipfile
 from datetime import UTC, date, datetime
 from unittest.mock import Mock, patch
 
+import pytest
+from fastapi import HTTPException
 from openpyxl import Workbook, load_workbook
 
 from app.api.v1.endpoints import macro_sap
@@ -51,9 +53,9 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
         "period_id": "period-1",
         "reimbursement_starts_on": date(2026, 8, 1),
         "reimbursement_ends_on": date(2026, 8, 31),
-        "previous_reimbursement_starts_on": None,
-        "previous_reimbursement_ends_on": None,
-        "previous_reimbursement_amount": None,
+        "previous_reimbursement_starts_on": date(2026, 7, 1),
+        "previous_reimbursement_ends_on": date(2026, 7, 31),
+        "previous_reimbursement_amount": "0",
         "created_at": datetime(2026, 9, 1, tzinfo=UTC),
         "folio": "TEST-1",
     }
@@ -162,3 +164,46 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
         and sap[f"D{fila}"].value == "W6"
         for fila in range(2, sap.max_row + 1)
     )
+
+
+def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
+    solicitud_id = uuid.uuid4()
+    solicitud = {
+        "store_id": "store-1",
+        "period_id": "period-1",
+        "reimbursement_starts_on": date(2026, 9, 27),
+        "reimbursement_ends_on": date(2026, 9, 30),
+        "previous_reimbursement_starts_on": date(2026, 9, 1),
+        "previous_reimbursement_ends_on": date(2026, 9, 26),
+        "previous_reimbursement_amount": "0",
+        "created_at": datetime(2026, 10, 1, tzinfo=UTC),
+        "folio": "TEST-2",
+    }
+    tienda = {"code": "V101"}
+    periodo = {"id": "period-1"}
+    gastos = [
+        {
+            "id": "stale-expense",
+            "spent_on": date(2026, 9, 25),
+        }
+    ]
+    resultados = []
+    for valor in (solicitud, tienda, periodo, gastos):
+        resultado = Mock()
+        resultado.mappings.return_value.first.return_value = valor
+        resultado.mappings.return_value.all.return_value = valor
+        resultados.append(resultado)
+    db = Mock()
+    db.execute.side_effect = resultados
+
+    with (
+        patch.object(macro_sap, "diccionario_tiendas", {"V101": {}}),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        macro_sap.generar_polizas(solicitud_id, db=db)
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == {
+        "code": "EXPENSE_OUTSIDE_PERIOD",
+        "message": "El gasto está fuera de periodo.",
+    }

@@ -5,7 +5,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
-from zoneinfo import ZoneInfo 
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,21 +15,25 @@ from openpyxl.styles import PatternFill
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.utils.filenames import limpiar_nombre_archivo
+from app.api.dependencies.auth import get_current_user
+from app.db.session import get_db
+from app.models.audit_log import AuditActorType, AuditLog
+from app.models.user import User
+from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
+    validate_expense_date_for_reimbursement,
+)
 from app.services.spending_summary import obtener_resumen_gasto_tienda
 from app.services.store_catalog import cargar_base_tiendas
-
-
-from app.db.session import get_db
-
 from app.services.tax_rules import (
-    normalizar_texto,
+    cargar_tiendas_iva_w6,
     cargar_tipo_gastos,
     crear_indice_categorias,
-    cargar_tiendas_iva_w6,
-    determinar_iva_e_indice
+    determinar_iva_e_indice,
+    normalizar_texto,
 )
-
+from app.utils.filenames import limpiar_nombre_archivo
 
 router = APIRouter()
 
@@ -80,6 +84,7 @@ tiendas_iva_w6 = cargar_tiendas_iva_w6(ruta_W6)
 def generar_polizas(
     solicitud_id: uuid.UUID,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
 
     # ========================================================
@@ -204,9 +209,6 @@ def generar_polizas(
     # Formatos requeridos por el Excel
     fecha_poliza_sap = fecha_poliza_obj.strftime("%d.%m.%Y")
 
-    str_inicio_caja = inicio_caja.strftime("%d/%m/%Y")
-    str_fin_caja = fin_caja.strftime("%d/%m/%Y")
-
     str_inicio_ant = (
         inicio_ant.strftime("%d/%m/%Y")
         if inicio_ant is not None
@@ -267,9 +269,30 @@ def generar_polizas(
             detail="La solicitud no tiene gastos activos asociados.",
         )
 
-    str_ultimo_gasto = _formatear_fecha_ultimo_gasto(gastos_db)
-    str_primer_gasto = _formatear_fecha_primer_gasto(gastos_db)
+    try:
+        for gasto in gastos_db:
+            validate_expense_date_for_reimbursement(
+                gasto["spent_on"],
+                previous_ends_on=fin_ant,
+            )
+    except ExpenseOutsideReimbursementPeriod as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "EXPENSE_OUTSIDE_PERIOD",
+                "message": "El gasto está fuera de periodo.",
+            },
+        ) from exc
+    except ReimbursementPeriodBoundaryUnavailable as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
 
+    str_ultimo_gasto = _formatear_fecha_ultimo_gasto(gastos_db)
     # ========================================================
     # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA
     # ========================================================
@@ -406,12 +429,16 @@ def generar_polizas(
     # Convert previous period end string to date and add one day
     if str_fin_ant:
         try:
-            prev_end_date = datetime.strptime(str_fin_ant, "%d/%m/%Y").date()
-        except Exception:
+            prev_end_date = datetime.strptime(str_fin_ant, "%d/%m/%Y").replace(tzinfo=UTC).date()
+        except ValueError:
             prev_end_date = None
-        nuevo_inicio = prev_end_date + timedelta(days=1) if prev_end_date else datetime.now().date()
+        nuevo_inicio = (
+            prev_end_date + timedelta(days=1)
+            if prev_end_date
+            else datetime.now(UTC).date()
+        )
     else:
-        nuevo_inicio = datetime.now().date()
+        nuevo_inicio = datetime.now(UTC).date()
 
 
     # D) Creación del Archivo 1: SAP (En memoria)
@@ -533,6 +560,21 @@ def generar_polizas(
     zip_buffer.seek(0)
 
     nombre_zip = f"Poliza_{folio_archivo}.zip"
+    db.add(
+        AuditLog(
+            reimbursement_request_id=solicitud_id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="download_policy_zip",
+            message="Downloaded policy ZIP",
+            created_at=datetime.now(UTC),
+            event_payload={
+                "filename": nombre_zip,
+                "source": "macro_sap",
+            },
+        )
+    )
+    db.commit()
 
     return StreamingResponse(
         zip_buffer,

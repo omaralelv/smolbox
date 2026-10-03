@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -54,6 +54,12 @@ from app.services.expense_import import ExpenseImportUnsupported, parse_expense_
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.permissions import user_can_transition_store_request
+from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
+    obtener_contexto_periodo_reembolso,
+    validate_expense_date_for_reimbursement,
+)
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
@@ -68,6 +74,7 @@ from app.services.workflow import (
     WorkflowTransitionError,
     transition_reimbursement_request,
 )
+from app.utils.folio_dates import obtener_fecha_desde_folio
 
 router = APIRouter()
 
@@ -90,7 +97,34 @@ def create_reimbursement_request(
         )
 
     request_data = request_in.model_dump()
-    request_data["folio"] = request_data.get("folio") or _generate_request_folio(store, db)
+    folio = request_data.get("folio") or _generate_request_folio(store, db)
+    try:
+        reimbursement_ends_on = obtener_fecha_desde_folio(folio)
+        period_context = obtener_contexto_periodo_reembolso(
+            db,
+            store.id,
+            fecha_fin_actual=reimbursement_ends_on,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "INVALID_REIMBURSEMENT_PERIOD",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
+
+    request_data.update(
+        {
+            "folio": folio,
+            "reimbursement_starts_on": period_context.current_starts_on,
+            "reimbursement_ends_on": reimbursement_ends_on,
+            "previous_reimbursement_request_id": period_context.previous_request_id,
+            "previous_reimbursement_starts_on": period_context.previous_starts_on,
+            "previous_reimbursement_ends_on": period_context.previous_ends_on,
+            "previous_reimbursement_amount": period_context.previous_amount,
+        }
+    )
 
     reimbursement_request = ReimbursementRequest(**request_data)
     db.add(reimbursement_request)
@@ -221,22 +255,12 @@ def download_request_invoices_zip_as_current_user(
 
     db.add(
         AuditLog(
-                reimbursement_request_id=reimbursement_request.id,
-                actor_user_id=current_user.id,
-                action="download_invoices_zip",
-                message="Downloaded invoices ZIP",
-            )
+            reimbursement_request_id=reimbursement_request.id,
+            actor_user_id=current_user.id,
+            action="download_invoices_zip",
+            message="Downloaded invoices ZIP",
         )
-    db.commit()
-
-    db.add(
-            AuditLog(
-                    reimbursement_request_id=reimbursement_request.id,
-                    actor_user_id=current_user.id,
-                    action="download_policy_zip",
-                    message="Downloaded policy ZIP",
-                )
-            )
+    )
     db.commit()
 
     zip_buffer.seek(0)
@@ -263,6 +287,14 @@ def update_reimbursement_request(
 
     _ensure_request_editable(reimbursement_request)
     updates = request_in.model_dump(exclude_unset=True)
+    if "previous_reimbursement_ends_on" in updates:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_END_IMMUTABLE",
+                "message": "No se puede modificar este campo.",
+            },
+        )
     starts_on = updates.get(
         "previous_reimbursement_starts_on",
         reimbursement_request.previous_reimbursement_starts_on,
@@ -434,47 +466,13 @@ def prepare_reimbursement_request_sap_policy(
             },
         )
 
-    try:
-        payload = prepare_sap_policy_placeholder(
-            reimbursement_request,
-            actor=actor,
-            reference=policy_in.reference,
-        )
-    except SapPolicyPreparationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
-        ) from exc
-
-    _add_button_selected_audit_event(
-        db,
-        reimbursement_request=reimbursement_request,
+    return _prepare_sap_policy_with_actor(
+        reimbursement_request,
         actor=actor,
-        action_key="prepare_sap_policy",
+        reference=policy_in.reference,
+        note=policy_in.note,
         authenticated=False,
-    )
-    db.add(
-        AuditLog(
-            reimbursement_request_id=reimbursement_request.id,
-            actor_user_id=actor.id,
-            actor_type=AuditActorType.user,
-            action="sap_policy_placeholder_prepared",
-            message=policy_in.note or "SAP policy placeholder prepared.",
-            event_payload={
-                "reference": reimbursement_request.sap_policy_reference,
-                "payload": payload,
-            },
-        )
-    )
-    db.commit()
-    db.refresh(reimbursement_request)
-    return SapPolicyRead(
-        request_id=reimbursement_request.id,
-        status="prepared",
-        reference=reimbursement_request.sap_policy_reference or "",
-        generated_at=reimbursement_request.sap_policy_generated_at,
-        generated_by_user_id=actor.id,
-        payload=reimbursement_request.sap_policy_payload or {},
+        db=db,
     )
 
 
@@ -673,7 +671,7 @@ def list_reimbursement_request_audit_events(
     statement = (
         select(AuditLog)
         .where(AuditLog.reimbursement_request_id == request_id)
-        .order_by(AuditLog.created_at.desc())
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -747,7 +745,34 @@ async def import_reimbursement_request_expenses(
         )
         for error in row_errors
     ]
-        
+
+    try:
+        for row in parsed_rows:
+            validate_expense_date_for_reimbursement(
+                row.spent_on,
+                previous_ends_on=(
+                    reimbursement_request.previous_reimbursement_ends_on
+                ),
+            )
+    except ExpenseOutsideReimbursementPeriod:
+        errors.extend(
+            ExpenseImportErrorRead(
+                row_number=row.row_number,
+                field="spent_on",
+                message="El gasto está fuera de periodo.",
+            )
+            for row in parsed_rows
+            if reimbursement_request.previous_reimbursement_ends_on is not None
+            and row.spent_on < reimbursement_request.previous_reimbursement_ends_on
+        )
+    except ReimbursementPeriodBoundaryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
 
     if not parsed_rows and not errors:
         errors.append(
@@ -1011,6 +1036,7 @@ async def upload_reimbursement_excel_as_current_user(
         size_bytes=stored.size_bytes,
         checksum_sha256=stored.checksum_sha256,
     )
+    audit_now = datetime.now(UTC)
     db.add(attachment)
     db.add(
         AuditLog(
@@ -1019,6 +1045,7 @@ async def upload_reimbursement_excel_as_current_user(
             actor_type=AuditActorType.user,
             action="reimbursement_excel_uploaded",
             message=f"Excel de reembolso cargado: {stored.filename}",
+            created_at=audit_now,
             event_payload={
                 "attachment_type": AttachmentType.cash_box_format.value,
                 "filename": stored.filename,
@@ -1132,12 +1159,14 @@ def _transition_request_with_actor(
         reimbursement_request.correction_return_status = to_status
         reimbursement_request.correction_reason = note
 
+    audit_now = datetime.now(UTC)
     _add_button_selected_audit_event(
         db,
         reimbursement_request=reimbursement_request,
         actor=actor,
         action_key=action_key,
         authenticated=authenticated,
+        created_at=audit_now,
     )
     db.add(
         AuditLog(
@@ -1148,6 +1177,7 @@ def _transition_request_with_actor(
             from_status=from_status.value,
             to_status=to_status.value,
             message=note,
+            created_at=audit_now + timedelta(microseconds=1),
             event_payload={
                 "ready_for_submission": summary.ready_for_submission,
                 "ready_for_authorization_approval": summary.ready_for_authorization_approval,
@@ -1168,6 +1198,7 @@ def _add_button_selected_audit_event(
     actor: User,
     action_key: str | None,
     authenticated: bool,
+    created_at: datetime | None = None,
 ) -> None:
     if not action_key:
         return
@@ -1180,6 +1211,7 @@ def _add_button_selected_audit_event(
             actor_type=AuditActorType.user,
             action="button_selected",
             message=f"Botón seleccionado: {button_label}.",
+            created_at=created_at,
             event_payload={
                 "action_key": action_key,
                 "button_label": button_label,
@@ -1642,12 +1674,14 @@ def _prepare_sap_policy_with_actor(
             detail={"code": "SAP_POLICY_NOT_READY", "message": str(exc)},
         ) from exc
 
+    audit_now = datetime.now(UTC)
     _add_button_selected_audit_event(
         db,
         reimbursement_request=reimbursement_request,
         actor=actor,
         action_key="prepare_sap_policy",
         authenticated=authenticated,
+        created_at=audit_now,
     )
     db.add(
         AuditLog(
@@ -1656,6 +1690,7 @@ def _prepare_sap_policy_with_actor(
             actor_type=AuditActorType.user,
             action="sap_policy_placeholder_prepared",
             message=note or "SAP policy placeholder prepared.",
+            created_at=audit_now + timedelta(microseconds=1),
             event_payload={
                 "reference": reimbursement_request.sap_policy_reference,
                 "payload": payload,

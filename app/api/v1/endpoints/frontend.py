@@ -56,7 +56,10 @@ from app.services.expense_authorization_rules import (
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_periods import (
+    ExpenseOutsideReimbursementPeriod,
+    ReimbursementPeriodBoundaryUnavailable,
     obtener_contexto_periodo_reembolso,
+    validate_expense_date_for_reimbursement,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.tax_rules import determinar_tasa_iva_para_gasto
@@ -1162,6 +1165,27 @@ def _expense_from_frontend(
     db: Session,
 ) -> Expense:
     spent_on = _parse_frontend_date(expense_in.fecha, period)
+    try:
+        validate_expense_date_for_reimbursement(
+            spent_on,
+            previous_ends_on=request.previous_reimbursement_ends_on,
+        )
+    except ExpenseOutsideReimbursementPeriod as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "EXPENSE_OUTSIDE_PERIOD",
+                "message": "El gasto está fuera de periodo.",
+            },
+        ) from exc
+    except ReimbursementPeriodBoundaryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        ) from exc
 
     reimbursement_starts_on = (request.reimbursement_starts_on)
     reimbursement_ends_on = (request.reimbursement_ends_on)

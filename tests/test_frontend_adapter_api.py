@@ -4,6 +4,7 @@ from uuid import UUID
 
 from conftest import create_expense
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.v1.endpoints.frontend import _frontend_tax_rate_for_expense
@@ -1216,6 +1217,44 @@ def test_admin_opening_submitted_request_does_not_mark_accounting_queue_taken(
     }
 
 
+def test_frontend_add_rejects_expense_before_previous_close(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "frontend.stale-expense@example.com",
+            "full_name": "Frontend Stale Expense",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert user.status_code == 201, user.text
+    assignment = client.post(
+        f"/api/v1/stores/{base_records['store_id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+
+    response = client.post(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/gastos/me",
+        headers=_auth_headers(client, "frontend.stale-expense@example.com"),
+        json={
+            "fecha": "30/07/2026",
+            "categoria": "Papelería",
+            "monto": "50.00",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "EXPENSE_OUTSIDE_PERIOD",
+        "message": "El gasto está fuera de periodo.",
+    }
+    assert "2026" not in response.text
+
+
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
     login = client.post(
         "/api/v1/auth/login",
@@ -1252,15 +1291,25 @@ def _create_opening_cutoff(
     store_id: str,
 ) -> None:
     with session_factory() as db:
-        db.add(
-            StoreReimbursementOpeningCutoff(
+        cutoff = db.scalar(
+            select(StoreReimbursementOpeningCutoff).where(
+                StoreReimbursementOpeningCutoff.store_id == UUID(store_id)
+            )
+        )
+        if cutoff is None:
+            cutoff = StoreReimbursementOpeningCutoff(
                 store_id=UUID(store_id),
                 starts_on=date(2026, 7, 1),
                 ends_on=date(2026, 7, 31),
                 reimbursed_amount=Decimal("0.00"),
                 notes="Corte inicial de prueba",
             )
-        )
+            db.add(cutoff)
+        else:
+            cutoff.starts_on = date(2026, 7, 1)
+            cutoff.ends_on = date(2026, 7, 31)
+            cutoff.reimbursed_amount = Decimal("0.00")
+            cutoff.notes = "Corte inicial de prueba"
         db.commit()
 
 

@@ -1169,10 +1169,10 @@ function autorDesdeRol(rol) {
 
 function textoDesdeEvento(action, textoBase, autor) {
     if (action === 'expense_removed_from_request') {
-        return `Gasto eliminado por ${autor}. Motivo: ${textoBase}`;
+        return `Gasto eliminado por ${autor}. Motivo: "${textoBase}"`;
     }
     if (action === 'expense_authorization_rejected') {
-        return `Gasto no autorizado. Motivo: ${textoBase}`;
+        return `Gasto no autorizado. Motivo: "${textoBase}"`;
     }
     return textoBase;
 }
