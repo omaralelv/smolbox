@@ -69,7 +69,7 @@ function Historico({currentRole}) {
         new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
     ).sort();
 
-    
+
     // Filtrado seguro de históricas + filtro por tienda seleccionada
     const solicitudesHistoricas = solicitudes.filter(esSolicitudHistorica);
 
@@ -134,7 +134,7 @@ function Historico({currentRole}) {
 
             {/* LISTA DE FILAS DE SOLICITUDES */}
             <div style={styles.listContainer}>
-                {solicitudesHistoricas.length === 0 ? (
+                {solicitudesFiltradas.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
                         No hay solicitudes registradas en el histórico.
                     </div>
