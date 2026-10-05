@@ -335,7 +335,9 @@ function Detalle({ currentRole }) {
             const gastoPadre = gastosDesglosados.find(item => (item.backendId || item.id) === parentId);
             
             // Recuperamos todas las particiones asociadas a este mismo padre
-            const particionesHijas = gastosDesglosados.filter(item => idGastoOriginal(item) === parentId);
+            const particionesHijas = gastosDesglosados.filter(
+                item => idGastoOriginal(item) === parentId && gastoActivo(item)
+            );
 
             if (gastoPadre) {
                 setGastoParaPartir(gastoPadre);
@@ -492,7 +494,9 @@ function Detalle({ currentRole }) {
         }
 
         const parentId = gasto.backendId || gasto.id;
-        const particionesExistentes = gastosDesglosados.filter(item => idGastoOriginal(item) === parentId);
+        const particionesExistentes = gastosDesglosados.filter(
+            item => idGastoOriginal(item) === parentId && gastoActivo(item)
+        );
         //const categoriaGasto = gasto.tipo || gasto.type || categoria || 'Gasto General';
         setGastoParaPartir(gasto);
 
@@ -785,7 +789,7 @@ function Detalle({ currentRole }) {
 
                     {/* FILAS DE GASTOS */}
                     {gastosDesglosados
-                        .filter(gasto => !gasto.inactivo) // Filtrar/ocultar gasto original de la vista cuando está particionado
+                        .filter(gastoVisibleEnTabla)
                         .filter(gasto => {
                             const catGasto = normalizarCategoriaImpuesto(gasto.tipo || gasto.type || gasto.categoria || categoria);
                             const catVista = normalizarCategoriaImpuesto(categoria);
@@ -1539,6 +1543,12 @@ function esGastoParticion(gasto) {
 
 function idGastoOriginal(gasto) {
     return gasto?.idOriginal || gasto?.id_original || null;
+}
+
+function gastoVisibleEnTabla(gasto) {
+    if (gasto?.inactivo) return false;
+    if (esGastoParticion(gasto) && !gastoActivo(gasto)) return false;
+    return true;
 }
 
 function gastoActivo(gasto) {

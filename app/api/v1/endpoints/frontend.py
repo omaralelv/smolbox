@@ -1300,6 +1300,7 @@ def _frontend_visible_expenses(
     return [
         expense
         for expense in expenses
+        if _include_expense_in_frontend_payload(expense)
         if expense_is_visible_to_authorizer(
             db,
             current_user,
@@ -1307,6 +1308,12 @@ def _frontend_visible_expenses(
             store_id=store_id,
         )
     ]
+
+
+def _include_expense_in_frontend_payload(expense: Expense) -> bool:
+    if expense.partition_parent_expense_id is None:
+        return True
+    return _expense_is_active(expense)
 
 
 def _expense_payload(expense: Expense) -> FrontendGastoRead:

@@ -1210,7 +1210,30 @@ def test_frontend_accounting_can_cancel_expense_partition(
     children = [gasto for gasto in body["gastos"] if gasto["idOriginal"] == expense["id"]]
     assert parent["inactivo"] is False
     assert parent["esParticionado"] is False
-    assert all(child["backendStatus"] == "removed" for child in children)
+    assert children == []
+
+    repartitioned = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Papelería", "monto": "900.00", "impuesto": "16.00"},
+                {"categoria": "Agua", "monto": "600.00", "impuesto": "0.00"},
+            ],
+        },
+    )
+    assert repartitioned.status_code == 200, repartitioned.text
+    repartitioned_body = repartitioned.json()
+    active_children = [
+        gasto
+        for gasto in repartitioned_body["gastos"]
+        if gasto["idOriginal"] == expense["id"]
+    ]
+    assert len(active_children) == 2
+    assert {child["monto"] for child in active_children} == {900.0, 600.0}
 
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
