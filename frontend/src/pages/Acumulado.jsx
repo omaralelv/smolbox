@@ -10,6 +10,7 @@ import {
     getFrontendSolicitud,
     uploadReimbursementExcel,
 } from '../lib/api';
+import { resumirGastos } from '../lib/expenseSummary';
 
 function Acumulado( {currentRole} ) {
 
@@ -162,32 +163,7 @@ function Acumulado( {currentRole} ) {
 
 
     // AGRUPACIÓN DINÁMICA CON REDUCE
-    const resumenGastos = Object.values(
-        gastosBrutos.reduce((acc, gastoActual) => {
-            const activo = gastoActivo(gastoActual);
-            if (!activo) return acc;
-
-            const categoria = gastoActual.tipo || gastoActual.type || 'Gasto General';
-            const numFacturas = parseInt(gastoActual.facturas || 1, 10);
-            const montoGasto = parseFloat(gastoActual.monto || 0);
-
-            if (!acc[categoria]) {
-                acc[categoria] = {
-                    id: categoria,
-                    tipo: categoria,
-                    facturas: 0,
-                    monto: 0,
-                    elementosOriginales: [] // Guardamos el desglose individual para cuando den clic en "Ver detalle"
-                };
-            }
-
-            acc[categoria].facturas += numFacturas;
-            acc[categoria].monto += montoGasto;
-            acc[categoria].elementosOriginales.push(gastoActual);
-
-            return acc;
-        }, {})
-    );
+    const resumenGastos = resumirGastos(gastosBrutos, gastoActivo);
 
 
 

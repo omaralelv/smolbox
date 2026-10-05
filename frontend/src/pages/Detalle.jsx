@@ -1277,9 +1277,10 @@ const styles = {
 
     // REGLA 1: Estilo opacado / grisáceo para renglones rechazados/eliminados
     rowGris: {
-        backgroundColor: '#fcf3f3',
-        color: '#a77e7e',
-        opacity: 0.7,
+        backgroundColor: '#f0eaea',
+        color: '#957878',
+        border: '1px solid #957878',
+        opacity: 0.5,
     },
     
 
@@ -1392,8 +1393,9 @@ const styles = {
 
     // Estilo resaltado para particiones (Tono azul celeste)
     rowParticion: {
-        backgroundColor: '#fffafc',
-        borderColor: 'var(--sb-btnBorder)',
+        backgroundColor: '#f9fdff',
+        borderColor: '#41adec',
+        border: '1px solid #41adec',
     },
     partitionModal: {
         width: 'min(900px, calc(100vw - 40px))',
