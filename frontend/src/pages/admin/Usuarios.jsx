@@ -5,6 +5,7 @@ import {
     apiErrorMessage,
     assignAuthorizationAreaToUser,
     assignUserToStore,
+    createStoreUser,
     createUser,
     currentToken,
     deleteUser,
@@ -61,6 +62,8 @@ const EMPTY_FORM = {
     role: 'store',
     isActive: true,
     storeId: '',
+    storeMode: 'existing',
+    storeCode: '',
     supervisorId: '',
     authorizationArea: '',
 };
@@ -178,6 +181,11 @@ function Usuarios() {
 
     const requiereTienda = STORE_SCOPED_ROLES.has(form.role);
     const requiereArea = form.role === 'authorizer';
+    const crearTiendaNueva = (
+        !usuarioEditarId
+        && requiereTienda
+        && form.storeMode === 'new'
+    );
 
     const rolesPorValor = useMemo(
         () => Object.fromEntries(ROLE_OPTIONS.map((role) => [role.value, role.label])),
@@ -334,7 +342,12 @@ function Usuarios() {
                 [campo]: valor,
                 ...(campo === 'role' && valor !== 'authorizer' ? { authorizationArea: '' } : {}),
                 ...(campo === 'role' && !STORE_SCOPED_ROLES.has(valor)
-                    ? { storeId: '', supervisorId: '' }
+                    ? {
+                        storeId: '',
+                        storeMode: 'existing',
+                        storeCode: '',
+                        supervisorId: '',
+                    }
                     : {}),
                 ...(campo === 'role' && valor !== 'store' ? { supervisorId: '' } : {}),
             };
@@ -349,6 +362,16 @@ function Usuarios() {
 
             return siguiente;
         });
+    };
+
+    const cambiarModoTienda = (modo) => {
+        setForm((actual) => ({
+            ...actual,
+            storeMode: modo,
+            storeId: '',
+            storeCode: '',
+            supervisorId: '',
+        }));
     };
 
     const abrirVentanaUsuario = () => {
@@ -373,6 +396,8 @@ function Usuarios() {
             role: usuario.role || 'store',
             isActive: usuario.is_active !== false,
             storeId,
+            storeMode: 'existing',
+            storeCode: '',
             supervisorId: usuario.role === 'store' ? supervisorInicialParaTienda(storeId) : '',
             authorizationArea: asignaciones.areas?.[0] || '',
         });
@@ -405,10 +430,15 @@ function Usuarios() {
                 return;
             }
         }
+        if (crearTiendaNueva && !/^T\d{3}$/i.test(form.storeCode.trim())) {
+            setError('El código debe tener el formato T###, por ejemplo T123.');
+            return;
+        }
 
         setGuardando(true);
 
         try {
+            let mensajeGuardado = 'Usuario guardado correctamente.';
             if (usuarioEditarId) {
                 // Modo EDICIÓN
                 await updateUser(usuarioEditarId, {
@@ -431,7 +461,16 @@ function Usuarios() {
                     await assignUserToStore(form.storeId, form.supervisorId, 'authorizer');
                 }
 
-                setMensaje('Usuario actualizado correctamente.');
+                mensajeGuardado = 'Usuario actualizado correctamente.';
+            } else if (crearTiendaNueva) {
+                await createStoreUser({
+                    code: form.storeCode.trim().toUpperCase(),
+                    full_name: form.fullName.trim(),
+                    email: form.email.trim(),
+                    is_active: form.isActive,
+                    password: form.password || undefined,
+                });
+                mensajeGuardado = 'Tienda y usuario guardados correctamente.';
             } else {
                 // Modo CREACIÓN
                 const usuario = await createUser({
@@ -453,8 +492,6 @@ function Usuarios() {
                 if (form.storeId && form.supervisorId) {
                     await assignUserToStore(form.storeId, form.supervisorId, 'authorizer');
                 }
-
-                setMensaje('Usuario guardado correctamente.');
             }
 
             const [usuariosActualizados, tiendasActualizadas] = await Promise.all([
@@ -468,7 +505,7 @@ function Usuarios() {
             setUsuarios(usuariosLista);
             setTiendas(tiendasLista);
             setAsignacionesPorUsuario(asignaciones);
-            setMensaje('Usuario guardado correctamente.');
+            setMensaje(mensajeGuardado);
             setMostrarUsuario(false);
             setForm(EMPTY_FORM);
         } catch (err) {
@@ -658,18 +695,56 @@ function Usuarios() {
                             </select>
                         </label>
 
+                        {!usuarioEditarId && requiereTienda && (
+                            <label style={styles.inputGroup}>
+                                Asociación de tienda
+                                <select
+                                    value={form.storeMode}
+                                    onChange={(event) => cambiarModoTienda(event.target.value)}
+                                    style={styles.input}
+                                >
+                                    <option value="existing">Asignar tienda existente</option>
+                                    <option value="new">Crear tienda nueva</option>
+                                </select>
+                            </label>
+                        )}
 
                         <label style={styles.inputGroup}>
-                            Nombre
+                            {crearTiendaNueva ? 'Nombre / plaza de la tienda' : 'Nombre'}
                             <input
                                 type="text"
                                 value={form.fullName}
                                 onChange={(event) => actualizarCampo('fullName', event.target.value)}
                                 style={styles.input}
-                                placeholder='Nombre Completo'
+                                placeholder={crearTiendaNueva ? 'Ej. San Francisco' : 'Nombre Completo'}
                                 required
                             />
+                            {crearTiendaNueva && (
+                                <small>
+                                    Este nombre también se usará para la cuenta de usuario de la tienda.
+                                </small>
+                            )}
                         </label>
+
+                        {crearTiendaNueva && (
+                            <label style={styles.inputGroup}>
+                                Código de tienda
+                                <input
+                                    type="text"
+                                    value={form.storeCode}
+                                    onChange={(event) => actualizarCampo(
+                                        'storeCode',
+                                        event.target.value.toUpperCase(),
+                                    )}
+                                    style={styles.input}
+                                    placeholder="T123"
+                                    maxLength={4}
+                                    pattern="T[0-9]{3}"
+                                    title="Usa una letra T seguida de tres dígitos."
+                                    required
+                                />
+                            </label>
+                        )}
 
                         <label style={styles.inputGroup}>
                             Correo
@@ -736,7 +811,7 @@ function Usuarios() {
 
 
 
-                        {requiereTienda && (
+                        {requiereTienda && !crearTiendaNueva && (
                             <label style={styles.inputGroup}>
                                 Tienda
                                 <select
@@ -754,7 +829,7 @@ function Usuarios() {
                             </label>
                         )}
 
-                        {form.role === 'store' && (
+                        {form.role === 'store' && !crearTiendaNueva && (
                             <label style={styles.inputGroup}>
                                 Supervisor
                                 <select
@@ -773,6 +848,12 @@ function Usuarios() {
                                     ))}
                                 </select>
                             </label>
+                        )}
+                        {crearTiendaNueva && (
+                            <small>
+                                La tienda y su cuenta se vincularán al guardarse. El supervisor podrá
+                                asignarse después de crear la tienda.
+                            </small>
                         )}
 
                         {requiereArea && (

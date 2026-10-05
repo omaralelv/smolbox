@@ -254,6 +254,13 @@ export async function createUser(payload) {
     });
 }
 
+export async function createStoreUser(payload) {
+    return request('/users/store', {
+        method: 'POST',
+        body: payload,
+    });
+}
+
 // Editar usuario existente
 export async function updateUser(userId, payload) {
     return request(`/users/${encodeURIComponent(userId)}`, {

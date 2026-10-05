@@ -12,10 +12,18 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.authorization_area import UserAuthorizationArea
-from app.models.store import StoreUserAssignment
-from app.models.user import User
-from app.schemas.user import UserCreate, UserDelete, UserRead, UserUpdate
+from app.models.store import Store, StoreUserAssignment
+from app.models.user import User, UserRole
+from app.schemas.user import (
+    StoreUserCreate,
+    StoreUserCreateResponse,
+    UserCreate,
+    UserDelete,
+    UserRead,
+    UserUpdate,
+)
 from app.services.cognito import CognitoSyncError, CognitoUserSync
+from app.services.opening_cutoffs import ensure_opening_cutoff_for_store
 from app.services.security import hash_password
 
 router = APIRouter()
@@ -46,6 +54,85 @@ def create_user(
         ) from exc
     db.refresh(user)
     return user
+
+
+@router.post(
+    "/store",
+    response_model=StoreUserCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_store_user(
+    user_in: StoreUserCreate,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StoreUserCreateResponse:
+    _ensure_email_available(db, user_in.email)
+    if db.scalar(select(Store.id).where(Store.code == user_in.code)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DUPLICATE_STORE_CODE", "message": "Store code already exists"},
+        )
+
+    store = Store(
+        code=user_in.code,
+        name=user_in.full_name,
+        contact_email=user_in.email,
+    )
+    user = User(
+        email=user_in.email,
+        full_name=user_in.full_name,
+        role=UserRole.store,
+        is_active=user_in.is_active,
+        password_hash=hash_password(user_in.password) if user_in.password else None,
+    )
+    db.add_all([store, user])
+
+    try:
+        db.flush()
+        ensure_opening_cutoff_for_store(db, store)
+        cognito_sub = _ensure_cognito_user(settings, user, password=user_in.password)
+        if cognito_sub:
+            user.cognito_sub = cognito_sub
+
+        assignment = StoreUserAssignment(
+            store_id=store.id,
+            user_id=user.id,
+            role=UserRole.store,
+            is_active=user.is_active,
+        )
+        db.add(assignment)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        if db.scalar(select(Store.id).where(Store.code == user_in.code)) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "DUPLICATE_STORE_CODE",
+                    "message": "Store code already exists",
+                },
+            ) from exc
+        if db.scalar(select(User.id).where(User.email == user_in.email)) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "DUPLICATE_USER_EMAIL",
+                    "message": "User email already exists",
+                },
+            ) from exc
+        raise
+
+    db.refresh(store)
+    db.refresh(user)
+    db.refresh(assignment)
+    return StoreUserCreateResponse(
+        store=store,
+        user=user,
+        assignment=assignment,
+    )
 
 
 @router.get("/", response_model=list[UserRead])

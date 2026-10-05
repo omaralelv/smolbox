@@ -224,6 +224,26 @@ Los usuarios pueden crearse con contrasena opcional:
 }
 ```
 
+Para crear una tienda y su cuenta de rol `store` en una sola operacion:
+
+```text
+POST /api/v1/users/store
+```
+
+```json
+{
+  "code": "T123",
+  "full_name": "San Francisco",
+  "email": "san.francisco@example.com",
+  "is_active": true
+}
+```
+
+`full_name` se usa tambien como nombre de la plaza. El endpoint crea la tienda, su corte
+inicial predeterminado, el usuario y la asignacion de rol `store` en una transaccion SQL.
+El codigo debe ser unico y tener el formato `T###`. Para asociar una cuenta a una tienda
+que ya existe, se conserva el flujo de creacion de usuario y asignacion descrito abajo.
+
 Login:
 
 ```text
