@@ -19,6 +19,7 @@ def test_allows_multiple_requests_per_store_period_and_rejects_expense_outside_p
     assert second_request.status_code == 201, second_request.text
     assert second_request.json()["id"] != base_records["request_id"]
     assert second_request.json()["folio"] != ""
+    assert second_request.json()["previous_reimbursement_starts_on"] == "2026-07-01"
     assert second_request.json()["previous_reimbursement_ends_on"] == "2026-07-31"
 
     outside_period = client.post(

@@ -10,6 +10,7 @@ from app.models.authorization_area import UserAuthorizationArea
 from app.models.store import Store, StoreUserAssignment
 from app.models.user import User, UserRole
 from app.services.authorization_areas import get_or_create_authorization_area
+from app.services.opening_cutoffs import ensure_opening_cutoff_for_store
 from app.services.security import hash_password
 from app.services.store_catalog import cargar_base_tiendas
 
@@ -180,6 +181,7 @@ def _import_row(
     )
     db.add(store)
     db.flush()
+    ensure_opening_cutoff_for_store(db, store)
     result.created_stores.append(code)
 
     for role, user in users.items():

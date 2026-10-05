@@ -1,6 +1,14 @@
+from datetime import date
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.dev_hud.page import TEST_HUD_HTML
+from app.models.store import Store
+from app.models.store_reimbursement_opening_cutoff import (
+    StoreReimbursementOpeningCutoff,
+)
 
 
 def test_dev_hud_html_uses_local_api() -> None:
@@ -408,7 +416,10 @@ def test_dev_hud_demo_users_can_login_and_exposes_attachment_ids(
     assert me.json()["role"] == "store"
 
 
-def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
+def test_dev_hud_creates_assigns_and_adds_payment(
+    client: TestClient,
+    session_factory,
+) -> None:
     seeded = client.post("/api/v1/dev-hud/seed-demo")
     assert seeded.status_code == 201, seeded.text
 
@@ -422,6 +433,20 @@ def test_dev_hud_creates_assigns_and_adds_payment(client: TestClient) -> None:
     )
     assert store.status_code == 201, store.text
     store_id = store.json()["store"]["id"]
+    with session_factory() as db:
+        store_record = db.scalar(
+            select(Store).where(Store.code == "HUD-099")
+        )
+        assert store_record is not None
+        cutoff = db.scalar(
+            select(StoreReimbursementOpeningCutoff).where(
+                StoreReimbursementOpeningCutoff.store_id == store_record.id
+            )
+        )
+        assert cutoff is not None
+        assert cutoff.starts_on == date(2026, 7, 1)
+        assert cutoff.ends_on == date(2026, 7, 31)
+        assert cutoff.reimbursed_amount == Decimal("0.00")
 
     user = client.post(
         "/api/v1/dev-hud/users",

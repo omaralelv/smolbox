@@ -11,6 +11,7 @@ from app.models.store import Store, StoreUserAssignment
 from app.models.user import User
 from app.schemas.store import StoreCreate, StoreRead, StoreUpdate
 from app.schemas.store_assignment import StoreUserAssignmentCreate, StoreUserAssignmentRead
+from app.services.opening_cutoffs import ensure_opening_cutoff_for_store
 from app.services.store_catalog import obtener_datos_excel_por_codigo
 
 router = APIRouter()
@@ -38,6 +39,8 @@ def create_store(store_in: StoreCreate, db: Annotated[Session, Depends(get_db)])
     db.add(store)
 
     try:
+        db.flush()
+        ensure_opening_cutoff_for_store(db, store)
         db.commit()
     except IntegrityError as exc:
         db.rollback()

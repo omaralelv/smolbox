@@ -1,9 +1,6 @@
 import os
 from collections.abc import Generator
-from datetime import date
-from decimal import Decimal
 from pathlib import Path
-from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -16,7 +13,6 @@ from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.db.base import Base
 from app.db.session import get_db
-from app.models.store_reimbursement_opening_cutoff import StoreReimbursementOpeningCutoff
 
 
 @pytest.fixture
@@ -87,16 +83,6 @@ def base_records(
         json={"code": "T001", "name": "Tienda Centro"},
     )
     assert store.status_code == 201, store.text
-    with session_factory() as session:
-        session.add(
-            StoreReimbursementOpeningCutoff(
-                store_id=UUID(store.json()["id"]),
-                starts_on=date(2026, 1, 1),
-                ends_on=date(2026, 7, 31),
-                reimbursed_amount=Decimal("0.00"),
-            )
-        )
-        session.commit()
 
     period = client.post(
         "/api/v1/periods/",

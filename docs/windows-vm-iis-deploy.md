@@ -140,7 +140,8 @@ IMPORT_INITIAL_CATALOG=true
 INITIAL_CATALOG_PASSWORD=TU_PASSWORD_TEMPORAL
 ```
 
-Si necesitas cargar cortes iniciales e historico:
+Las tiendas nuevas reciben su corte inicial al crearse. Activa esta carga solo para
+completar cortes faltantes de tiendas existentes o importar su historial:
 
 ```env
 IMPORT_OPENING_CUTOFFS=true

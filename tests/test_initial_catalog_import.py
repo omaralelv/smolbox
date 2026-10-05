@@ -1,7 +1,13 @@
+from datetime import date
+from decimal import Decimal
+
 from sqlalchemy import func, select
 
 from app.models.authorization_area import AuthorizationArea, UserAuthorizationArea
 from app.models.store import Store, StoreUserAssignment
+from app.models.store_reimbursement_opening_cutoff import (
+    StoreReimbursementOpeningCutoff,
+)
 from app.models.user import User, UserRole
 from app.services import initial_catalog_import
 
@@ -47,6 +53,11 @@ def test_import_deduplicates_users_and_allows_multiple_store_assignments(
         assert result.created_assignments == 6
         assert db.scalar(select(func.count()).select_from(User)) == 4
         assert db.scalar(select(func.count()).select_from(StoreUserAssignment)) == 6
+        cutoffs = list(db.scalars(select(StoreReimbursementOpeningCutoff)))
+        assert len(cutoffs) == 2
+        assert {cutoff.starts_on for cutoff in cutoffs} == {date(2026, 7, 1)}
+        assert {cutoff.ends_on for cutoff in cutoffs} == {date(2026, 7, 31)}
+        assert {cutoff.reimbursed_amount for cutoff in cutoffs} == {Decimal("0.00")}
 
         supervisor = db.scalar(
             select(User).where(User.email == "luisa@example.com")
@@ -77,6 +88,17 @@ def test_import_is_safe_to_rerun_and_does_not_modify_existing_rows(
         db.commit()
         assert len(first.created_users) == 4
 
+        v001 = db.scalar(
+            select(StoreReimbursementOpeningCutoff)
+            .join(Store)
+            .where(Store.code == "V001")
+        )
+        assert v001 is not None
+        v001.starts_on = date(2026, 6, 1)
+        v001.ends_on = date(2026, 6, 30)
+        v001.reimbursed_amount = Decimal("80.00")
+        db.commit()
+
         second = initial_catalog_import.import_initial_catalog(db, "catalog.xlsx")
         db.commit()
 
@@ -87,6 +109,11 @@ def test_import_is_safe_to_rerun_and_does_not_modify_existing_rows(
         assert second.skipped_stores == ["V001", "V003"]
         assert db.scalar(select(func.count()).select_from(User)) == 4
         assert db.scalar(select(func.count()).select_from(Store)) == 2
+        assert db.scalar(select(func.count()).select_from(StoreReimbursementOpeningCutoff)) == 2
+        db.refresh(v001)
+        assert v001.starts_on == date(2026, 6, 1)
+        assert v001.ends_on == date(2026, 6, 30)
+        assert v001.reimbursed_amount == Decimal("80.00")
 
 
 def test_existing_user_is_not_changed_or_assigned(session_factory, monkeypatch) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -55,28 +56,18 @@ def ensure_opening_cutoffs_for_stores(
     result = OpeningCutoffImportResult(missing_store_codes=missing_codes)
 
     for store in stores:
-        cutoff = db.scalar(
-            select(StoreReimbursementOpeningCutoff).where(
-                StoreReimbursementOpeningCutoff.store_id == store.id
-            )
+        outcome = ensure_opening_cutoff_for_store(
+            db,
+            store,
+            starts_on=starts_on,
+            ends_on=ends_on,
+            reimbursed_amount=reimbursed_amount,
+            notes=notes,
+            update_existing=update_existing,
         )
-
-        if cutoff is None:
-            db.add(
-                StoreReimbursementOpeningCutoff(
-                    store_id=store.id,
-                    starts_on=starts_on,
-                    ends_on=ends_on,
-                    reimbursed_amount=reimbursed_amount,
-                    notes=notes,
-                )
-            )
+        if outcome == "created":
             result.created += 1
-        elif update_existing:
-            cutoff.starts_on = starts_on
-            cutoff.ends_on = ends_on
-            cutoff.reimbursed_amount = reimbursed_amount
-            cutoff.notes = notes
+        elif outcome == "updated":
             result.updated += 1
         else:
             result.skipped += 1
@@ -85,6 +76,47 @@ def ensure_opening_cutoffs_for_stores(
 
     db.flush()
     return result
+
+
+def ensure_opening_cutoff_for_store(
+    db: Session,
+    store: Store,
+    *,
+    starts_on: date = DEFAULT_OPENING_CUTOFF_STARTS_ON,
+    ends_on: date = DEFAULT_OPENING_CUTOFF_ENDS_ON,
+    reimbursed_amount: Decimal = DEFAULT_OPENING_CUTOFF_AMOUNT,
+    notes: str = DEFAULT_OPENING_CUTOFF_NOTE,
+    update_existing: bool = False,
+) -> Literal["created", "updated", "skipped"]:
+    if ends_on < starts_on:
+        raise ValueError("Opening cutoff end date must be on or after start date")
+
+    cutoff = db.scalar(
+        select(StoreReimbursementOpeningCutoff).where(
+            StoreReimbursementOpeningCutoff.store_id == store.id
+        )
+    )
+
+    if cutoff is None:
+        db.add(
+            StoreReimbursementOpeningCutoff(
+                store_id=store.id,
+                starts_on=starts_on,
+                ends_on=ends_on,
+                reimbursed_amount=reimbursed_amount,
+                notes=notes,
+            )
+        )
+        return "created"
+
+    if update_existing:
+        cutoff.starts_on = starts_on
+        cutoff.ends_on = ends_on
+        cutoff.reimbursed_amount = reimbursed_amount
+        cutoff.notes = notes
+        return "updated"
+
+    return "skipped"
 
 
 def _stores_for_cutoff(db: Session, normalized_codes: list[str]) -> list[Store]:

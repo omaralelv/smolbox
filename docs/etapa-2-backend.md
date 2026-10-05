@@ -89,9 +89,12 @@ La migracion `20260813_0005_queues_payments_rules` agrega:
 
 La tabla `store_reimbursement_opening_cutoffs` guarda el corte anterior al primer
 reembolso capturado en Smolbox. Ese corte permite que el backend calcule el inicio
-del periodo actual de una tienda.
+del periodo actual de una tienda. Las tiendas nuevas reciben automáticamente el corte
+predeterminado (1 al 31 de julio de 2026, monto $0) al crearse por API o al importarse
+desde el catálogo inicial; su creación y corte se confirman en la misma transacción.
 
-Para crear el corte inicial de una tienda especifica:
+El importador por lote sigue disponible para tiendas preexistentes sin corte. Para
+crear el corte inicial de una tienda especifica:
 
 ```bash
 docker compose exec api python -m app.scripts.import_store_reimbursement_opening_cutoffs \
@@ -111,7 +114,7 @@ docker compose exec api python -m app.scripts.import_store_reimbursement_opening
 ```
 
 Si una tienda ya tiene corte inicial, el comando no lo cambia. Para reemplazarlo,
-agrega `--update-existing`.
+agrega `--update-existing` solo cuando se quiera modificar intencionalmente el historial.
 
 ## Reglas de flujo
 

@@ -25,6 +25,7 @@ from app.models.store import Store, StoreUserAssignment
 from app.models.user import User, UserRole
 from app.services.automation_review import build_automated_review
 from app.services.business_rules import ensure_default_business_rules
+from app.services.opening_cutoffs import ensure_opening_cutoff_for_store
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
@@ -704,6 +705,8 @@ def create_dev_hud_store(
     store = Store(**store_in.model_dump())
     db.add(store)
     try:
+        db.flush()
+        ensure_opening_cutoff_for_store(db, store)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -1233,6 +1236,7 @@ def _get_or_create_store(db: Session, scenario: HudScenarioCreate) -> Store:
     )
     db.add(store)
     db.flush()
+    ensure_opening_cutoff_for_store(db, store)
     return store
 
 
