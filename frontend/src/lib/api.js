@@ -442,6 +442,26 @@ export async function deleteDraftExpense(requestIdOrFolio, expenseId) {
     );
 }
 
+export async function partitionExpense(requestIdOrFolio, expenseId, particiones, note = null) {
+    return request(
+        `/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/gastos/${encodeURIComponent(expenseId)}/particiones/me`,
+        {
+            method: 'POST',
+            body: {
+                particiones,
+                ...(note ? { note } : {}),
+            },
+        }
+    );
+}
+
+export async function cancelExpensePartition(requestIdOrFolio, expenseId) {
+    return request(
+        `/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/gastos/${encodeURIComponent(expenseId)}/particiones/me`,
+        { method: 'DELETE' }
+    );
+}
+
 export async function updateExpenseForReview(expenseId, payload) {
     return request(`/expenses/${expenseId}/review/me`, {
         method: 'PATCH',

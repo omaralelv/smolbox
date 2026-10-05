@@ -4,7 +4,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
     addExpenseObservation,
     apiErrorMessage,
+    cancelExpensePartition,
     getRequestAuditEvents,
+    partitionExpense,
     removeExpense,
     updateExpenseForReview,
 } from '../lib/api';
@@ -526,11 +528,28 @@ function Detalle({ currentRole }) {
         });
     };
 
-    const anularParticion = (idOriginal) => {
+    const anularParticion = async (idOriginal) => {
         const parentId = idOriginal || (gastoParaPartir?.backendId || gastoParaPartir?.id);
         
         if (!parentId) {
             cancelarParticion();
+            return;
+        }
+
+        if (solicitudBackendId) {
+            try {
+                setGuardandoParticion(true);
+                const solicitudActualizada = await cancelExpensePartition(solicitudBackendId, parentId);
+                setGastosDesglosados(solicitudActualizada.gastos || []);
+                await refrescarHistorialBackend();
+                setConfirmarAnularModal(false);
+                cancelarParticion();
+                alert('Partición anulada correctamente.');
+            } catch (error) {
+                alert(apiErrorMessage(error));
+            } finally {
+                setGuardandoParticion(false);
+            }
             return;
         }
         
@@ -594,6 +613,25 @@ function Detalle({ currentRole }) {
 
             const parentId = gastoParaPartir.backendId || gastoParaPartir.id;
             const totalPart = particiones.length;
+
+            if (solicitudBackendId) {
+                const payloadParticiones = particiones.map((p) => ({
+                    categoria: p.categoria,
+                    monto: Number(p.monto),
+                    impuesto: Number(p.impuesto || 0),
+                }));
+                const solicitudActualizada = await partitionExpense(
+                    solicitudBackendId,
+                    parentId,
+                    payloadParticiones,
+                    `Gasto particionado en ${totalPart} partes.`
+                );
+                setGastosDesglosados(solicitudActualizada.gastos || []);
+                await refrescarHistorialBackend();
+                alert('Gasto particionado correctamente.');
+                cancelarParticion();
+                return;
+            }
 
             // Mantenemos o generamos los objetos actualizados para cada partición
             const nuevosGastosParticionados = particiones.map((p, idx) => {

@@ -27,6 +27,7 @@ from app.schemas.audit_log import AuditLogRead
 from app.schemas.frontend import (
     FrontendClickAuditCreate,
     FrontendContextRead,
+    FrontendExpensePartitionCreate,
     FrontendGastoCreate,
     FrontendGastoRead,
     FrontendManagementMonthlyProductivityRowRead,
@@ -62,7 +63,7 @@ from app.services.reimbursement_periods import (
     validate_expense_date_for_reimbursement,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
-from app.services.tax_rules import determinar_tasa_iva_para_gasto
+from app.services.tax_rules import determinar_indice_iva_manual, determinar_tasa_iva_para_gasto
 from app.utils.folio_dates import (
     obtener_fecha_desde_folio,
 )
@@ -718,6 +719,7 @@ def add_frontend_expense(
         )
     )
     db.commit()
+    db.expire_all()
     request = _get_request_by_id(request.id, db)
     return _request_payload(request, current_user, db)
 
@@ -806,6 +808,176 @@ def delete_frontend_draft_expense(
     )
     db.delete(expense)
 
+    db.commit()
+    db.expire_all()
+    request = _get_request_by_id(request.id, db)
+    return _request_payload(request, current_user, db)
+
+
+@router.post(
+    "/solicitudes/{request_identifier}/gastos/{expense_id}/particiones/me",
+    response_model=FrontendSolicitudRead,
+)
+def partition_frontend_expense(
+    request_identifier: str,
+    expense_id: UUID,
+    partition_in: FrontendExpensePartitionCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendSolicitudRead:
+    request = _get_request_by_frontend_identifier(request_identifier, db)
+    _ensure_request_visible(request, current_user, db)
+    _ensure_partition_allowed(request, current_user)
+    expense = _expense_in_request_or_404(request, expense_id)
+    _ensure_expense_can_be_partitioned(expense)
+
+    total_original = _money(expense.amount)
+    total_particiones = sum(
+        (_money(partition.monto) for partition in partition_in.particiones),
+        Decimal("0.00"),
+    ).quantize(Decimal("0.01"))
+    if abs(total_original - total_particiones) > Decimal("0.01"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "PARTITION_TOTAL_MISMATCH",
+                "message": "La suma de las particiones debe ser igual al total del gasto.",
+            },
+        )
+
+    now = datetime.now(UTC)
+    for child in _active_partition_children(expense):
+        child.status = ExpenseStatus.removed
+        child.removed_at = now
+        child.removed_by_user_id = current_user.id
+        child.removal_reason = "Partición reemplazada."
+
+    partition_count = len(partition_in.particiones)
+    created_children: list[Expense] = []
+    for index, partition in enumerate(partition_in.particiones, start=1):
+        amount = _money(partition.monto)
+        tax_rate = _rate_or_none(partition.impuesto) or Decimal("0.00")
+        tax_amount, tax_subtotal = _tax_amounts_from_rate(amount, tax_rate)
+        child = Expense(
+            reimbursement_request_id=request.id,
+            period_id=expense.period_id,
+            partition_parent_expense_id=expense.id,
+            partition_index=index,
+            partition_count=partition_count,
+            merchant=f"Partición {index}/{partition_count} - {partition.categoria}",
+            amount=amount,
+            currency=expense.currency,
+            spent_on=expense.spent_on,
+            category=partition.categoria.strip(),
+            description=f"Partición {index}/{partition_count} del gasto {expense.merchant}.",
+            supplier_tax_id=expense.supplier_tax_id,
+            requires_authorization=expense.requires_authorization,
+            authorization_area_id=expense.authorization_area_id,
+            authorized_at=expense.authorized_at,
+            authorized_by_user_id=expense.authorized_by_user_id,
+            authorization_note=expense.authorization_note,
+            status=expense.status,
+            cfdi_issuer_rfc=expense.cfdi_issuer_rfc,
+            cfdi_receiver_rfc=expense.cfdi_receiver_rfc,
+            cfdi_subtotal=tax_subtotal,
+            cfdi_total=amount,
+            cfdi_currency=expense.cfdi_currency or expense.currency,
+            cfdi_tax_amount=tax_amount,
+            cfdi_tax_rate=tax_rate,
+            sap_tax_index_override=determinar_indice_iva_manual(tax_rate),
+        )
+        db.add(child)
+        db.flush()
+        created_children.append(child)
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="expense_partitioned",
+            message=(
+                partition_in.note
+                or f"Gasto particionado en {partition_count} partes."
+            ),
+            event_payload={
+                "actor_role": current_user.role.value,
+                "request_status": request.status.value,
+                "parent_expense_id": str(expense.id),
+                "partition_count": partition_count,
+                "original_amount": str(total_original),
+                "partition_total": str(total_particiones),
+                "partitions": [
+                    {
+                        "expense_id": str(child.id),
+                        "index": child.partition_index,
+                        "category": child.category,
+                        "amount": str(child.amount),
+                        "cfdi_tax_rate": str(child.cfdi_tax_rate),
+                    }
+                    for child in created_children
+                ],
+            },
+        )
+    )
+    db.commit()
+    db.expire_all()
+    request = _get_request_by_id(request.id, db)
+    return _request_payload(request, current_user, db)
+
+
+@router.delete(
+    "/solicitudes/{request_identifier}/gastos/{expense_id}/particiones/me",
+    response_model=FrontendSolicitudRead,
+)
+def cancel_frontend_expense_partition(
+    request_identifier: str,
+    expense_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendSolicitudRead:
+    request = _get_request_by_frontend_identifier(request_identifier, db)
+    _ensure_request_visible(request, current_user, db)
+    _ensure_partition_allowed(request, current_user)
+    expense = _expense_in_request_or_404(request, expense_id)
+    if expense.partition_parent_expense_id is not None:
+        expense = _expense_in_request_or_404(request, expense.partition_parent_expense_id)
+
+    active_children = _active_partition_children(expense)
+    if not active_children:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "EXPENSE_NOT_PARTITIONED",
+                "message": "El gasto no tiene particiones activas.",
+            },
+        )
+
+    now = datetime.now(UTC)
+    for child in active_children:
+        child.status = ExpenseStatus.removed
+        child.removed_at = now
+        child.removed_by_user_id = current_user.id
+        child.removal_reason = "Partición anulada."
+
+    db.add(
+        AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id,
+            actor_user_id=current_user.id,
+            actor_type=AuditActorType.user,
+            action="expense_partition_cancelled",
+            message="Partición anulada.",
+            event_payload={
+                "actor_role": current_user.role.value,
+                "request_status": request.status.value,
+                "parent_expense_id": str(expense.id),
+                "partition_count": len(active_children),
+                "cancelled_expense_ids": [str(child.id) for child in active_children],
+            },
+        )
+    )
     db.commit()
     db.expire_all()
     request = _get_request_by_id(request.id, db)
@@ -942,6 +1114,14 @@ def _request_detail_statement():
         .selectinload(Attachment.ocr_extraction),
         selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
         selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
+        selectinload(ReimbursementRequest.expenses).selectinload(Expense.partition_children),
+        selectinload(ReimbursementRequest.expenses)
+        .selectinload(Expense.partition_parent)
+        .selectinload(Expense.attachments)
+        .selectinload(Attachment.ocr_extraction),
+        selectinload(ReimbursementRequest.expenses)
+        .selectinload(Expense.partition_parent)
+        .selectinload(Expense.cfdi_validations),
         selectinload(ReimbursementRequest.payments),
         selectinload(ReimbursementRequest.audit_events),
     )
@@ -1026,6 +1206,73 @@ def _request_payload(
     )
 
 
+def _ensure_partition_allowed(request: ReimbursementRequest, current_user: User) -> None:
+    if current_user.role not in {UserRole.accountant, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Solo contabilidad o admin pueden particionar gastos.",
+            },
+        )
+    if request.status not in {
+        ReimbursementRequestStatus.under_accounting_review,
+        ReimbursementRequestStatus.accounting_reviewed,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "REQUEST_NOT_IN_ACCOUNTING_REVIEW",
+                "message": "El gasto solo puede particionarse durante revisión contable.",
+            },
+        )
+
+
+def _expense_in_request_or_404(request: ReimbursementRequest, expense_id: UUID) -> Expense:
+    expense = next((item for item in request.expenses if item.id == expense_id), None)
+    if expense is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+    return expense
+
+
+def _ensure_expense_can_be_partitioned(expense: Expense) -> None:
+    if expense.partition_parent_expense_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PARTITION_CHILD_CANNOT_BE_PARTITIONED",
+                "message": "Una partición no puede particionarse nuevamente.",
+            },
+        )
+    if not _expense_is_active(expense):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "EXPENSE_EXCLUDED",
+                "message": "Los gastos eliminados o rechazados no pueden particionarse.",
+            },
+        )
+
+
+def _expense_is_active(expense: Expense) -> bool:
+    return (
+        expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
+        and expense.removed_at is None
+    )
+
+
+def _active_partition_children(expense: Expense) -> list[Expense]:
+    return [
+        child
+        for child in expense.partition_children
+        if _expense_is_active(child)
+    ]
+
+
+def _has_active_partition_children(expense: Expense) -> bool:
+    return bool(_active_partition_children(expense))
+
+
 def _frontend_accounting_queue_status(
     request: ReimbursementRequest,
     current_user: User,
@@ -1064,17 +1311,31 @@ def _frontend_visible_expenses(
 
 def _expense_payload(expense: Expense) -> FrontendGastoRead:
     category = expense.category or "Gasto General"
-    folio = expense.cfdi_uuid or _suggested_cfdi_uuid_from_ocr(expense) or "N/A"
-    document_urls = _expense_document_urls(expense)
+    evidence_expense = _expense_evidence_source(expense)
+    folio = (
+        expense.cfdi_uuid
+        or evidence_expense.cfdi_uuid
+        or _suggested_cfdi_uuid_from_ocr(evidence_expense)
+        or "N/A"
+    )
+    document_urls = _expense_document_urls(evidence_expense)
+    is_partition_child = expense.partition_parent_expense_id is not None
+    has_partition_children = _has_active_partition_children(expense)
+    partition_index = expense.partition_index if is_partition_child else None
+    partition_count = expense.partition_count if is_partition_child else None
     return FrontendGastoRead(
         id=str(expense.id),
         backend_id=expense.id,
-        nombre=f"Gasto - {category}",
+        nombre=(
+            f"Partición {partition_index} / {partition_count} - {category}"
+            if is_partition_child and partition_index and partition_count
+            else f"Gasto - {category}"
+        ),
         monto=float(_money(expense.amount)),
         tipo=category,
         type=category,
         folio=folio,
-        folio_fiscal=expense.cfdi_uuid,
+        folio_fiscal=expense.cfdi_uuid or evidence_expense.cfdi_uuid,
         observaciones=expense.description or "",
         cfdi_subtotal=_float_or_none(expense.cfdi_subtotal),
         cfdi_total=_float_or_none(expense.cfdi_total),
@@ -1082,7 +1343,7 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         cfdi_tax_rate=_float_or_none(expense.cfdi_tax_rate),
         sap_tax_index_override=expense.sap_tax_index_override,
         cfdi_currency=expense.cfdi_currency,
-        facturas=_invoice_count(expense),
+        facturas=_invoice_count(evidence_expense),
         autorizacion=_frontend_authorization_status(expense),
         status=_frontend_expense_status(expense.status),
         backend_status=expense.status.value,
@@ -1100,6 +1361,12 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         url_vale=document_urls["url_vale"],
         url_recibo=document_urls["url_recibo"],
         url_gasto=document_urls["url_recibo"],
+        es_hijo_particion=is_partition_child,
+        id_original=expense.partition_parent_expense_id,
+        particion_index=partition_index,
+        total_particiones=partition_count,
+        es_particionado=has_partition_children,
+        inactivo=has_partition_children,
     )
 
 
@@ -1671,6 +1938,10 @@ def _invoice_count(expense: Expense) -> int:
     if xml_count:
         return xml_count
     return 1 if expense.cfdi_uuid or _suggested_cfdi_uuid_from_ocr(expense) else 0
+
+
+def _expense_evidence_source(expense: Expense) -> Expense:
+    return expense.partition_parent if expense.partition_parent is not None else expense
 
 
 def _suggested_cfdi_uuid_from_ocr(expense: Expense) -> str | None:

@@ -34,6 +34,7 @@ class ExpenseLike(Protocol):
     spent_on: date | datetime | None
     attachments: list[AttachmentLike]
     cfdi_validations: list[CfdiValidationLike]
+    partition_parent_expense_id: UUID | None
 
 
 class ReimbursementRequestLike(Protocol):
@@ -70,19 +71,35 @@ def summarize_reimbursement_request(
         None,
     )
 
+    expenses = list(request.expenses)
+    expenses_by_id = {expense.id: expense for expense in expenses}
+    active_partition_parent_ids = {
+        parent_id
+        for expense in expenses
+        if (
+            (parent_id := getattr(expense, "partition_parent_expense_id", None)) is not None
+            and not _is_removed(expense)
+            and not _is_rejected(expense)
+        )
+    }
+
     active_expenses = []
-    for expense in request.expenses:
+    for expense in expenses:
         if _is_removed(expense):
             removed_expense_ids.append(expense.id)
             continue
         if _is_rejected(expense):
             rejected_expense_ids.append(expense.id)
             continue
+        if expense.id in active_partition_parent_ids:
+            continue
 
         amount = _money(expense.amount)
         if amount <= Decimal("0.00"):
             continue
 
+        evidence_expense = _evidence_expense(expense, expenses_by_id)
+        evidence_validations = getattr(evidence_expense, "cfdi_validations", [])
         active_expenses.append(expense)
         calculated_total += amount
         category = expense.category or "uncategorized"
@@ -90,9 +107,9 @@ def summarize_reimbursement_request(
         category_counts[category] += 1
 
         if (
-            not _has_attachment_type(expense.attachments, AttachmentType.receipt)
+            not _has_attachment_type(evidence_expense.attachments, AttachmentType.receipt)
             and not _has_attachment_type(
-                expense.attachments,
+                evidence_expense.attachments,
                 AttachmentType.other,
             )
         ):
@@ -101,8 +118,7 @@ def summarize_reimbursement_request(
         if _requires_authorization(expense) and not getattr(expense, "authorized_at", None):
             missing_authorization_expense_ids.append(expense.id)
 
-        cfdi_validations = getattr(expense, "cfdi_validations", [])
-        if not _has_valid_invoice_evidence(expense, cfdi_validations):
+        if not _has_valid_invoice_evidence(evidence_expense, evidence_validations):
             missing_cfdi_expense_ids.append(expense.id)
 
         spent_on = getattr(expense, "spent_on", None)
@@ -119,7 +135,7 @@ def summarize_reimbursement_request(
             except ReimbursementPeriodBoundaryUnavailable:
                 reimbursement_boundary_unavailable = True
 
-        cfdi_uuid = getattr(expense, "cfdi_uuid", None) or _valid_ocr_cfdi_uuid(expense)
+        cfdi_uuid = _cfdi_uuid_for_duplicate_check(expense)
         if cfdi_uuid:
             normalized_uuid = str(cfdi_uuid).upper()
             if normalized_uuid in seen_cfdi_uuids:
@@ -127,7 +143,7 @@ def summarize_reimbursement_request(
             else:
                 seen_cfdi_uuids[normalized_uuid] = expense.id
 
-        if _has_invalid_current_cfdi_validation(cfdi_validations):
+        if _has_invalid_current_cfdi_validation(evidence_validations):
             invalid_cfdi_expense_ids.append(expense.id)
 
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
@@ -287,6 +303,25 @@ def _has_attachment_type(attachments: list[AttachmentLike], expected: Attachment
         if _attachment_type_value(attachment) == expected.value:
             return True
     return False
+
+
+def _evidence_expense(
+    expense: ExpenseLike,
+    expenses_by_id: dict[UUID, ExpenseLike],
+) -> ExpenseLike:
+    parent_id = getattr(expense, "partition_parent_expense_id", None)
+    if parent_id is None:
+        return expense
+    return expenses_by_id.get(parent_id) or getattr(expense, "partition_parent", None) or expense
+
+
+def _cfdi_uuid_for_duplicate_check(expense: ExpenseLike) -> str | None:
+    own_uuid = normalize_cfdi_uuid(getattr(expense, "cfdi_uuid", None))
+    if own_uuid:
+        return own_uuid
+    if getattr(expense, "partition_parent_expense_id", None) is not None:
+        return None
+    return _valid_ocr_cfdi_uuid(expense)
 
 
 def _has_valid_invoice_evidence(

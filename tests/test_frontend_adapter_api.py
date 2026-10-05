@@ -1096,6 +1096,129 @@ def test_frontend_detail_keeps_removed_expenses_out_of_total(
     assert removed_item["monto"] == 500.0
 
 
+def test_frontend_accounting_can_partition_expense(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "1500.00",
+        uuid="88888888-8888-4888-8888-888888888888",
+    )
+    admin_user_id = _create_user(client, "admin", "frontend.partition.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    headers = _auth_headers(client, "frontend.partition.admin@example.com")
+    partitioned = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Papelería", "monto": "1000.00", "impuesto": "16.00"},
+                {"categoria": "Agua", "monto": "500.00", "impuesto": "0.00"},
+            ],
+        },
+    )
+    assert partitioned.status_code == 200, partitioned.text
+    body = partitioned.json()
+    assert body["montoTotal"] == 1500.0
+    assert body["expenseCount"] == 2
+
+    parent = next(gasto for gasto in body["gastos"] if gasto["backendId"] == expense["id"])
+    children = [gasto for gasto in body["gastos"] if gasto["idOriginal"] == expense["id"]]
+    assert parent["inactivo"] is True
+    assert parent["esParticionado"] is True
+    assert len(children) == 2
+    assert {child["tipo"] for child in children} == {"Papelería", "Agua"}
+    assert {child["monto"] for child in children} == {1000.0, 500.0}
+    assert all(child["esHijoParticion"] is True for child in children)
+    assert all(child["folioFiscal"] == "88888888-8888-4888-8888-888888888888" for child in children)
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    assert any(event["action"] == "expense_partitioned" for event in audit_events.json())
+
+
+def test_frontend_accounting_can_cancel_expense_partition(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "1500.00",
+        uuid="99999999-9999-4999-8999-999999999999",
+    )
+    admin_user_id = _create_user(client, "admin", "frontend.partition.cancel.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    headers = _auth_headers(client, "frontend.partition.cancel.admin@example.com")
+    partitioned = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Papelería", "monto": "1000.00", "impuesto": "16.00"},
+                {"categoria": "Agua", "monto": "500.00", "impuesto": "0.00"},
+            ],
+        },
+    )
+    assert partitioned.status_code == 200, partitioned.text
+
+    cancelled = client.delete(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    body = cancelled.json()
+    assert body["montoTotal"] == 1500.0
+    assert body["expenseCount"] == 1
+
+    parent = next(gasto for gasto in body["gastos"] if gasto["backendId"] == expense["id"])
+    children = [gasto for gasto in body["gastos"] if gasto["idOriginal"] == expense["id"]]
+    assert parent["inactivo"] is False
+    assert parent["esParticionado"] is False
+    assert all(child["backendStatus"] == "removed" for child in children)
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    assert any(event["action"] == "expense_partition_cancelled" for event in audit_events.json())
+
+
 def test_accounting_queue_status_is_single_until_accountant_opens_request(
     client: TestClient,
     base_records: dict[str, str],

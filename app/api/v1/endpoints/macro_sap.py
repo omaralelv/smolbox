@@ -249,13 +249,25 @@ def generar_polizas(
     # ========================================================
     # En la tabla 'expenses', veo que hay una columna 'reimbursement_request_id'
     query_gastos = text("""
-        SELECT *
+        SELECT
+            expenses.*,
+            COALESCE(expenses.cfdi_uuid, parent_expense.cfdi_uuid) AS effective_cfdi_uuid
         FROM expenses
-        WHERE reimbursement_request_id = :request_id
-          AND removed_at IS NULL
-          AND (status = 'submitted'
-            OR status = 'approved')
-        ORDER BY spent_on, created_at, id
+        LEFT JOIN expenses AS parent_expense
+          ON parent_expense.id = expenses.partition_parent_expense_id
+        WHERE expenses.reimbursement_request_id = :request_id
+          AND expenses.removed_at IS NULL
+          AND (expenses.status = 'submitted'
+            OR expenses.status = 'approved')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM expenses AS partition_child
+              WHERE partition_child.partition_parent_expense_id = expenses.id
+                AND partition_child.removed_at IS NULL
+                AND (partition_child.status = 'submitted'
+                  OR partition_child.status = 'approved')
+          )
+        ORDER BY expenses.spent_on, expenses.created_at, expenses.id
     """)
 
     gastos_db = db.execute(
@@ -321,8 +333,8 @@ def generar_polizas(
         gasto_descripcion = cuenta_info["descripcion"]
 
         uidd_factura = (
-            str(gasto["cfdi_uuid"]).strip()
-            if gasto["cfdi_uuid"]
+            str(gasto["effective_cfdi_uuid"]).strip()
+            if gasto["effective_cfdi_uuid"]
             else "DATO NECESARIO"
         )
 

@@ -6,7 +6,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text, Uuid, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -44,6 +56,14 @@ class Expense(Base):
         nullable=True,
         index=True,
     )
+    partition_parent_expense_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("expenses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    partition_index: Mapped[int | None] = mapped_column(Integer)
+    partition_count: Mapped[int | None] = mapped_column(Integer)
     merchant: Mapped[str] = mapped_column(String(255), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="MXN", nullable=False)
@@ -99,6 +119,15 @@ class Expense(Base):
     period: Mapped[Period] = relationship(back_populates="expenses")
     reimbursement_request: Mapped[ReimbursementRequest | None] = relationship(
         back_populates="expenses",
+    )
+    partition_parent: Mapped[Expense | None] = relationship(
+        back_populates="partition_children",
+        foreign_keys=[partition_parent_expense_id],
+        remote_side=[id],
+    )
+    partition_children: Mapped[list[Expense]] = relationship(
+        back_populates="partition_parent",
+        foreign_keys=[partition_parent_expense_id],
     )
     authorization_area: Mapped[AuthorizationArea | None] = relationship(back_populates="expenses")
     attachments: Mapped[list[Attachment]] = relationship(

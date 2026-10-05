@@ -1384,6 +1384,10 @@ def _get_request_detail_or_404(request_id: UUID, db: Session) -> ReimbursementRe
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.cfdi_validations),
             selectinload(ReimbursementRequest.expenses).selectinload(Expense.authorization_area),
+            selectinload(ReimbursementRequest.expenses).selectinload(Expense.partition_children),
+            selectinload(ReimbursementRequest.expenses)
+            .selectinload(Expense.partition_parent)
+            .selectinload(Expense.attachments),
             selectinload(ReimbursementRequest.payments),
             selectinload(ReimbursementRequest.audit_events),
         )
@@ -1491,11 +1495,23 @@ def _invoice_attachments_for_zip(
     db: Session,
 ) -> list[tuple[int, Expense, Attachment]]:
     invoice_attachments: list[tuple[int, Expense, Attachment]] = []
+    active_partition_parent_ids = {
+        expense.partition_parent_expense_id
+        for expense in reimbursement_request.expenses
+        if (
+            expense.partition_parent_expense_id is not None
+            and expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
+            and expense.removed_at is None
+        )
+    }
+    seen_attachment_ids: set[UUID] = set()
     for index, expense in enumerate(
         sorted(reimbursement_request.expenses, key=lambda item: (item.spent_on, item.merchant)),
         start=1,
     ):
         if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}:
+            continue
+        if expense.id in active_partition_parent_ids:
             continue
         if not expense_is_visible_to_authorizer(
             db,
@@ -1505,9 +1521,17 @@ def _invoice_attachments_for_zip(
         ):
             continue
 
-        for attachment in sorted(expense.attachments, key=lambda item: item.uploaded_at):
+        source_expense = _invoice_attachment_source_expense(expense)
+        for attachment in sorted(source_expense.attachments, key=lambda item: item.uploaded_at):
+            if attachment.id in seen_attachment_ids:
+                continue
+            seen_attachment_ids.add(attachment.id)
             invoice_attachments.append((index, expense, attachment))
     return invoice_attachments
+
+
+def _invoice_attachment_source_expense(expense: Expense) -> Expense:
+    return expense.partition_parent if expense.partition_parent is not None else expense
 
 
 def _attachment_is_invoice(attachment: Attachment) -> bool:

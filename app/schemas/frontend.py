@@ -134,6 +134,12 @@ class FrontendGastoRead(BaseModel):
     url_vale: str | None = Field(default=None, alias="urlVale")
     url_recibo: str | None = Field(default=None, alias="urlRecibo")
     url_gasto: str | None = Field(default=None, alias="urlGasto")
+    es_hijo_particion: bool = Field(default=False, alias="esHijoParticion")
+    id_original: UUID | None = Field(default=None, alias="idOriginal")
+    particion_index: int | None = Field(default=None, alias="particionIndex")
+    total_particiones: int | None = Field(default=None, alias="totalParticiones")
+    es_particionado: bool = Field(default=False, alias="esParticionado")
+    inactivo: bool = False
 
 
 class FrontendSolicitudRead(BaseModel):
@@ -211,6 +217,32 @@ class FrontendClickAuditCreate(BaseModel):
         default=None,
         validation_alias=AliasChoices("expense_id", "expenseId"),
     )
+
+
+class FrontendExpensePartitionItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    categoria: str = Field(min_length=1, max_length=120)
+    monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    impuesto: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=0,
+        max_digits=5,
+        decimal_places=2,
+        validation_alias=AliasChoices(
+            "impuesto",
+            "cfdi_tax_rate",
+            "cfdiTaxRate",
+            "taxRate",
+        ),
+    )
+
+
+class FrontendExpensePartitionCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    particiones: list[FrontendExpensePartitionItem] = Field(min_length=2)
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class FrontendGastoCreate(BaseModel):
