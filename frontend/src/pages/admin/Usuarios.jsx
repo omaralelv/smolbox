@@ -430,8 +430,8 @@ function Usuarios() {
                 return;
             }
         }
-        if (crearTiendaNueva && !/^T\d{3}$/i.test(form.storeCode.trim())) {
-            setError('El código debe tener el formato T###, por ejemplo T123.');
+        if (crearTiendaNueva && !/^(?:[TVLARO]|FE)\d{3}$/i.test(form.storeCode.trim())) {
+            setError('El código debe iniciar con T, V, L, A, R, O o FE y terminar con tres dígitos.');
             return;
         }
 
@@ -737,10 +737,10 @@ function Usuarios() {
                                         event.target.value.toUpperCase(),
                                     )}
                                     style={styles.input}
-                                    placeholder="T123"
-                                    maxLength={4}
-                                    pattern="T[0-9]{3}"
-                                    title="Usa una letra T seguida de tres dígitos."
+                                    placeholder="T123 o FE123"
+                                    maxLength={5}
+                                    pattern="(?:[TVLARO]|FE)[0-9]{3}"
+                                    title="Usa T, V, L, A, R, O o FE seguido de tres dígitos."
                                     required
                                 />
                             </label>

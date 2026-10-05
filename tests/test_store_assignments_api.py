@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -59,6 +60,24 @@ def test_create_store_user_creates_store_cutoff_and_assignment_atomically(
         assert assignment.is_active is True
 
 
+@pytest.mark.parametrize("code", ["V101", "L102", "A103", "R104", "O105", "FE106"])
+def test_create_store_user_accepts_additional_store_code_prefixes(
+    client: TestClient,
+    code: str,
+) -> None:
+    response = client.post(
+        "/api/v1/users/store",
+        json={
+            "code": code,
+            "full_name": "Tienda Nueva",
+            "email": f"{code.lower()}@example.com",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["store"]["code"] == code
+
+
 def test_create_store_user_rejects_duplicate_code_and_email(
     client: TestClient,
     session_factory,
@@ -72,6 +91,16 @@ def test_create_store_user_rejects_duplicate_code_and_email(
         },
     )
     assert invalid_code.status_code == 422
+
+    unsupported_prefix = client.post(
+        "/api/v1/users/store",
+        json={
+            "code": "Q001",
+            "full_name": "Tienda Inválida",
+            "email": "store.unsupported@example.com",
+        },
+    )
+    assert unsupported_prefix.status_code == 422
 
     first = client.post(
         "/api/v1/users/store",

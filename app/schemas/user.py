@@ -78,8 +78,10 @@ class StoreUserCreate(BaseModel):
     @classmethod
     def normalize_store_code(cls, value: str) -> str:
         code = value.strip().upper()
-        if not re.fullmatch(r"T\d{3}", code):
-            raise ValueError("Store code must use the T### format")
+        if not re.fullmatch(r"(?:[TVLARO]|FE)\d{3}", code):
+            raise ValueError(
+                "Store code must use T, V, L, A, R, O or FE followed by three digits"
+            )
         return code
 
     @field_validator("full_name")

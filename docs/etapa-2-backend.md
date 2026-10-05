@@ -241,8 +241,9 @@ POST /api/v1/users/store
 
 `full_name` se usa tambien como nombre de la plaza. El endpoint crea la tienda, su corte
 inicial predeterminado, el usuario y la asignacion de rol `store` en una transaccion SQL.
-El codigo debe ser unico y tener el formato `T###`. Para asociar una cuenta a una tienda
-que ya existe, se conserva el flujo de creacion de usuario y asignacion descrito abajo.
+El codigo debe ser unico y usar uno de estos prefijos seguido de tres digitos: `T`, `V`,
+`L`, `A`, `R`, `O` o `FE`. Para asociar una cuenta a una tienda que ya existe, se conserva
+el flujo de creacion de usuario y asignacion descrito abajo.
 
 Login:
 
