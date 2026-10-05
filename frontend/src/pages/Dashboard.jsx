@@ -5,32 +5,25 @@ import {
     apiErrorMessage,
     currentToken,
     getManagementProductivityDashboard,
+    getManagerProductivityDashboard,
     getTreasuryDashboard,
+    getTreasuryProductivityDashboard,
 } from '../lib/api';
 
 function Dashboard({ currentRole }) {
     const role = String(currentRole || '').toLowerCase().trim();
     const canViewManagement = ['admin', 'direccion', 'gerencia'].includes(role);
+    const canViewTeamProductivity = ['admin', 'direccion'].includes(role);
     const canViewTreasury = ['admin', 'direccion', 'gerencia', 'tesoreria'].includes(role);
 
-    if (canViewManagement && canViewTreasury) {
-        return (
-            <>
-                <ManagementProductivityDashboard />
-                <TreasuryBudgetDashboard />
-            </>
-        );
-    }
-
-    if (canViewManagement) {
-        return <ManagementProductivityDashboard />;
-    }
-
-    if (canViewTreasury) {
-        return <TreasuryBudgetDashboard />;
-    }
-
-    return null;
+    return (
+        <>
+            {canViewManagement && <ManagementProductivityDashboard />}
+            {canViewTeamProductivity && <ManagerProductivityDashboard />}
+            {canViewTeamProductivity && <TreasuryProductivityDashboard />}
+            {canViewTreasury && <TreasuryBudgetDashboard />}
+        </>
+    );
 }
 
 function TreasuryBudgetDashboard() {
@@ -191,6 +184,42 @@ function KpiCard({ label, value }) {
 }
 
 function ManagementProductivityDashboard() {
+    return (
+        <ProductivityDashboard
+            title="Análisis de Productividad"
+            subjectLabel="Contador"
+            monthlyTitle="TOTAL MENSUAL POR CONTADOR"
+            emptyMessage="No hay contadores activos para mostrar."
+            fetchDashboard={getManagementProductivityDashboard}
+        />
+    );
+}
+
+function ManagerProductivityDashboard() {
+    return (
+        <ProductivityDashboard
+            title="Productividad de Gerencia"
+            subjectLabel="Gerente"
+            monthlyTitle="TOTAL MENSUAL POR GERENTE"
+            emptyMessage="No hay gerentes activos para mostrar."
+            fetchDashboard={getManagerProductivityDashboard}
+        />
+    );
+}
+
+function TreasuryProductivityDashboard() {
+    return (
+        <ProductivityDashboard
+            title="Productividad de Tesorería"
+            subjectLabel="Tesorero"
+            monthlyTitle="TOTAL MENSUAL POR TESORERO"
+            emptyMessage="No hay tesoreros activos para mostrar."
+            fetchDashboard={getTreasuryProductivityDashboard}
+        />
+    );
+}
+
+function ProductivityDashboard({ title, subjectLabel, monthlyTitle, emptyMessage, fetchDashboard }) {
     const navigate = useNavigate();
     const [dashboard, setDashboard] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -210,7 +239,7 @@ function ManagementProductivityDashboard() {
         }
 
         setLoading(true);
-        getManagementProductivityDashboard({
+        fetchDashboard({
             weekStart: selectedWeekStart,
             month: selectedMonth,
             year: selectedYear,
@@ -231,16 +260,29 @@ function ManagementProductivityDashboard() {
         return () => {
             active = false;
         };
-    }, [navigate, selectedMonth, selectedWeekStart, selectedYear]);
+    }, [fetchDashboard, navigate, selectedMonth, selectedWeekStart, selectedYear]);
 
-    const days = dashboard?.days || ['Lu', 'Ma', 'Mi', 'Ju', 'Vi'];
-    const rows = dashboard?.rows || [];
-    const monthlyRows = dashboard?.monthlyRows || [];
+    const { days, actions, rows, monthlyRows, totals, totalsByAction, grandTotal } = useMemo(
+        () => normalizeProductivityDashboard(dashboard),
+        [dashboard],
+    );
+    const hasActions = actions.length > 0;
     const maxValue = Math.max(
         1,
         ...rows.flatMap((row) => days.map((day) => productivityValue(row, day))),
-        ...days.map((day) => Number(dashboard?.totals?.[day] || 0)),
+        ...days.map((day) => Number(totals[day] || 0)),
     );
+    const footerRows = [
+        ...(actions.length > 1
+            ? actions.map((action) => ({
+                key: action.key,
+                label: action.label,
+                actionKey: action.key,
+                values: totalsByAction[action.key] || {},
+            }))
+            : []),
+        { key: 'all', label: 'Total', actionKey: '', values: totals },
+    ];
 
     if (loading) {
         return <div style={styles.message}>Cargando dashboard...</div>;
@@ -252,7 +294,7 @@ function ManagementProductivityDashboard() {
 
     return (
         <div style={styles.container}>
-            <h1 style={styles.title}>Análisis de Productividad</h1>
+            <h1 style={styles.title}>{title}</h1>
 
             <section style={styles.productivityHeader}>
                 <div>
@@ -289,7 +331,10 @@ function ManagementProductivityDashboard() {
                 <table style={styles.table}>
                     <thead>
                         <tr>
-                            <th style={{ ...styles.th, ...styles.storeTh }}>Contador</th>
+                            <th style={{ ...styles.th, ...styles.storeTh, ...(hasActions ? styles.compactTh : {}) }}>{subjectLabel}</th>
+                            {hasActions && (
+                                <th style={{ ...styles.th, ...styles.storeTh, ...styles.compactTh }}>Acción</th>
+                            )}
                             {days.map((day) => (
                                 <th key={day} style={styles.heatmapTh}>{day}</th>
                             ))}
@@ -297,11 +342,23 @@ function ManagementProductivityDashboard() {
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((row) => (
-                            <tr key={row.accountantId}>
-                                <td style={{ ...styles.td, ...styles.storeTd }}>
-                                    <strong>{row.accountantName}</strong>
-                                </td>
+                        {rows.map((row, index) => (
+                            <tr key={`${row.id}-${row.actionKey}`}>
+                                {(index === 0 || rows[index - 1].id !== row.id) && (
+                                    <td
+                                        rowSpan={actions.length || 1}
+                                        style={{ ...styles.td, ...styles.storeTd }}
+                                    >
+                                        <strong>{row.name}</strong>
+                                    </td>
+                                )}
+                                {hasActions && (
+                                    <td style={{ ...styles.td, ...styles.storeTd }}>
+                                        <span style={{ ...styles.actionChip, ...actionStyle(row.actionKey).chip }}>
+                                            {row.actionLabel}
+                                        </span>
+                                    </td>
+                                )}
                                 {days.map((day) => {
                                     const value = productivityValue(row, day);
                                     return (
@@ -321,35 +378,56 @@ function ManagementProductivityDashboard() {
                         ))}
                         {rows.length === 0 && (
                             <tr>
-                                <td style={styles.emptyCell} colSpan={days.length + 2}>
-                                    No hay contadores activos para mostrar.
+                                <td style={styles.emptyCell} colSpan={days.length + (hasActions ? 3 : 2)}>
+                                    {emptyMessage}
                                 </td>
                             </tr>
                         )}
                     </tbody>
                     <tfoot>
-                        <tr>
-                            <td style={{ ...styles.td, ...styles.storeTd }}>
-                                <strong>Total</strong>
-                            </td>
-                            {days.map((day) => {
-                                const value = Number(dashboard?.totals?.[day] || 0);
-                                return (
+                        {footerRows.map((footerRow, footerIndex) => {
+                            const isGrandTotal = footerRow.key === 'all';
+                            const footerBorder = footerIndex === 0 ? {} : { borderTop: '1px solid #f1dada' };
+                            return (
+                                <tr key={footerRow.key}>
                                     <td
-                                        key={day}
-                                        style={{
-                                            ...styles.heatmapFooterCell,
-                                            background: heatmapColor(value, maxValue),
-                                        }}
+                                        colSpan={hasActions ? 2 : 1}
+                                        style={{ ...styles.td, ...styles.storeTd, ...footerBorder }}
                                     >
-                                        {value || '-'}
+                                        {isGrandTotal ? (
+                                            <strong>{footerRow.label}</strong>
+                                        ) : (
+                                            <>
+                                                <strong>Total </strong>
+                                                <span style={{ ...styles.actionChip, ...actionStyle(footerRow.actionKey).chip }}>
+                                                    {footerRow.label}
+                                                </span>
+                                            </>
+                                        )}
                                     </td>
-                                );
-                            })}
-                            <td style={styles.heatmapGrandTotalCell}>
-                                {dashboard?.grandTotal || 0}
-                            </td>
-                        </tr>
+                                    {days.map((day) => {
+                                        const value = Number(footerRow.values[day] || 0);
+                                        return (
+                                            <td
+                                                key={day}
+                                                style={{
+                                                    ...styles.heatmapFooterCell,
+                                                    ...footerBorder,
+                                                    background: heatmapColor(value, maxValue),
+                                                }}
+                                            >
+                                                {value || '-'}
+                                            </td>
+                                        );
+                                    })}
+                                    <td style={{ ...styles.heatmapGrandTotalCell, ...footerBorder }}>
+                                        {isGrandTotal
+                                            ? grandTotal
+                                            : days.reduce((sum, day) => sum + Number(footerRow.values[day] || 0), 0)}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tfoot>
                 </table>
             </section>
@@ -357,7 +435,7 @@ function ManagementProductivityDashboard() {
             <section style={styles.monthlySection}>
                 <div style={styles.productivityHeader}>
                     <div>
-                        <span style={styles.sectionLabel}>TOTAL MENSUAL POR CONTADOR</span>
+                        <span style={styles.sectionLabel}>{monthlyTitle}</span>
                         <span style={styles.weekLabel}>
                             {formatMonthYear(dashboard?.month || selectedMonth, dashboard?.year || selectedYear)}
                         </span>
@@ -384,17 +462,29 @@ function ManagementProductivityDashboard() {
                         />
                     </div>
                 </div>
-                <MonthlyAccountantBarChart
+                <MonthlyProductivityBarChart
                     rows={monthlyRows}
+                    actions={actions}
                     grandTotal={dashboard?.monthlyGrandTotal || 0}
+                    emptyMessage={emptyMessage}
                 />
             </section>
         </div>
     );
 }
 
-function MonthlyAccountantBarChart({ rows, grandTotal }) {
+function MonthlyProductivityBarChart({ rows, actions, grandTotal, emptyMessage }) {
     const maxTotal = Math.max(1, ...rows.map((row) => Number(row.total || 0)));
+    const multiAction = actions.length > 1;
+    const groups = [];
+    rows.forEach((row) => {
+        const lastGroup = groups.at(-1);
+        if (lastGroup && lastGroup.id === row.id) {
+            lastGroup.items.push(row);
+        } else {
+            groups.push({ id: row.id, name: row.name, items: [row] });
+        }
+    });
 
     return (
         <div style={styles.monthlyChartContainer}>
@@ -402,23 +492,54 @@ function MonthlyAccountantBarChart({ rows, grandTotal }) {
                 <span>Total del mes</span>
                 <strong>{grandTotal}</strong>
             </div>
+            {multiAction && (
+                <div style={styles.legend}>
+                    {actions.map((action) => (
+                        <span key={action.key} style={{ ...styles.actionChip, ...actionStyle(action.key).chip }}>
+                            {action.label}
+                        </span>
+                    ))}
+                </div>
+            )}
             <div style={styles.monthlyChart}>
-                {rows.map((row) => {
-                    const total = Number(row.total || 0);
-                    const height = Math.max((total / maxTotal) * 220, total > 0 ? 18 : 6);
-                    return (
-                        <div key={row.accountantId} style={styles.monthlyBarGroup}>
-                            <div style={styles.monthlyBarWrap}>
-                                <span style={styles.monthlyBarValue}>{total}</span>
-                                <div style={{ ...styles.monthlyBar, height }} />
-                            </div>
-                            <span style={styles.monthlyBarName}>{row.accountantName}</span>
+                {groups.map((group) => (
+                    <div
+                        key={group.id}
+                        style={{
+                            ...styles.monthlyBarGroup,
+                            width: multiAction ? `${group.items.length * 52 + 30}px` : undefined,
+                            minWidth: multiAction ? `${group.items.length * 52 + 30}px` : undefined,
+                        }}
+                    >
+                        <div style={multiAction ? styles.monthlyBarRow : styles.monthlyBarWrap}>
+                            {group.items.map((item) => {
+                                const total = Number(item.total || 0);
+                                const height = Math.max((total / maxTotal) * 220, total > 0 ? 18 : 6);
+                                return (
+                                    <div
+                                        key={item.actionKey || 'total'}
+                                        style={multiAction ? styles.monthlyBarWrap : styles.monthlyBarSingle}
+                                        title={item.actionLabel || undefined}
+                                    >
+                                        <span style={styles.monthlyBarValue}>{total}</span>
+                                        <div
+                                            style={{
+                                                ...styles.monthlyBar,
+                                                ...(multiAction ? styles.monthlyBarNarrow : {}),
+                                                ...actionStyle(item.actionKey).bar,
+                                                height,
+                                            }}
+                                        />
+                                    </div>
+                                );
+                            })}
                         </div>
-                    );
-                })}
-                {rows.length === 0 && (
+                        <span style={styles.monthlyBarName}>{group.name}</span>
+                    </div>
+                ))}
+                {groups.length === 0 && (
                     <div style={styles.emptyChart}>
-                        No hay contadores activos para mostrar.
+                        {emptyMessage}
                     </div>
                 )}
             </div>
@@ -479,6 +600,69 @@ function valueForYear(row, year) {
 
 function productivityValue(row, day) {
     return Number(row?.values?.[day] || 0);
+}
+
+const DEFAULT_PRODUCTIVITY_DAYS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi'];
+
+const ACTION_STYLES = {
+    send_to_treasury: {
+        chip: {
+            background: 'var(--sb-sendBtnBg)',
+            border: '1px solid var(--sb-sendBtnBg)',
+            color: '#ffffff',
+        },
+        bar: {
+            background: 'linear-gradient(180deg, #fff8f8 0%, #ff9ca5 100%)',
+        },
+    },
+    confirm_payment: {
+        chip: {
+            background: 'var(--sb-pagadaBg)',
+            border: '1px solid var(--text-pagada)',
+            color: '#2e7d1f',
+        },
+        bar: {
+            border: '2px solid var(--text-pagada)',
+            background: 'linear-gradient(180deg, #f3fcef 0%, #8fd37b 100%)',
+        },
+    },
+    approve_payment: {
+        chip: {
+            background: 'var(--sb-aprobadaBg)',
+            border: '1px solid var(--text-aprobada)',
+            color: 'var(--text-aprobada)',
+        },
+        bar: {
+            border: '2px solid var(--text-aprobada)',
+            background: 'linear-gradient(180deg, #f1f7ff 0%, #8db8f0 100%)',
+        },
+    },
+};
+
+function actionStyle(actionKey) {
+    return ACTION_STYLES[actionKey] || { chip: {}, bar: {} };
+}
+
+// Unifica la respuesta de contadores (accountantId/accountantName) con la de gerentes y tesoreros (userId/actionKey).
+function normalizeProductivityDashboard(data) {
+    const normalizeRow = (row) => ({
+        id: row.userId || row.accountantId,
+        name: row.userName || row.accountantName,
+        actionKey: row.actionKey || '',
+        actionLabel: row.actionLabel || '',
+        values: row.values || {},
+        total: Number(row.total || 0),
+    });
+
+    return {
+        days: data?.days || DEFAULT_PRODUCTIVITY_DAYS,
+        actions: data?.actions || [],
+        rows: (data?.rows || []).map(normalizeRow),
+        monthlyRows: (data?.monthlyRows || []).map(normalizeRow),
+        totals: data?.totals || {},
+        totalsByAction: data?.totalsByAction || {},
+        grandTotal: data?.grandTotal || 0,
+    };
 }
 
 function heatmapColor(value, maxValue) {
@@ -898,6 +1082,9 @@ const styles = {
         textAlign: 'left',
         minWidth: '220px',
     },
+    compactTh: {
+        minWidth: '120px',
+    },
     heatmapTh: {
         borderBottom: '1px solid var(--sb-btnBorder)',
         borderRight: '1px solid var(--sb-btnBorder)',
@@ -953,6 +1140,38 @@ const styles = {
         fontSize: '16px',
         fontWeight: '900',
         background: '#ffeaea',
+    },
+    actionChip: {
+        display: 'inline-block',
+        padding: '3px 12px',
+        borderRadius: '999px',
+        fontSize: '12px',
+        fontWeight: '800',
+        whiteSpace: 'nowrap',
+    },
+    legend: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        flexWrap: 'wrap',
+        marginBottom: '14px',
+    },
+    monthlyBarRow: {
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        gap: '8px',
+    },
+    monthlyBarSingle: {
+        height: '244px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: '8px',
+    },
+    monthlyBarNarrow: {
+        width: '38px',
     },
     storeName: {
         display: 'block',

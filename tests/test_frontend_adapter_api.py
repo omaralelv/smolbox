@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.v1.endpoints.frontend import _frontend_tax_rate_for_expense
+from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
@@ -1517,3 +1518,157 @@ def _cfdi_xml(amount: str, *, uuid: str = "22222222-2222-4222-8222-222222222222"
   </cfdi:Complemento>
 </cfdi:Comprobante>
 """.encode()
+
+
+def test_manager_productivity_counts_each_action_once_per_request_and_user(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    manager_id = _create_user(client, "accounting_manager", "prod.manager.one@example.com")
+    other_manager_id = _create_user(client, "accounting_manager", "prod.manager.two@example.com")
+    treasury_id = _create_user(client, "treasury", "prod.manager.treasury@example.com")
+    _create_user(client, "director", "prod.manager.director@example.com")
+    request_id = UUID(base_records["request_id"])
+
+    _add_audit_event(
+        session_factory, request_id, manager_id,
+        "request_status_changed", "accounting_manager_approved",
+        datetime(2026, 8, 10, 15, 0, tzinfo=UTC),
+    )
+    _add_audit_event(
+        session_factory, request_id, manager_id,
+        "request_status_changed", "accounting_manager_approved",
+        datetime(2026, 8, 12, 15, 0, tzinfo=UTC),
+    )
+    _add_audit_event(
+        session_factory, request_id, manager_id,
+        "request_status_changed", "accounting_manager_approved",
+        datetime(2026, 9, 2, 15, 0, tzinfo=UTC),
+    )
+    _add_audit_event(
+        session_factory, request_id, manager_id,
+        "payment_recorded", "paid",
+        datetime(2026, 8, 13, 15, 0, tzinfo=UTC),
+    )
+    _add_audit_event(
+        session_factory, request_id, other_manager_id,
+        "request_status_changed", "accounting_manager_approved",
+        datetime(2026, 8, 11, 15, 0, tzinfo=UTC),
+    )
+    _add_audit_event(
+        session_factory, request_id, treasury_id,
+        "request_status_changed", "accounting_manager_approved",
+        datetime(2026, 8, 11, 16, 0, tzinfo=UTC),
+    )
+
+    headers = _auth_headers(client, "prod.manager.director@example.com")
+    response = client.get(
+        "/api/v1/frontend/gerencia/productividad/gerentes/me",
+        params={"week_start": "2026-08-10", "month": 8, "year": 2026},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["weekStartsOn"] == "2026-08-10"
+    assert [action["key"] for action in body["actions"]] == ["send_to_treasury", "confirm_payment"]
+    assert len(body["rows"]) == 4
+    rows = {(row["userId"], row["actionKey"]): row for row in body["rows"]}
+    assert rows[(manager_id, "send_to_treasury")]["values"] == {
+        "Lu": 1, "Ma": 0, "Mi": 0, "Ju": 0, "Vi": 0,
+    }
+    assert rows[(manager_id, "confirm_payment")]["values"]["Ju"] == 1
+    assert rows[(other_manager_id, "send_to_treasury")]["values"]["Ma"] == 1
+    assert rows[(other_manager_id, "confirm_payment")]["total"] == 0
+    assert body["totalsByAction"]["send_to_treasury"]["Lu"] == 1
+    assert body["grandTotal"] == 3
+    monthly = {(row["userId"], row["actionKey"]): row["total"] for row in body["monthlyRows"]}
+    assert monthly[(manager_id, "send_to_treasury")] == 1
+    assert monthly[(manager_id, "confirm_payment")] == 1
+    assert body["monthlyGrandTotal"] == 3
+
+    september = client.get(
+        "/api/v1/frontend/gerencia/productividad/gerentes/me",
+        params={"week_start": "2026-08-31", "month": 9, "year": 2026},
+        headers=headers,
+    )
+    assert september.status_code == 200, september.text
+    assert september.json()["monthlyGrandTotal"] == 0
+    assert september.json()["grandTotal"] == 0
+
+
+def test_treasury_productivity_counts_payment_approvals_by_treasury_users(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    treasury_id = _create_user(client, "treasury", "prod.treasury@example.com")
+    director_id = _create_user(client, "director", "prod.treasury.director@example.com")
+    request_id = UUID(base_records["request_id"])
+
+    _add_audit_event(
+        session_factory, request_id, treasury_id,
+        "request_status_changed", "direction_approved",
+        datetime(2026, 8, 12, 15, 0, tzinfo=UTC),
+    )
+    _add_audit_event(
+        session_factory, request_id, director_id,
+        "request_status_changed", "direction_approved",
+        datetime(2026, 8, 12, 16, 0, tzinfo=UTC),
+    )
+
+    headers = _auth_headers(client, "prod.treasury.director@example.com")
+    response = client.get(
+        "/api/v1/frontend/gerencia/productividad/tesoreros/me",
+        params={"week_start": "2026-08-10", "month": 8, "year": 2026},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [(row["userId"], row["actionKey"]) for row in body["rows"]] == [
+        (treasury_id, "approve_payment")
+    ]
+    assert body["rows"][0]["values"]["Mi"] == 1
+    assert body["grandTotal"] == 1
+    assert body["monthlyGrandTotal"] == 1
+
+
+def test_role_productivity_dashboards_are_limited_to_direction_and_admin(
+    client: TestClient,
+) -> None:
+    _create_user(client, "accountant", "prod.forbidden.accountant@example.com")
+    _create_user(client, "accounting_manager", "prod.forbidden.manager@example.com")
+    _create_user(client, "admin", "prod.forbidden.admin@example.com")
+
+    for path in ("gerentes", "tesoreros"):
+        url = f"/api/v1/frontend/gerencia/productividad/{path}/me"
+        for email in (
+            "prod.forbidden.accountant@example.com",
+            "prod.forbidden.manager@example.com",
+        ):
+            forbidden = client.get(url, headers=_auth_headers(client, email))
+            assert forbidden.status_code == 403, forbidden.text
+        allowed = client.get(url, headers=_auth_headers(client, "prod.forbidden.admin@example.com"))
+        assert allowed.status_code == 200, allowed.text
+
+
+def _add_audit_event(
+    session_factory: sessionmaker[Session],
+    request_id: UUID,
+    actor_user_id: str,
+    action: str,
+    to_status: str,
+    created_at: datetime,
+) -> None:
+    with session_factory() as db:
+        db.add(
+            AuditLog(
+                reimbursement_request_id=request_id,
+                actor_user_id=UUID(actor_user_id),
+                actor_type=AuditActorType.user,
+                action=action,
+                to_status=to_status,
+                created_at=created_at,
+            )
+        )
+        db.commit()

@@ -204,12 +204,24 @@ export async function getTreasuryDashboard() {
 }
 
 export async function getManagementProductivityDashboard(params = {}) {
+    return request(`/frontend/gerencia/productividad/me${productivityQuery(params)}`);
+}
+
+export async function getManagerProductivityDashboard(params = {}) {
+    return request(`/frontend/gerencia/productividad/gerentes/me${productivityQuery(params)}`);
+}
+
+export async function getTreasuryProductivityDashboard(params = {}) {
+    return request(`/frontend/gerencia/productividad/tesoreros/me${productivityQuery(params)}`);
+}
+
+function productivityQuery(params) {
     const searchParams = new URLSearchParams();
     if (params.weekStart) searchParams.set('week_start', params.weekStart);
     if (params.month) searchParams.set('month', String(params.month));
     if (params.year) searchParams.set('year', String(params.year));
     const query = searchParams.toString();
-    return request(`/frontend/gerencia/productividad/me${query ? `?${query}` : ''}`);
+    return query ? `?${query}` : '';
 }
 
 export async function getFrontendSolicitud(requestIdOrFolio) {

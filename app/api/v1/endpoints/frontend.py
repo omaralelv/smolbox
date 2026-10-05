@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated
@@ -34,6 +35,10 @@ from app.schemas.frontend import (
     FrontendManagementProductivityDashboardRead,
     FrontendManagementProductivityRowRead,
     FrontendObservationCreate,
+    FrontendProductivityActionRead,
+    FrontendRoleMonthlyProductivityRowRead,
+    FrontendRoleProductivityDashboardRead,
+    FrontendRoleProductivityRowRead,
     FrontendSolicitudCreate,
     FrontendSolicitudRead,
     FrontendStoreRead,
@@ -481,6 +486,205 @@ def get_management_productivity_dashboard(
         days=day_labels,
         rows=rows,
         totals=totals,
+        grand_total=sum(totals.values()),
+        monthly_rows=monthly_rows,
+        monthly_grand_total=sum(row.total for row in monthly_rows),
+    )
+
+
+@dataclass(frozen=True)
+class _ProductivityAction:
+    key: str
+    label: str
+    audit_action: str
+    to_status: ReimbursementRequestStatus | None = None
+
+
+MANAGER_PRODUCTIVITY_ACTIONS = (
+    _ProductivityAction(
+        key="send_to_treasury",
+        label="Enviadas a tesorería",
+        audit_action="request_status_changed",
+        to_status=ReimbursementRequestStatus.accounting_manager_approved,
+    ),
+    _ProductivityAction(
+        key="confirm_payment",
+        label="Pagos confirmados",
+        audit_action="payment_recorded",
+    ),
+)
+TREASURY_PRODUCTIVITY_ACTIONS = (
+    _ProductivityAction(
+        key="approve_payment",
+        label="Pagos aprobados",
+        audit_action="request_status_changed",
+        to_status=ReimbursementRequestStatus.direction_approved,
+    ),
+)
+
+
+@router.get(
+    "/gerencia/productividad/gerentes/me",
+    response_model=FrontendRoleProductivityDashboardRead,
+)
+def get_managers_productivity_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    week_start: Annotated[date | None, Query()] = None,
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    year: Annotated[int | None, Query(ge=2020, le=2100)] = None,
+) -> FrontendRoleProductivityDashboardRead:
+    _ensure_productivity_viewer(current_user)
+    return _build_role_productivity_dashboard(
+        db,
+        role=UserRole.accounting_manager,
+        actions=MANAGER_PRODUCTIVITY_ACTIONS,
+        week_start=week_start,
+        month=month,
+        year=year,
+    )
+
+
+@router.get(
+    "/gerencia/productividad/tesoreros/me",
+    response_model=FrontendRoleProductivityDashboardRead,
+)
+def get_treasurers_productivity_dashboard(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    week_start: Annotated[date | None, Query()] = None,
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    year: Annotated[int | None, Query(ge=2020, le=2100)] = None,
+) -> FrontendRoleProductivityDashboardRead:
+    _ensure_productivity_viewer(current_user)
+    return _build_role_productivity_dashboard(
+        db,
+        role=UserRole.treasury,
+        actions=TREASURY_PRODUCTIVITY_ACTIONS,
+        week_start=week_start,
+        month=month,
+        year=year,
+    )
+
+
+def _ensure_productivity_viewer(current_user: User) -> None:
+    if current_user.role not in {UserRole.director, UserRole.admin}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FORBIDDEN_ROLE",
+                "message": "Only direction users can view this productivity dashboard",
+            },
+        )
+
+
+def _build_role_productivity_dashboard(
+    db: Session,
+    *,
+    role: UserRole,
+    actions: tuple[_ProductivityAction, ...],
+    week_start: date | None,
+    month: int | None,
+    year: int | None,
+) -> FrontendRoleProductivityDashboardRead:
+    day_labels = ["Lu", "Ma", "Mi", "Ju", "Vi"]
+    today = datetime.now(MEXICO_CITY_TZ).date()
+    selected_week_start = (week_start or today) - timedelta(
+        days=(week_start or today).weekday()
+    )
+    selected_week_end = selected_week_start + timedelta(days=4)
+    selected_month = month or today.month
+    selected_year = year or today.year
+
+    users = list(
+        db.scalars(
+            select(User)
+            .where(User.role == role, User.is_active.is_(True))
+            .order_by(User.full_name)
+        )
+    )
+    weekly_values = {
+        (user.id, action.key): {day: 0 for day in day_labels}
+        for user in users
+        for action in actions
+    }
+    monthly_totals = {
+        (user.id, action.key): 0
+        for user in users
+        for action in actions
+    }
+
+    for action in actions:
+        # Una solicitud cuenta una sola vez por usuario y acción: se conserva el primer evento.
+        statement = (
+            select(AuditLog.actor_user_id, func.min(AuditLog.created_at))
+            .join(User, AuditLog.actor_user_id == User.id)
+            .where(
+                AuditLog.action == action.audit_action,
+                AuditLog.reimbursement_request_id.is_not(None),
+                User.role == role,
+            )
+            .group_by(AuditLog.reimbursement_request_id, AuditLog.actor_user_id)
+        )
+        if action.to_status is not None:
+            statement = statement.where(AuditLog.to_status == action.to_status.value)
+
+        for user_id, first_event_at in db.execute(statement):
+            if (user_id, action.key) not in monthly_totals:
+                continue
+            if first_event_at.tzinfo is None:
+                first_event_at = first_event_at.replace(tzinfo=UTC)
+            local_event_at = first_event_at.astimezone(MEXICO_CITY_TZ)
+            local_date = local_event_at.date()
+
+            if local_date.year == selected_year and local_date.month == selected_month:
+                monthly_totals[(user_id, action.key)] += 1
+            if selected_week_start <= local_date <= selected_week_end:
+                weekly_values[(user_id, action.key)][day_labels[local_date.weekday()]] += 1
+
+    totals = {day: 0 for day in day_labels}
+    totals_by_action = {action.key: {day: 0 for day in day_labels} for action in actions}
+    rows: list[FrontendRoleProductivityRowRead] = []
+    monthly_rows: list[FrontendRoleMonthlyProductivityRowRead] = []
+    for user in users:
+        for action in actions:
+            values = weekly_values[(user.id, action.key)]
+            for day, value in values.items():
+                totals[day] += value
+                totals_by_action[action.key][day] += value
+            rows.append(
+                FrontendRoleProductivityRowRead(
+                    user_id=user.id,
+                    user_name=user.full_name,
+                    action_key=action.key,
+                    action_label=action.label,
+                    values=values,
+                    total=sum(values.values()),
+                )
+            )
+            monthly_rows.append(
+                FrontendRoleMonthlyProductivityRowRead(
+                    user_id=user.id,
+                    user_name=user.full_name,
+                    action_key=action.key,
+                    action_label=action.label,
+                    total=monthly_totals[(user.id, action.key)],
+                )
+            )
+
+    return FrontendRoleProductivityDashboardRead(
+        week_starts_on=selected_week_start,
+        week_ends_on=selected_week_end,
+        month=selected_month,
+        year=selected_year,
+        days=day_labels,
+        actions=[
+            FrontendProductivityActionRead(key=action.key, label=action.label)
+            for action in actions
+        ],
+        rows=rows,
+        totals=totals,
+        totals_by_action=totals_by_action,
         grand_total=sum(totals.values()),
         monthly_rows=monthly_rows,
         monthly_grand_total=sum(row.total for row in monthly_rows),

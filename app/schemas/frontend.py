@@ -76,6 +76,52 @@ class FrontendManagementProductivityDashboardRead(BaseModel):
     monthly_grand_total: int = Field(alias="monthlyGrandTotal")
 
 
+class FrontendProductivityActionRead(BaseModel):
+    key: str
+    label: str
+
+
+class FrontendRoleProductivityRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: UUID = Field(alias="userId")
+    user_name: str = Field(alias="userName")
+    action_key: str = Field(alias="actionKey")
+    action_label: str = Field(alias="actionLabel")
+    values: dict[str, int]
+    total: int
+
+
+class FrontendRoleMonthlyProductivityRowRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: UUID = Field(alias="userId")
+    user_name: str = Field(alias="userName")
+    action_key: str = Field(alias="actionKey")
+    action_label: str = Field(alias="actionLabel")
+    total: int
+
+
+class FrontendRoleProductivityDashboardRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    week_starts_on: date = Field(alias="weekStartsOn")
+    week_ends_on: date = Field(alias="weekEndsOn")
+    month: int
+    year: int
+    days: list[str]
+    actions: list[FrontendProductivityActionRead] = Field(default_factory=list)
+    rows: list[FrontendRoleProductivityRowRead] = Field(default_factory=list)
+    totals: dict[str, int]
+    totals_by_action: dict[str, dict[str, int]] = Field(alias="totalsByAction")
+    grand_total: int = Field(alias="grandTotal")
+    monthly_rows: list[FrontendRoleMonthlyProductivityRowRead] = Field(
+        default_factory=list,
+        alias="monthlyRows",
+    )
+    monthly_grand_total: int = Field(alias="monthlyGrandTotal")
+
+
 class FrontendUserRead(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
