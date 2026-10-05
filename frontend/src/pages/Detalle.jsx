@@ -330,12 +330,12 @@ function Detalle({ currentRole }) {
 
     const handleEditarGasto = (gasto) => {
         // Si el gasto seleccionado es una partición hija, buscamos sus datos o los de sus hermanos
-        if (gasto.esHijoParticion || gasto.idOriginal) {
-            const parentId = gasto.idOriginal;
+        if (esGastoParticion(gasto)) {
+            const parentId = idGastoOriginal(gasto);
             const gastoPadre = gastosDesglosados.find(item => (item.backendId || item.id) === parentId);
             
             // Recuperamos todas las particiones asociadas a este mismo padre
-            const particionesHijas = gastosDesglosados.filter(item => item.idOriginal === parentId);
+            const particionesHijas = gastosDesglosados.filter(item => idGastoOriginal(item) === parentId);
 
             if (gastoPadre) {
                 setGastoParaPartir(gastoPadre);
@@ -346,11 +346,14 @@ function Detalle({ currentRole }) {
                         backendId: p.backendId,
                         categoria: p.categoria || p.tipo || '',
                         monto: p.monto || 0,
-                        impuesto: String(p.impuesto || '0')
+                        impuesto: String(p.impuesto ?? p.cfdiTaxRate ?? p.cfdi_tax_rate ?? '0')
                     }))
                 );
                 return;
             }
+
+            alert('No se encontró el gasto original de esta partición.');
+            return;
         }
 
         const expenseId = gasto.backendId || gasto.id;
@@ -473,6 +476,11 @@ function Detalle({ currentRole }) {
     const handlePartirGasto = (gasto) => {
         const expenseId = gasto.backendId || gasto.id;
 
+        if (esGastoParticion(gasto)) {
+            alert('Los gastos que vienen de una partición no se pueden particionar nuevamente.');
+            return;
+        }
+
         if (!gastoActivo(gasto)) {
             alert('Los gastos eliminados no se pueden particionar.');
             return;
@@ -484,7 +492,7 @@ function Detalle({ currentRole }) {
         }
 
         const parentId = gasto.backendId || gasto.id;
-        const particionesExistentes = gastosDesglosados.filter(item => item.idOriginal === parentId);
+        const particionesExistentes = gastosDesglosados.filter(item => idGastoOriginal(item) === parentId);
         //const categoriaGasto = gasto.tipo || gasto.type || categoria || 'Gasto General';
         setGastoParaPartir(gasto);
 
@@ -497,7 +505,7 @@ function Detalle({ currentRole }) {
                     backendId: p.backendId,
                     categoria: p.categoria || p.tipo || '',
                     monto: p.monto || 0,
-                    impuesto: String(p.impuesto || '0')
+                    impuesto: String(p.impuesto ?? p.cfdiTaxRate ?? p.cfdi_tax_rate ?? '0')
                 }))
                 );
         } else {
@@ -555,7 +563,7 @@ function Detalle({ currentRole }) {
         
         setGastosDesglosados(prev => {
             // Remueve los gastos generados como partición y restituye el original (quitando inactivo)
-            const sinHijos = prev.filter(item => item.idOriginal !== parentId);
+            const sinHijos = prev.filter(item => idGastoOriginal(item) !== parentId);
             return sinHijos.map(item => {
                 if ((item.backendId || item.id) === parentId) {
                     return {
@@ -656,7 +664,7 @@ function Detalle({ currentRole }) {
 
             setGastosDesglosados(prev => {
                 // 1. Filtrar particiones previas si existían
-                const sinHijosPrevios = prev.filter(item => item.idOriginal !== parentId);
+                const sinHijosPrevios = prev.filter(item => idGastoOriginal(item) !== parentId);
 
                 // 2. Marcar el gasto original como inactivo/archivado y guardar la estructura de partición
                 const actualizados = sinHijosPrevios.map(item => {
@@ -787,7 +795,7 @@ function Detalle({ currentRole }) {
                             const gastoKey = gasto.backendId || gasto.id || index;
                             const eliminado = !gastoActivo(gasto);
                             const estaDesactivado = eliminado || gasto.estatus === 'no_autorizado';
-                            const esParticion = gasto.esHijoParticion;
+                            const esParticion = esGastoParticion(gasto);
                     
                         return (
 
@@ -1520,6 +1528,18 @@ const styles = {
 };
 
 export default Detalle;
+
+function esGastoParticion(gasto) {
+    return Boolean(
+        gasto?.esHijoParticion
+        || gasto?.es_hijo_particion
+        || idGastoOriginal(gasto)
+    );
+}
+
+function idGastoOriginal(gasto) {
+    return gasto?.idOriginal || gasto?.id_original || null;
+}
 
 function gastoActivo(gasto) {
     const backendStatus = String(gasto.backendStatus || gasto.backend_status || '').toLowerCase();

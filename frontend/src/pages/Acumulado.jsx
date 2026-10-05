@@ -123,10 +123,12 @@ function Acumulado( {currentRole} ) {
     // Si la solicitud trae gastos cargados los usa; si no, muestra el desglose por defecto
     const gastosBrutos = solicitudSeleccionada?.gastos?.length > 0 
         ? solicitudSeleccionada.gastos.map((g, index) => ({
-            id: index + 1,
-            backendId: g.backendId || g.id,
+            id: g.id || index + 1,
+            backendId: g.backendId || g.backend_id || g.id,
             nombre: g.nombre || `Gasto ${index + 1}`,
             tipo: g.tipo || g.type || 'Gasto General',
+            type: g.type || g.tipo || 'Gasto General',
+            categoria: g.categoria || g.tipo || g.type || 'Gasto General',
             facturas: g.facturas || 1,
             monto: parseFloat(g.monto) || 0,         
             observaciones: g.observaciones || g.observacion || '',
@@ -138,11 +140,22 @@ function Acumulado( {currentRole} ) {
             cfdiTaxRate: valorFiscalOculto(g.cfdiTaxRate ?? g.cfdi_tax_rate),
             sapTaxIndexOverride: g.sapTaxIndexOverride ?? g.sap_tax_index_override ?? null,
             cfdiCurrency: g.cfdiCurrency ?? g.cfdi_currency ?? null,
+            impuesto: g.impuesto ?? g.cfdiTaxRate ?? g.cfdi_tax_rate ?? null,
             autorizacion: g.autorizacion || '',
             status: g.status || '',
             backendStatus: g.backendStatus || g.backend_status || '',
             requiresAuthorization: Boolean(g.requiresAuthorization || g.requires_authorization),
             downloadUrl: g.downloadUrl || g.download_url || null,
+            urlFactura: g.urlFactura || g.url_factura || null,
+            urlVale: g.urlVale || g.url_vale || null,
+            urlRecibo: g.urlRecibo || g.url_recibo || null,
+            urlGasto: g.urlGasto || g.url_gasto || null,
+            esHijoParticion: Boolean(g.esHijoParticion ?? g.es_hijo_particion),
+            idOriginal: g.idOriginal || g.id_original || null,
+            particionIndex: g.particionIndex ?? g.particion_index ?? null,
+            totalParticiones: g.totalParticiones ?? g.total_particiones ?? null,
+            esParticionado: Boolean(g.esParticionado ?? g.es_particionado),
+            inactivo: Boolean(g.inactivo),
             }))
         : [
         ];
@@ -151,10 +164,12 @@ function Acumulado( {currentRole} ) {
     // AGRUPACIÓN DINÁMICA CON REDUCE
     const resumenGastos = Object.values(
         gastosBrutos.reduce((acc, gastoActual) => {
+            const activo = gastoActivo(gastoActual);
+            if (!activo) return acc;
+
             const categoria = gastoActual.tipo || gastoActual.type || 'Gasto General';
             const numFacturas = parseInt(gastoActual.facturas || 1, 10);
             const montoGasto = parseFloat(gastoActual.monto || 0);
-            const activo = gastoActivo(gastoActual);
 
             if (!acc[categoria]) {
                 acc[categoria] = {
@@ -166,10 +181,8 @@ function Acumulado( {currentRole} ) {
                 };
             }
 
-            if (activo) {
-                acc[categoria].facturas += numFacturas;
-                acc[categoria].monto += montoGasto;
-            }
+            acc[categoria].facturas += numFacturas;
+            acc[categoria].monto += montoGasto;
             acc[categoria].elementosOriginales.push(gastoActual);
 
             return acc;
@@ -770,7 +783,7 @@ function Acumulado( {currentRole} ) {
                                         categoria: item.tipo, 
                                         solicitudFolio: datosSolicitud.folio,
                                         solicitudBackendId: solicitudSeleccionada?.backendId,
-                                        desglose: item.elementosOriginales || []
+                                        desglose: gastosBrutos
                                     } 
                                 });
                             }}
@@ -1178,7 +1191,8 @@ function gastoActivo(gasto) {
     const status = String(gasto.status || '').toLowerCase();
     const autorizacion = String(gasto.autorizacion || '').toLowerCase();
     return (
-        backendStatus !== 'removed'
+        !gasto.inactivo
+        && backendStatus !== 'removed'
         && backendStatus !== 'rejected'
         && status !== 'removed'
         && status !== 'eliminado'
