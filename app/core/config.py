@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
+    ses_enabled: bool = False
+    ses_sender_email: str | None = None
+    ses_region: str | None = None
+    ses_template_name: str = "smolbox-payment-registered"
+    ses_configuration_set: str | None = None
     auto_create_schema: bool = False
     auth_token_secret: str = "local-dev-secret-change-me"
     auth_token_ttl_minutes: int = 8 * 60
