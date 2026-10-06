@@ -24,11 +24,16 @@ function TabsNav({ currentRole }) {
                 ];
             case 'gerencia':
             case 'tesoreria':
+                return [
+                    { label: 'Bandeja', path: '/bandeja' },
+                    { label: 'Historico', path: '/historico' },
+                    { label: 'Dashboard', path: '/dashboard' }, // Próximamente
+                ];
             case 'direccion':
                 return [
                     { label: 'Bandeja', path: '/bandeja' },
-                    { label: 'Dashboard', path: '/dashboard' }, // Próximamente
                     { label: 'Historico', path: '/historico' },
+                    { label: 'Dashboard', path: '/dashboard' }, // Próximamente
                     { label: 'Bitacora', path: '/bitacora' },
                 ];
             case 'admin':
@@ -38,8 +43,8 @@ function TabsNav({ currentRole }) {
                     { label: 'Solicitud', path: '/solicitud/nueva' },
                     { label: 'Autorizacion', path: '/autorizacion' },
                     { label: 'Bandeja', path: '/bandeja' },
-                    { label: 'Dashboard', path: '/dashboard' },
                     { label: 'Historico', path: '/historico' },
+                    { label: 'Dashboard', path: '/dashboard' },
                     { label: 'Bitacora', path: '/bitacora' },
                 ];
             default:

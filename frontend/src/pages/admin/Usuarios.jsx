@@ -62,7 +62,7 @@ const EMPTY_FORM = {
     role: 'store',
     isActive: true,
     storeId: '',
-    storeMode: 'existing',
+    storeMode: 'new',
     storeCode: '',
     managerName: '',
     bankAccount: '',
@@ -188,6 +188,11 @@ function Usuarios() {
         !usuarioEditarId
         && requiereTienda
         && form.storeMode === 'new'
+    );
+    const ocultarNombreUsuario = (
+        !usuarioEditarId
+        && requiereTienda
+        && !crearTiendaNueva
     );
 
     const rolesPorValor = useMemo(
@@ -352,6 +357,7 @@ function Usuarios() {
                         supervisorId: '',
                     }
                     : {}),
+                ...(campo === 'role' && valor === 'store' ? { storeMode: 'new' } : {}),
                 ...(campo === 'role' && valor !== 'store' ? { supervisorId: '' } : {}),
             };
 
@@ -432,6 +438,15 @@ function Usuarios() {
             setError('Selecciona el area que autoriza este supervisor.');
             return;
         }
+        if (!usuarioEditarId && requiereTienda && !crearTiendaNueva && !form.storeId) {
+            setError('Selecciona una tienda existente para asignar al usuario.');
+            return;
+        }
+        const tiendaSeleccionada = tiendas.find((tienda) => tienda.id === form.storeId);
+        if (!usuarioEditarId && requiereTienda && !crearTiendaNueva && !tiendaSeleccionada) {
+            setError('No se encontró la tienda seleccionada. Actualiza la lista e inténtalo de nuevo.');
+            return;
+        }
         if (form.password) {
             const passwordError = passwordPolicyMessage(form.password);
             if (passwordError) {
@@ -487,7 +502,11 @@ function Usuarios() {
                 // Modo CREACIÓN
                 const usuario = await createUser({
                     email: form.email.trim(),
-                    full_name: form.fullName.trim(),
+                    full_name: (
+                        requiereTienda && !crearTiendaNueva
+                            ? tiendaSeleccionada.name
+                            : form.fullName.trim()
+                    ),
                     role: form.role,
                     is_active: form.isActive,
                     password: form.password || undefined,
@@ -715,28 +734,11 @@ function Usuarios() {
                                     onChange={(event) => cambiarModoTienda(event.target.value)}
                                     style={styles.input}
                                 >
-                                    <option value="existing">Asignar tienda existente</option>
                                     <option value="new">Crear tienda nueva</option>
+                                    <option value="existing">Asignar tienda existente</option>
                                 </select>
                             </label>
                         )}
-
-                        <label style={styles.inputGroup}>
-                            {crearTiendaNueva ? 'Nombre / plaza de la tienda' : 'Nombre'}
-                            <input
-                                type="text"
-                                value={form.fullName}
-                                onChange={(event) => actualizarCampo('fullName', event.target.value)}
-                                style={styles.input}
-                                placeholder={crearTiendaNueva ? 'Ej. San Francisco' : 'Nombre Completo'}
-                                required
-                            />
-                            {crearTiendaNueva && (
-                                <small>
-                                    Este nombre también se usará para la cuenta de usuario de la tienda.
-                                </small>
-                            )}
-                        </label>
 
                         {crearTiendaNueva && (
                             <label style={styles.inputGroup}>
@@ -758,6 +760,26 @@ function Usuarios() {
                             </label>
                         )}
 
+                        {!ocultarNombreUsuario && (
+                            <label style={styles.inputGroup}>
+                                {crearTiendaNueva ? 'Nombre / plaza de la tienda' : 'Nombre'}
+                                <input
+                                    type="text"
+                                    value={form.fullName}
+                                    onChange={(event) => actualizarCampo('fullName', event.target.value)}
+                                    style={styles.input}
+                                    placeholder={crearTiendaNueva ? 'Ej. San Francisco' : 'Nombre Completo'}
+                                    required
+                                />
+                                {crearTiendaNueva && (
+                                    <small>
+                                        Este nombre también se usará para la cuenta de usuario de la tienda.
+                                    </small>
+                                )}
+                            </label>
+                        )}
+
+
                         {crearTiendaNueva && (
                             <>
                                 <label style={styles.inputGroup}>
@@ -772,13 +794,13 @@ function Usuarios() {
                                     />
                                 </label>
                                 <label style={styles.inputGroup}>
-                                    Cuenta
+                                    Cuenta bancaria
                                     <input
                                         type="text"
                                         value={form.bankAccount}
                                         onChange={(event) => actualizarCampo('bankAccount', event.target.value)}
                                         style={styles.input}
-                                        placeholder="Cuenta de la tienda"
+                                        placeholder="Cuenta bancaria de la tienda"
                                         maxLength={80}
                                     />
                                 </label>
@@ -794,6 +816,45 @@ function Usuarios() {
                                     />
                                 </label>
                             </>
+                        )}
+
+                        {requiereTienda && !crearTiendaNueva && (
+                            <label style={styles.inputGroup}>
+                                Tienda
+                                <select
+                                    value={form.storeId}
+                                    onChange={(event) => actualizarCampo('storeId', event.target.value)}
+                                    style={styles.input}
+                                >
+                                    <option value="">Sin tienda asignada</option>
+                                    {tiendas.map((tienda) => (
+                                        <option key={tienda.id} value={tienda.id}>
+                                            {tienda.code} - {tienda.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+
+                        {form.role === 'store' && (
+                            <label style={styles.inputGroup}>
+                                Supervisor
+                                <select
+                                    value={form.supervisorId}
+                                    onChange={(event) => actualizarCampo('supervisorId', event.target.value)}
+                                    style={styles.input}
+                                    disabled={!form.storeId || supervisoresActivos.length === 0}
+                                >
+                                    <option value="">
+                                        {form.storeId ? 'Sin supervisor asignado' : 'Selecciona una tienda primero'}
+                                    </option>
+                                    {supervisoresActivos.map((supervisor) => (
+                                        <option key={supervisor.id} value={supervisor.id}>
+                                            {supervisor.full_name} - {supervisor.email}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
                         )}
 
                         <label style={styles.inputGroup}>
@@ -817,7 +878,7 @@ function Usuarios() {
                                     onChange={(event) => actualizarCampo('password', event.target.value)}
                                     style={styles.passwordInput}
                                     minLength={8}
-                                    placeholder="Opcional; Cognito enviará una contraseña temporal"
+                                    placeholder="Opcional: Cognito enviará una contraseña temporal"
                                 />
                                 <button
                                     type="button"
@@ -861,44 +922,6 @@ function Usuarios() {
 
 
 
-                        {requiereTienda && !crearTiendaNueva && (
-                            <label style={styles.inputGroup}>
-                                Tienda
-                                <select
-                                    value={form.storeId}
-                                    onChange={(event) => actualizarCampo('storeId', event.target.value)}
-                                    style={styles.input}
-                                >
-                                    <option value="">Sin tienda asignada</option>
-                                    {tiendas.map((tienda) => (
-                                        <option key={tienda.id} value={tienda.id}>
-                                            {tienda.code} - {tienda.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        )}
-
-                        {form.role === 'store' && !crearTiendaNueva && (
-                            <label style={styles.inputGroup}>
-                                Supervisor
-                                <select
-                                    value={form.supervisorId}
-                                    onChange={(event) => actualizarCampo('supervisorId', event.target.value)}
-                                    style={styles.input}
-                                    disabled={!form.storeId || supervisoresActivos.length === 0}
-                                >
-                                    <option value="">
-                                        {form.storeId ? 'Sin supervisor asignado' : 'Selecciona una tienda primero'}
-                                    </option>
-                                    {supervisoresActivos.map((supervisor) => (
-                                        <option key={supervisor.id} value={supervisor.id}>
-                                            {supervisor.full_name} - {supervisor.email}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                        )}
                         {crearTiendaNueva && (
                             <small>
                                 La tienda y su cuenta se vincularán al guardarse. El supervisor podrá
@@ -908,7 +931,7 @@ function Usuarios() {
 
                         {requiereArea && (
                             <label style={styles.inputGroup}>
-                                Área
+                                Área que autoriza
                                 <select
                                     value={form.authorizationArea}
                                     onChange={(event) => actualizarCampo(
@@ -1208,6 +1231,8 @@ const styles = {
         display: 'flex',
         flexDirection: 'column',
         gap: '14px',
+        overflowY: 'auto',
+        maxHeight: '80vh',
     },
     modalHeader: {
         display: 'flex',

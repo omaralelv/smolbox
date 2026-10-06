@@ -30,7 +30,11 @@ function Login() {
 
         if (rolActual === 'supervisor') {
             window.location.href = '/autorizacion';
-        } else {
+        }
+        if (rolActual === 'admin') {
+            window.location.href = '/usuarios';
+        }
+        else {
             window.location.href = '/bandeja';
         }
     };
