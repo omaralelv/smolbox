@@ -899,7 +899,7 @@ function Detalle({ currentRole }) {
 
                 {/* TOTAL FINAL DE LA CATEGORÍA */}
                 <div style={styles.totalRow}>
-                    <span style={{flex: 1.5, fontWeight: 'bold', fontSize: '14px', textAlign: 'left'}}>
+                    <span style={{flex: 1.3, fontWeight: 'bold', fontSize: '14px', textAlign: 'left'}}>
                         TOTAL {categoria.toUpperCase()}:
                     </span>
                     <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
@@ -1227,7 +1227,7 @@ const styles = {
 
     container: {
         flex: 1,
-        maxWidth: '1130px',
+        maxWidth: '1330px',
         margin: '0 auto',
         padding: '20px',
         fontFamily: 'sans-serif',
