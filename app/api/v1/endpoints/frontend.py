@@ -74,9 +74,6 @@ from app.services.tax_rules import (
     determinar_tasa_iva_para_gasto,
     normalizar_texto,
 )
-from app.utils.folio_dates import (
-    obtener_fecha_desde_folio,
-)
 
 router = APIRouter()
 MEXICO_CITY_TZ = ZoneInfo(
