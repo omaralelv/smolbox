@@ -3,6 +3,7 @@ import io
 import uuid
 import zipfile
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pytest
@@ -280,3 +281,98 @@ def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
         "code": "EXPENSE_OUTSIDE_PERIOD",
         "message": "El gasto está fuera de periodo.",
     }
+
+
+def test_generar_polizas_usa_datos_de_bd_si_la_tienda_no_esta_en_el_excel(tmp_path) -> None:
+    solicitud_id = uuid.uuid4()
+    solicitud = {
+        "store_id": "store-1",
+        "period_id": "period-1",
+        "reimbursement_starts_on": date(2026, 8, 5),
+        "reimbursement_ends_on": date(2026, 9, 1),
+        "previous_reimbursement_request_id": uuid.uuid4(),
+        "previous_reimbursement_starts_on": date(2026, 7, 15),
+        "previous_reimbursement_ends_on": date(2026, 7, 31),
+        "previous_reimbursement_amount": "0",
+        "created_at": datetime(2026, 9, 1, tzinfo=UTC),
+        "folio": "TEST-3",
+    }
+    tienda = {
+        "code": "R003",
+        "name": "Tienda nueva",
+        "manager_name": "Gerente BD",
+        "bank_account": "1234",
+        "assigned_accountant": "Contador BD",
+        "petty_cash_fund": Decimal("0.00"),
+    }
+    gastos = [
+        {
+            "id": "expense-insumos",
+            "category": "Insumos",
+            "cfdi_uuid": "UUID-INSUMOS",
+            "amount": "116",
+            "cfdi_tax_rate": "16",
+            "cfdi_tax_amount": "16",
+            "cfdi_subtotal": "100",
+            "effective_cfdi_uuid": "UUID-INSUMOS",
+            "spent_on": date(2026, 8, 10),
+        },
+    ]
+
+    resultados = []
+    for valor in (solicitud, tienda, {}, gastos):
+        resultado = Mock()
+        resultado.mappings.return_value.first.return_value = valor
+        resultado.mappings.return_value.all.return_value = valor
+        resultados.append(resultado)
+    resultado_supervisor = Mock()
+    resultado_supervisor.scalar.return_value = "Supervisor BD"
+    resultados.append(resultado_supervisor)
+    db = Mock()
+    db.execute.side_effect = resultados
+    db.scalar.return_value = date(2026, 7, 31)
+    db.get.return_value = Mock(
+        previous_reimbursement_request_id=None,
+        previous_reimbursement_ends_on=date(2026, 6, 30),
+    )
+
+    plantilla = tmp_path / "plantilla.xlsx"
+    Workbook().save(plantilla)
+
+    with (
+        patch.object(macro_sap, "diccionario_tiendas", {}),
+        patch.object(
+            macro_sap,
+            "indice_categorias",
+            {"insumos": {"codigo": "601007", "descripcion": "Insumos"}},
+        ),
+        patch.object(macro_sap, "tiendas_iva_w6", set()),
+        patch.object(macro_sap, "ruta_plantilla", str(plantilla)),
+        patch.object(macro_sap, "ruta_logo", str(tmp_path / "no-logo.png")),
+        patch.object(
+            macro_sap,
+            "obtener_resumen_gasto_tienda",
+            return_value={"current_accumulated": 0},
+        ),
+    ):
+        response = macro_sap.generar_polizas(
+            solicitud_id,
+            db=db,
+            current_user=Mock(id=uuid.uuid4()),
+        )
+
+    async def leer_respuesta(respuesta) -> bytes:
+        return b"".join([parte async for parte in respuesta.body_iterator])
+
+    with zipfile.ZipFile(io.BytesIO(asyncio.run(leer_respuesta(response)))) as archivo_zip:
+        poliza = load_workbook(
+            io.BytesIO(archivo_zip.read("Poliza Reembolso TEST-3.xlsx")),
+            data_only=True,
+        ).active
+
+    assert poliza["I11"].value == "R003 - Tienda nueva"
+    assert poliza["D14"].value == "Gerente BD"
+    assert poliza["D16"].value == "1234"
+    assert poliza["D20"].value == 0
+    assert poliza["H34"].value == "Contador BD"
+    assert poliza["K34"].value == "Supervisor BD"
