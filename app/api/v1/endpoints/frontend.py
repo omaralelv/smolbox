@@ -150,6 +150,7 @@ TREASURY_DASHBOARD_SPENDING_STATUSES = {
 }
 
 GLOBAL_POST_ACCOUNTING_ROLES = {
+    UserRole.accountant,
     UserRole.accounting_manager,
     UserRole.treasury,
     UserRole.director,
