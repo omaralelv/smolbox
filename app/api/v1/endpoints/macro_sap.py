@@ -18,10 +18,13 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.auth import get_current_user
 from app.db.session import get_db
 from app.models.audit_log import AuditActorType, AuditLog
+from app.models.reimbursement_request import ReimbursementRequest
 from app.models.user import User
 from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
     ReimbursementPeriodBoundaryUnavailable,
+    obtener_inicio_periodo_reembolso,
+    obtener_ultima_fecha_gasto_reembolso,
     validate_expense_date_for_reimbursement,
 )
 from app.services.spending_summary import obtener_resumen_gasto_tienda
@@ -50,10 +53,6 @@ def _resaltar_uidd_necesario(ws_sap, fila: int, uidd: str) -> None:
 def _formatear_fecha_ultimo_gasto(gastos_db) -> str:
     """Devuelve la fecha más reciente de los gastos ya filtrados de la solicitud."""
     return max(gasto["spent_on"] for gasto in gastos_db).strftime("%d/%m/%Y")
-
-def _formatear_fecha_primer_gasto(gastos_db) -> str:
-    """Devuelve la fecha más antigua de los gastos ya filtrados de la solicitud."""
-    return min(gasto["spent_on"] for gasto in gastos_db).strftime("%d/%m/%Y")
 
 # 2. Configurar las rutas absolutas para leer tus archivos (para que no falle al ejecutarlo)
 # Esto calcula la ruta basándose en dónde está este archivo macro_sap.py
@@ -140,11 +139,6 @@ def generar_polizas(
             detail=f"No existe el periodo asociado al period_id {period_id}.",
         )
 
-    # Cambia estos nombres si periods usa nombres distintos.
-    inicio_caja = solicitud["reimbursement_starts_on"]
-
-    fin_caja = solicitud["reimbursement_ends_on"]
-
     inicio_ant = solicitud["previous_reimbursement_starts_on"]
 
     fin_ant = solicitud["previous_reimbursement_ends_on"]
@@ -156,14 +150,6 @@ def generar_polizas(
             ] or "0"
         )
     )
-
-    # Fechas del periodo actual de caja
-    #inicio_caja = periodo["starts_on"]
-    #fin_caja = periodo["ends_on"]
-
-    # Fechas del periodo anterior
-    #inicio_ant = solicitud["previous_reimbursement_starts_on"]
-    #fin_ant = solicitud["previous_reimbursement_ends_on"]
 
     # Fecha de creación de la solicitud
     created_at = solicitud["created_at"]
@@ -179,47 +165,7 @@ def generar_polizas(
     else:
         fecha_poliza_obj = datetime.now(zona_mexico).date()
 
-    # Validar periodo actual
-    if inicio_caja is None or fin_caja is None:
-        raise HTTPException(
-            status_code=422,
-            detail="La solicitud no tiene un periodo de caja completo.",
-        )
-
-    diff_caja = (fin_caja - inicio_caja).days
-
-    # Validar periodo anterior únicamente si existe
-    if inicio_ant is not None and fin_ant is not None:
-        diff_ant = (fin_ant - inicio_ant).days
-    else:
-        diff_ant = 0
-
-    if diff_caja < 0:
-        raise HTTPException(
-            status_code=422,
-            detail="El fin del periodo de caja no puede ser anterior al inicio.",
-        )
-
-    if diff_ant < 0:
-        raise HTTPException(
-            status_code=422,
-            detail="El fin del periodo anterior no puede ser anterior al inicio.",
-        )
-
-    # Formatos requeridos por el Excel
     fecha_poliza_sap = fecha_poliza_obj.strftime("%d.%m.%Y")
-
-    str_inicio_ant = (
-        inicio_ant.strftime("%d/%m/%Y")
-        if inicio_ant is not None
-        else ""
-    )
-
-    str_fin_ant = (
-        fin_ant.strftime("%d/%m/%Y")
-        if fin_ant is not None
-        else ""
-    )
 
     # ========================================================
     # 3. CONECTAR CON TU BASE DE DATOS LOCAL DE EXCEL
@@ -281,6 +227,17 @@ def generar_polizas(
             detail="La solicitud no tiene gastos activos asociados.",
         )
 
+    previous_request_id = solicitud["previous_reimbursement_request_id"]
+    if previous_request_id is not None:
+        fin_ant = obtener_ultima_fecha_gasto_reembolso(
+            db,
+            previous_request_id,
+        )
+        inicio_ant = obtener_inicio_periodo_reembolso(
+            db,
+            previous_request_id,
+        )
+
     try:
         for gasto in gastos_db:
             validate_expense_date_for_reimbursement(
@@ -304,6 +261,37 @@ def generar_polizas(
             },
         ) from exc
 
+    if fin_ant is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REIMBURSEMENT_PERIOD_UNAVAILABLE",
+                "message": "No se pudo validar el periodo. Contacta a soporte.",
+            },
+        )
+
+    inicio_caja = fin_ant + timedelta(days=1)
+    fin_caja = max(gasto["spent_on"] for gasto in gastos_db)
+    diff_caja = (fin_caja - inicio_caja).days
+    solicitud_model = db.get(ReimbursementRequest, solicitud_id)
+    if solicitud_model is None:
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo actualizar el periodo de la solicitud.",
+        )
+    solicitud_model.reimbursement_starts_on = inicio_caja
+    solicitud_model.reimbursement_ends_on = fin_caja
+    diff_ant = (
+        (fin_ant - inicio_ant).days
+        if inicio_ant is not None
+        else 0
+    )
+    str_inicio_ant = (
+        inicio_ant.strftime("%d/%m/%Y")
+        if inicio_ant is not None
+        else ""
+    )
+    str_fin_ant = fin_ant.strftime("%d/%m/%Y")
     str_ultimo_gasto = _formatear_fecha_ultimo_gasto(gastos_db)
     # ========================================================
     # 5. CONSTRUIR LA PÓLIZA CON LA LÓGICA FINANCIERA
@@ -438,20 +426,10 @@ def generar_polizas(
 
     poliza_detallada.append(registro_acreedor)
     poliza_agrupada.append(registro_acreedor)
-    # Convert previous period end string to date and add one day
-    if str_fin_ant:
-        try:
-            prev_end_date = datetime.strptime(str_fin_ant, "%d/%m/%Y").replace(tzinfo=UTC).date()
-        except ValueError:
-            prev_end_date = None
-        nuevo_inicio = (
-            prev_end_date + timedelta(days=1)
-            if prev_end_date
-            else datetime.now(UTC).date()
-        )
-    else:
-        nuevo_inicio = datetime.now(UTC).date()
-
+    rango_actual_sap = (
+        f"{numero_tienda} {inicio_caja.strftime('%d/%m/%Y')} "
+        f"AL {str_ultimo_gasto} {gerente}"
+    )
 
     # D) Creación del Archivo 1: SAP (En memoria)
     wb_sap = Workbook()
@@ -481,7 +459,7 @@ def generar_polizas(
     ws_sap['D1'] = f'{fecha_poliza_sap}' # Si el identificador es K, no se escribe nada
     ws_sap['E1'] = 'MXN' # En esta columna va el número de tienda, se repita por cada S que haya
     ws_sap['F1'] = f'{numero_tienda} CAJA CHICA' 
-    ws_sap['G1'] = f'{numero_tienda} {nuevo_inicio.strftime("%d/%m/%Y")} AL {str_ultimo_gasto} {gerente}' 
+    ws_sap['G1'] = rango_actual_sap
     ws_sap['H1'] = ' ' # Si el identificador es K, se escribe {tienda} {inicio_caja} AL {fin_caja}
 
     for mov in poliza_detallada:
@@ -491,7 +469,7 @@ def generar_polizas(
         col_d = '' if es_k else mov['Indice_IVA']
         col_e = '' if es_k else numero_tienda
 
-        col_h = f'{numero_tienda} {nuevo_inicio.strftime("%d/%m/%Y")} AL {str_ultimo_gasto} {gerente}' if es_k else mov['UIDD']
+        col_h = rango_actual_sap if es_k else mov['UIDD']
         ws_sap.append([mov['Identificador'], col_b, float(mov['Total']), col_d, col_e, "", f'{numero_tienda} CAJA CHICA', col_h])
         _resaltar_uidd_necesario(ws_sap, ws_sap.max_row, col_h)
 
@@ -524,7 +502,7 @@ def generar_polizas(
     ws_solicitud['D16'] = cuenta_tienda
     ws_solicitud['D18'] = float(total_gran_factura)
     ws_solicitud['D20'] = fondo
-    ws_solicitud['F29'] = nuevo_inicio.strftime("%d/%m/%Y")
+    ws_solicitud['F29'] = inicio_caja.strftime("%d/%m/%Y")
     ws_solicitud['I29'] = str_ultimo_gasto
     ws_solicitud['F31'] = str_inicio_ant
     ws_solicitud['I31'] = str_fin_ant

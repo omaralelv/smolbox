@@ -3,9 +3,10 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.expense import Expense, ExpenseStatus
 from app.models.reimbursement_request import (
     ReimbursementRequest,
     ReimbursementRequestStatus,
@@ -33,6 +34,84 @@ class ReimbursementPeriodBoundaryUnavailable(ValueError):
     pass
 
 
+def _active_expense_filters():
+    return (
+        Expense.removed_at.is_(None),
+        Expense.status.not_in(
+            {ExpenseStatus.removed, ExpenseStatus.rejected}
+        ),
+    )
+
+
+def obtener_ultima_fecha_gasto_reembolso(
+    db: Session,
+    request_id: UUID,
+) -> date | None:
+    return db.scalar(
+        select(func.max(Expense.spent_on)).where(
+            Expense.reimbursement_request_id == request_id,
+            *_active_expense_filters(),
+        )
+    )
+
+
+def actualizar_fecha_fin_reembolso(
+    db: Session,
+    solicitud: ReimbursementRequest,
+) -> date | None:
+    db.flush()
+    solicitud.reimbursement_ends_on = obtener_ultima_fecha_gasto_reembolso(
+        db,
+        solicitud.id,
+    )
+    return solicitud.reimbursement_ends_on
+
+
+def _inicio_solicitud_desde_gastos(
+    db: Session,
+    solicitud: ReimbursementRequest,
+) -> date | None:
+    if solicitud.previous_reimbursement_request_id is not None:
+        fecha_fin_anterior = obtener_ultima_fecha_gasto_reembolso(
+            db,
+            solicitud.previous_reimbursement_request_id,
+        )
+    else:
+        fecha_fin_anterior = solicitud.previous_reimbursement_ends_on
+        if fecha_fin_anterior is None:
+            corte_inicial = db.scalar(
+                select(StoreReimbursementOpeningCutoff).where(
+                    StoreReimbursementOpeningCutoff.store_id
+                    == solicitud.store_id
+                )
+            )
+            fecha_fin_anterior = (
+                corte_inicial.ends_on
+                if corte_inicial is not None
+                else None
+            )
+
+    return (
+        fecha_fin_anterior + timedelta(days=1)
+        if fecha_fin_anterior is not None
+        else None
+    )
+
+
+def obtener_inicio_periodo_reembolso(
+    db: Session,
+    request_id: UUID,
+) -> date | None:
+    solicitud = db.get(ReimbursementRequest, request_id)
+    if solicitud is None:
+        raise ValueError("No se encontró la solicitud anterior del reembolso.")
+
+    inicio = _inicio_solicitud_desde_gastos(db, solicitud)
+    if inicio is not None:
+        solicitud.reimbursement_starts_on = inicio
+    return inicio
+
+
 def validate_expense_date_for_reimbursement(
     spent_on: date | datetime,
     *,
@@ -51,22 +130,29 @@ def obtener_ultima_solicitud_con_periodo(
     *,
     exclude_request_id: UUID | None = None,
 ) -> ReimbursementRequest | None:
+    ultima_fecha_gasto = func.max(Expense.spent_on).label(
+        "ultima_fecha_gasto"
+    )
     statement = (
-        select(ReimbursementRequest)
+        select(ReimbursementRequest, ultima_fecha_gasto)
+        .join(
+            Expense,
+            Expense.reimbursement_request_id
+            == ReimbursementRequest.id,
+        )
         .where(
             ReimbursementRequest.store_id == store_id,
-            ReimbursementRequest.reimbursement_starts_on.is_not(None),
-            ReimbursementRequest.reimbursement_ends_on.is_not(None),
-
             ReimbursementRequest.status.not_in(
                 {
                     ReimbursementRequestStatus.draft,
                     ReimbursementRequestStatus.rejected,
                 }
             ),
+            *_active_expense_filters(),
         )
+        .group_by(ReimbursementRequest.id)
         .order_by(
-            ReimbursementRequest.reimbursement_ends_on.desc(),
+            ultima_fecha_gasto.desc(),
             ReimbursementRequest.created_at.desc(),
         )
     )
@@ -76,14 +162,19 @@ def obtener_ultima_solicitud_con_periodo(
             ReimbursementRequest.id != exclude_request_id
         )
 
-    return db.scalar(statement.limit(1))
+    row = db.execute(statement.limit(1)).first()
+    if row is None:
+        return None
+
+    solicitud_anterior, ultima_fecha = row
+    solicitud_anterior.reimbursement_ends_on = ultima_fecha
+    return solicitud_anterior
 
 
 def obtener_contexto_periodo_reembolso(
     db: Session,
     store_id: UUID,
     *,
-    fecha_fin_actual: date,
     exclude_request_id: UUID | None = None,
 ) -> ReimbursementPeriodContext:
     solicitud_anterior = (
@@ -95,27 +186,19 @@ def obtener_contexto_periodo_reembolso(
     )
 
     if solicitud_anterior is not None:
-        misma_fecha_del_folio = (
-            solicitud_anterior.reimbursement_ends_on == fecha_fin_actual
+        inicio_solicitud_anterior = _inicio_solicitud_desde_gastos(
+            db,
+            solicitud_anterior,
         )
-        inicio_actual = (
-            solicitud_anterior.reimbursement_starts_on
-            if misma_fecha_del_folio
-            else solicitud_anterior.reimbursement_ends_on + timedelta(days=1)
-        )
-
-        if not misma_fecha_del_folio and fecha_fin_actual < inicio_actual:
-            raise ValueError(
-                "La fecha final del reembolso no puede ser "
-                "anterior al inicio calculado desde la "
-                "solicitud previa."
+        if inicio_solicitud_anterior is not None:
+            solicitud_anterior.reimbursement_starts_on = (
+                inicio_solicitud_anterior
             )
+        inicio_actual = solicitud_anterior.reimbursement_ends_on + timedelta(days=1)
 
         return ReimbursementPeriodContext(
             current_starts_on=inicio_actual,
-            previous_starts_on=(
-                solicitud_anterior.reimbursement_starts_on
-            ),
+            previous_starts_on=inicio_solicitud_anterior,
             previous_ends_on=(
                 solicitud_anterior.reimbursement_ends_on
             ),
@@ -142,12 +225,6 @@ def obtener_contexto_periodo_reembolso(
         )
 
     inicio_actual = corte_inicial.ends_on + timedelta(days=1)
-
-    if fecha_fin_actual < inicio_actual:
-        raise ValueError(
-            "La fecha final no puede ser anterior al corte "
-            "inicial de la tienda."
-        )
 
     return ReimbursementPeriodContext(
         current_starts_on=inicio_actual,

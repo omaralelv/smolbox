@@ -41,6 +41,7 @@ from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
     ReimbursementPeriodBoundaryUnavailable,
+    actualizar_fecha_fin_reembolso,
     validate_expense_date_for_reimbursement,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
@@ -211,6 +212,7 @@ def create_expense(
     db.add(expense)
     db.flush()
     if expense.reimbursement_request_id is not None:
+        actualizar_fecha_fin_reembolso(db, reimbursement_request)
         db.add(
             AuditLog(
                 reimbursement_request_id=expense.reimbursement_request_id,
@@ -494,6 +496,8 @@ def update_expense(
     updates = expense_in.model_dump(exclude_unset=True)
     changed_fields = sorted(updates)
     _apply_expense_updates(expense, updates, db)
+    if "spent_on" in updates and expense.reimbursement_request is not None:
+        actualizar_fecha_fin_reembolso(db, expense.reimbursement_request)
     if expense.reimbursement_request_id is not None and changed_fields:
         db.add(
             AuditLog(
@@ -611,6 +615,7 @@ def _reject_expense_with_actor(
     expense.requires_authorization = True
     expense.status = ExpenseStatus.rejected
     expense.authorization_note = reason
+    actualizar_fecha_fin_reembolso(db, reimbursement_request)
     if adjust_reported_total:
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 
@@ -731,7 +736,9 @@ def _review_update_expense_with_actor(
     requested_fields = set(updates)
     previous_values = _review_tracked_values(expense, db)
     _apply_expense_updates(expense, updates, db)
-    new_values = _review_tracked_values(expense, db)
+    if "spent_on" in updates and expense.reimbursement_request is not None:
+        actualizar_fecha_fin_reembolso(db, expense.reimbursement_request)
+    new_values = _review_tracked_values(expense)
     changed_fields = _review_changed_fields(requested_fields, previous_values, new_values)
     changed_previous_values = _review_payload_values(previous_values, changed_fields)
     changed_new_values = _review_payload_values(new_values, changed_fields)
@@ -943,6 +950,7 @@ def _remove_expense_with_actor(
     expense.removed_at = datetime.now(UTC)
     expense.removed_by_user_id = actor.id
     expense.removal_reason = reason
+    actualizar_fecha_fin_reembolso(db, reimbursement_request)
     if adjust_reported_total:
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
 

@@ -64,6 +64,7 @@ from app.services.permissions import user_can_transition_store_request, user_has
 from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
     ReimbursementPeriodBoundaryUnavailable,
+    actualizar_fecha_fin_reembolso,
     obtener_contexto_periodo_reembolso,
     validate_expense_date_for_reimbursement,
 )
@@ -729,33 +730,12 @@ def create_frontend_request(
         store,
         db,
     )
-    fecha_fin_reembolso = obtener_fecha_desde_folio(
-        folio
-    )
-
-    try:
-        fecha_fin_reembolso = (
-            obtener_fecha_desde_folio(folio)
-        )
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "code": "INVALID_GENERATED_FOLIO",
-                "message": (
-                    "No se pudo obtener la fecha "
-                    "del folio generado."
-                ),
-            },
-        ) from exc
 
     try:
         contexto_periodo = (
             obtener_contexto_periodo_reembolso(
                 db=db,
                 store_id=store.id,
-                fecha_fin_actual=fecha_fin_reembolso,
             )
         )
 
@@ -783,7 +763,7 @@ def create_frontend_request(
             contexto_periodo.current_starts_on
         ),
 
-        reimbursement_ends_on=fecha_fin_reembolso,
+        reimbursement_ends_on=None,
 
         previous_reimbursement_request_id=(
             contexto_periodo.previous_request_id
@@ -845,6 +825,8 @@ def create_frontend_request(
             )
         )
 
+    actualizar_fecha_fin_reembolso(db, request)
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -897,6 +879,7 @@ def add_frontend_expense(
     expense = _expense_from_frontend(expense_in, request=request, period=request.period, db=db)
     db.add(expense)
     db.flush()
+    actualizar_fecha_fin_reembolso(db, request)
     request.reported_total = _money(
         (request.reported_total or Decimal("0.00")) + expense.amount
     )
@@ -1015,6 +998,7 @@ def delete_frontend_draft_expense(
         )
     )
     db.delete(expense)
+    actualizar_fecha_fin_reembolso(db, request)
 
     db.commit()
     db.expire_all()
@@ -1827,20 +1811,14 @@ def _expense_from_frontend(
             },
         ) from exc
 
-    reimbursement_starts_on = (request.reimbursement_starts_on)
-    reimbursement_ends_on = (request.reimbursement_ends_on)
-
-    if (
-        reimbursement_starts_on is None
-        or reimbursement_ends_on is None
-    ):
+    if request.reimbursement_starts_on is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "code": "REIMBURSEMENT_COVERAGE_MISSING",
                 "message": (
-                    "La solicitud no tiene un periodo "
-                    "de reembolso calculado."
+                    "La solicitud no tiene un inicio de "
+                    "periodo de reembolso calculado."
                 ),
             },
         )
@@ -2107,7 +2085,7 @@ def _mark_accounting_request_taken_if_needed(
 
 
 def _current_open_period(db: Session) -> Period | None:
-    today = datetime.now(UTC).date()
+    today = datetime.now(MEXICO_CITY_TZ).date()
     period = db.scalar(
         select(Period)
         .where(
@@ -2283,9 +2261,16 @@ def _parse_frontend_date(value: str | date | None, period: Period) -> date:
         return value
     if value:
         stripped = value.strip()
-        for date_format in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return date.fromisoformat(stripped)
+        except ValueError:
+            pass
+
+        for separator in ("-", "/"):
             try:
-                return datetime.strptime(stripped, date_format).replace(tzinfo=UTC).date()
+                day, month, year = stripped.split(separator)
+                if len(year) == 4:
+                    return date(int(year), int(month), int(day))
             except ValueError:
                 continue
         raise HTTPException(
@@ -2296,7 +2281,7 @@ def _parse_frontend_date(value: str | date | None, period: Period) -> date:
             },
         )
 
-    today = datetime.now(UTC).date()
+    today = datetime.now(MEXICO_CITY_TZ).date()
     if period.starts_on <= today <= period.ends_on:
         return today
     return period.starts_on

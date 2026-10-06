@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.api.v1.endpoints import frontend, reimbursement_requests
 from app.api.v1.endpoints.frontend import _frontend_tax_rate_for_expense
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
+from app.models.reimbursement_request import ReimbursementRequest
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
 )
@@ -328,12 +330,51 @@ def test_frontend_can_create_request_and_lookup_by_folio(
     assert created_body["gastos"][0]["cfdiCurrency"] == "MXN"
     assert created_body["gastos"][0]["requiresAuthorization"] is True
 
+    with session_factory() as db:
+        stored_request = db.get(
+            ReimbursementRequest,
+            UUID(created_body["backendId"]),
+        )
+        assert stored_request is not None
+        assert stored_request.reimbursement_starts_on == date(2026, 8, 1)
+        assert stored_request.reimbursement_ends_on == date(2026, 8, 7)
+
     detail = client.get(
         f"/api/v1/frontend/solicitudes/{created_body['folio']}/me",
         headers=headers,
     )
     assert detail.status_code == 200, detail.text
     assert detail.json()["backendId"] == created_body["backendId"]
+
+
+def test_request_calendar_dates_and_folios_use_mexico_city_time(
+    monkeypatch,
+) -> None:
+    instant = datetime(2026, 10, 6, 4, 0, tzinfo=UTC)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(frontend, "datetime", FixedDateTime)
+    monkeypatch.setattr(reimbursement_requests, "datetime", FixedDateTime)
+    db = type("FakeDb", (), {"scalars": lambda _self, _statement: []})()
+    store = type("StoreStub", (), {"code": "T999"})()
+
+    assert frontend._generate_request_folio(store, db) == "T999-051020261"
+    assert reimbursement_requests._generate_request_folio(store, db) == "T999-051020261"
+    assert frontend._parse_frontend_date(
+        None,
+        type(
+            "PeriodStub",
+            (),
+            {
+                "starts_on": date(2026, 10, 5),
+                "ends_on": date(2026, 10, 6),
+            },
+        )(),
+    ) == date(2026, 10, 5)
 
 
 def test_frontend_delete_draft_expense_removes_it_before_submission(
@@ -386,7 +427,7 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
             "montoTotal": "300.00",
             "gastos": [
                 {
-                    "fecha": "07/08/2026",
+                    "fecha": "08/08/2026",
                     "categoria": "Papelería",
                     "monto": "100.00",
                     "folio": "11111111-1111-4111-8111-111111111111",
@@ -402,6 +443,14 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
     )
     assert created.status_code == 201, created.text
     created_body = created.json()
+    with session_factory() as db:
+        request = db.get(
+            ReimbursementRequest,
+            UUID(created_body["backendId"]),
+        )
+        assert request is not None
+        assert request.reimbursement_ends_on == date(2026, 8, 8)
+
     deleted_expense = next(gasto for gasto in created_body["gastos"] if gasto["monto"] == 100.0)
     deleted_expense_id = deleted_expense["backendId"]
     audit_events = client.get(
@@ -446,6 +495,12 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
 
     with session_factory() as db:
         assert db.get(Expense, UUID(deleted_expense_id)) is None
+        request = db.get(
+            ReimbursementRequest,
+            UUID(created_body["backendId"]),
+        )
+        assert request is not None
+        assert request.reimbursement_ends_on == date(2026, 8, 7)
 
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"

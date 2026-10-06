@@ -1,5 +1,14 @@
+from datetime import date
+from uuid import UUID
+
 from conftest import create_expense
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.reimbursement_request import (
+    ReimbursementRequest,
+    ReimbursementRequestStatus,
+)
 
 
 def test_allows_multiple_requests_per_store_period_and_rejects_expense_outside_period(
@@ -85,3 +94,49 @@ def test_request_previous_close_cannot_be_changed(
         "code": "REIMBURSEMENT_PERIOD_END_IMMUTABLE",
         "message": "No se puede modificar este campo.",
     }
+
+
+def test_next_request_uses_previous_active_expense_date_not_saved_end(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    create_expense(client, base_records, spent_on="2026-08-12")
+
+    with session_factory() as db:
+        previous_request = db.get(
+            ReimbursementRequest,
+            UUID(base_records["request_id"]),
+        )
+        assert previous_request is not None
+        assert previous_request.reimbursement_ends_on == date(2026, 8, 12)
+        previous_request.status = ReimbursementRequestStatus.submitted
+        previous_request.reimbursement_starts_on = date(2026, 10, 1)
+        previous_request.reimbursement_ends_on = date(2026, 10, 5)
+        db.commit()
+
+    next_request = client.post(
+        "/api/v1/reimbursement-requests/",
+        json={
+            "store_id": base_records["store_id"],
+            "period_id": base_records["period_id"],
+        },
+    )
+
+    assert next_request.status_code == 201, next_request.text
+    assert next_request.json()["previous_reimbursement_starts_on"] == "2026-08-01"
+    assert next_request.json()["previous_reimbursement_ends_on"] == "2026-08-12"
+    with session_factory() as db:
+        previous_request = db.get(
+            ReimbursementRequest,
+            UUID(base_records["request_id"]),
+        )
+        assert previous_request is not None
+        assert previous_request.reimbursement_starts_on == date(2026, 8, 1)
+        assert previous_request.reimbursement_ends_on == date(2026, 8, 12)
+        created_request = db.get(
+            ReimbursementRequest,
+            UUID(next_request.json()["id"]),
+        )
+        assert created_request is not None
+        assert created_request.reimbursement_ends_on is None

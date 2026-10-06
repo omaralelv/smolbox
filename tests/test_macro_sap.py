@@ -51,15 +51,17 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
     solicitud = {
         "store_id": "store-1",
         "period_id": "period-1",
-        "reimbursement_starts_on": date(2026, 8, 1),
-        "reimbursement_ends_on": date(2026, 8, 31),
-        "previous_reimbursement_starts_on": date(2026, 7, 1),
+        "reimbursement_starts_on": date(2026, 8, 5),
+        "reimbursement_ends_on": date(2026, 9, 1),
+        "previous_reimbursement_request_id": uuid.uuid4(),
+        "previous_reimbursement_starts_on": date(2026, 7, 15),
         "previous_reimbursement_ends_on": date(2026, 7, 31),
         "previous_reimbursement_amount": "0",
         "created_at": datetime(2026, 9, 1, tzinfo=UTC),
         "folio": "TEST-1",
     }
     tienda = {"code": "V101"}
+    periodo = {}
     gastos = [
         {
             "id": "expense-insumos",
@@ -69,6 +71,7 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
             "cfdi_tax_rate": "16",
             "cfdi_tax_amount": "16",
             "cfdi_subtotal": "100",
+            "effective_cfdi_uuid": "UUID-INSUMOS",
             "spent_on": date(2026, 8, 10),
         },
         {
@@ -79,6 +82,7 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
             "cfdi_tax_rate": "16",
             "cfdi_tax_amount": "32",
             "cfdi_subtotal": "200",
+            "effective_cfdi_uuid": "UUID-PAPELERIA",
             "spent_on": date(2026, 8, 11),
         },
         {
@@ -90,18 +94,24 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
             "cfdi_tax_amount": "8",
             "cfdi_subtotal": "100",
             "sap_tax_index_override": "W6",
+            "effective_cfdi_uuid": "UUID-MANUAL-W6",
             "spent_on": date(2026, 8, 12),
         },
     ]
 
     resultados = []
-    for valor in (solicitud, tienda, {}, gastos):
+    for valor in (solicitud, tienda, periodo, gastos):
         resultado = Mock()
         resultado.mappings.return_value.first.return_value = valor
         resultado.mappings.return_value.all.return_value = valor
         resultados.append(resultado)
     db = Mock()
     db.execute.side_effect = resultados
+    db.scalar.return_value = date(2026, 7, 31)
+    db.get.return_value = Mock(
+        previous_reimbursement_request_id=None,
+        previous_reimbursement_ends_on=date(2026, 6, 30),
+    )
 
     plantilla = tmp_path / "plantilla.xlsx"
     Workbook().save(plantilla)
@@ -138,12 +148,44 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
             return_value={"current_accumulated": 0},
         ),
     ):
-        response = macro_sap.generar_polizas(solicitud_id, db=db)
+        response = macro_sap.generar_polizas(
+            solicitud_id,
+            db=db,
+            current_user=Mock(id=uuid.uuid4()),
+        )
 
-    async def leer_respuesta() -> bytes:
-        return b"".join([parte async for parte in response.body_iterator])
+        solicitud["previous_reimbursement_ends_on"] = date(2026, 8, 31)
+        gastos_limite = [
+            {
+                "id": "expense-on-previous-end",
+                "category": "Insumos",
+                "cfdi_uuid": "UUID-BOUNDARY",
+                "amount": "116",
+                "cfdi_tax_rate": "16",
+                "cfdi_tax_amount": "16",
+                "cfdi_subtotal": "100",
+                "effective_cfdi_uuid": "UUID-BOUNDARY",
+                "spent_on": date(2026, 8, 31),
+            }
+        ]
+        resultados_limite = []
+        for valor in (solicitud, tienda, periodo, gastos_limite):
+            resultado = Mock()
+            resultado.mappings.return_value.first.return_value = valor
+            resultado.mappings.return_value.all.return_value = valor
+            resultados_limite.append(resultado)
+        db.execute.side_effect = resultados_limite
+        db.scalar.return_value = date(2026, 8, 31)
+        response_limite = macro_sap.generar_polizas(
+            solicitud_id,
+            db=db,
+            current_user=Mock(id=uuid.uuid4()),
+        )
 
-    contenido_zip = asyncio.run(leer_respuesta())
+    async def leer_respuesta(respuesta) -> bytes:
+        return b"".join([parte async for parte in respuesta.body_iterator])
+
+    contenido_zip = asyncio.run(leer_respuesta(response))
     with zipfile.ZipFile(io.BytesIO(contenido_zip)) as archivo_zip:
         contenido_poliza = archivo_zip.read("Poliza Reembolso TEST-1.xlsx")
         contenido_sap = archivo_zip.read("CAJA CHICA TEST-1.xlsx")
@@ -157,13 +199,38 @@ def test_generar_polizas_conserva_lineas_separadas_con_misma_cuenta(tmp_path) ->
 
     assert ("601007", "Insumos") in filas
     assert ("601007", "Papelería") in filas
+    assert poliza["F29"].value == "01/08/2026"
+    assert poliza["I29"].value == "12/08/2026"
+    assert poliza["F31"].value == "01/07/2026"
 
     sap = load_workbook(io.BytesIO(contenido_sap), data_only=True).active
+    assert sap["G1"].value == "V101 01/08/2026 AL 12/08/2026 Gerente"
+    assert sap[f"H{sap.max_row}"].value == sap["G1"].value
     assert any(
         sap[f"C{fila}"].value == 108
         and sap[f"D{fila}"].value == "W6"
         for fila in range(2, sap.max_row + 1)
     )
+
+    contenido_limite = asyncio.run(leer_respuesta(response_limite))
+    with zipfile.ZipFile(io.BytesIO(contenido_limite)) as archivo_zip:
+        contenido_solicitud_limite = archivo_zip.read(
+            "Poliza Reembolso TEST-1.xlsx"
+        )
+        contenido_sap_limite = archivo_zip.read("CAJA CHICA TEST-1.xlsx")
+
+    solicitud_limite = load_workbook(
+        io.BytesIO(contenido_solicitud_limite),
+        data_only=True,
+    ).active
+    sap_limite = load_workbook(
+        io.BytesIO(contenido_sap_limite),
+        data_only=True,
+    ).active
+    assert solicitud_limite["F29"].value == "01/09/2026"
+    assert solicitud_limite["I29"].value == "31/08/2026"
+    assert sap_limite["G1"].value == "V101 01/09/2026 AL 31/08/2026 Gerente"
+    assert sap_limite[f"H{sap_limite.max_row}"].value == sap_limite["G1"].value
 
 
 def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
@@ -173,6 +240,7 @@ def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
         "period_id": "period-1",
         "reimbursement_starts_on": date(2026, 9, 27),
         "reimbursement_ends_on": date(2026, 9, 30),
+        "previous_reimbursement_request_id": uuid.uuid4(),
         "previous_reimbursement_starts_on": date(2026, 9, 1),
         "previous_reimbursement_ends_on": date(2026, 9, 26),
         "previous_reimbursement_amount": "0",
@@ -195,12 +263,17 @@ def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
         resultados.append(resultado)
     db = Mock()
     db.execute.side_effect = resultados
+    db.scalar.return_value = date(2026, 9, 26)
 
     with (
         patch.object(macro_sap, "diccionario_tiendas", {"V101": {}}),
         pytest.raises(HTTPException) as exc_info,
     ):
-        macro_sap.generar_polizas(solicitud_id, db=db)
+        macro_sap.generar_polizas(
+            solicitud_id,
+            db=db,
+            current_user=Mock(id=uuid.uuid4()),
+        )
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == {

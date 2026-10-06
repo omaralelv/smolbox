@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -57,6 +58,7 @@ from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
     ReimbursementPeriodBoundaryUnavailable,
+    actualizar_fecha_fin_reembolso,
     obtener_contexto_periodo_reembolso,
     validate_expense_date_for_reimbursement,
 )
@@ -74,9 +76,9 @@ from app.services.workflow import (
     WorkflowTransitionError,
     transition_reimbursement_request,
 )
-from app.utils.folio_dates import obtener_fecha_desde_folio
 
 router = APIRouter()
+MEXICO_CITY_TZ = ZoneInfo("America/Mexico_City")
 
 @router.post("/", response_model=ReimbursementRequestRead, status_code=status.HTTP_201_CREATED)
 def create_reimbursement_request(
@@ -99,11 +101,9 @@ def create_reimbursement_request(
     request_data = request_in.model_dump()
     folio = request_data.get("folio") or _generate_request_folio(store, db)
     try:
-        reimbursement_ends_on = obtener_fecha_desde_folio(folio)
         period_context = obtener_contexto_periodo_reembolso(
             db,
             store.id,
-            fecha_fin_actual=reimbursement_ends_on,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -118,7 +118,7 @@ def create_reimbursement_request(
         {
             "folio": folio,
             "reimbursement_starts_on": period_context.current_starts_on,
-            "reimbursement_ends_on": reimbursement_ends_on,
+            "reimbursement_ends_on": None,
             "previous_reimbursement_request_id": period_context.previous_request_id,
             "previous_reimbursement_starts_on": period_context.previous_starts_on,
             "previous_reimbursement_ends_on": period_context.previous_ends_on,
@@ -850,6 +850,7 @@ async def import_reimbursement_request_expenses(
         for expense in expenses:
             db.add(expense)
         db.flush()
+        actualizar_fecha_fin_reembolso(db, reimbursement_request)
         db.add(
             AuditLog(
                 reimbursement_request_id=reimbursement_request.id,
@@ -1357,7 +1358,7 @@ def _authorizer_can_view_request_by_area_without_store_assignment(
 
 
 def _generate_request_folio(store: Store, db: Session) -> str:
-    prefix = f"{store.code}-{datetime.now(UTC).date():%d%m%Y}"
+    prefix = f"{store.code}-{datetime.now(MEXICO_CITY_TZ).date():%d%m%Y}"
     existing_folios = db.scalars(
         select(ReimbursementRequest.folio).where(
             ReimbursementRequest.folio.is_not(None),

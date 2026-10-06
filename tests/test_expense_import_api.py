@@ -1,7 +1,12 @@
+from datetime import date
 from io import BytesIO
+from uuid import UUID
 from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.reimbursement_request import ReimbursementRequest
 
 
 def _xlsx_bytes(rows: list[list[str]]) -> bytes:
@@ -45,7 +50,16 @@ def _sheet_xml(rows: list[list[str]]) -> str:
     )
 
 
-def test_imports_expenses_from_csv(client: TestClient, base_records: dict[str, str]) -> None:
+def test_imports_expenses_from_csv(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as db:
+        request = db.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        assert request is not None
+        assert request.reimbursement_ends_on is None
+
     csv_content = (
         b"proveedor,importe,fecha,categoria,descripcion,rfc_proveedor\n"
         b"Papeleria Uno,1000.00,2026-08-10,Papeleria,Hojas y plumas,XAXX010101000\n"
@@ -67,6 +81,11 @@ def test_imports_expenses_from_csv(client: TestClient, base_records: dict[str, s
         "Papeleria Uno",
         "Taxi Demo",
     ]
+
+    with session_factory() as db:
+        request = db.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        assert request is not None
+        assert request.reimbursement_ends_on == date(2026, 8, 11)
 
     summary = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/validation-summary"
