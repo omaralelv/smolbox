@@ -7,7 +7,17 @@ from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -50,6 +60,7 @@ from app.services.authorization_areas import (
     request_has_authorization_visible_to_user,
 )
 from app.services.automation_review import build_automated_review
+from app.services.email_notifications import send_payment_registered_email
 from app.services.expense_authorization_rules import resolve_expense_authorization
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
@@ -522,6 +533,8 @@ def list_reimbursement_request_payments(
 def record_reimbursement_request_payment_as_current_user(
     request_id: UUID,
     payment_in: PaymentCreate,
+    background_tasks: BackgroundTasks,
+    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Payment:
@@ -652,6 +665,21 @@ def record_reimbursement_request_payment_as_current_user(
     )
     db.commit()
     db.refresh(payment)
+
+    store = db.get(Store, reimbursement_request.store_id)
+    background_tasks.add_task(
+        send_payment_registered_email,
+        settings,
+        payment_id=str(payment.id),
+        store_id=str(reimbursement_request.store_id),
+        to_address=store.contact_email if store else None,
+        store_name=store.name if store else "",
+        request_ref=reimbursement_request.folio or f"Solicitud {str(reimbursement_request.id)[:8]}",
+        amount=str(payment.amount),
+        currency=payment.currency,
+        paid_at=payment.paid_at.isoformat(),
+        reference=payment.reference,
+    )
     return payment
 
 
