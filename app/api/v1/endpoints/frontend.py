@@ -1686,6 +1686,7 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
             if is_partition_child and partition_index and partition_count
             else f"Gasto - {category}"
         ),
+        fecha=expense.spent_on,
         monto=float(_money(expense.amount)),
         tipo=category,
         type=category,

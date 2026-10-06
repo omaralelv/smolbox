@@ -326,6 +326,7 @@ def test_frontend_can_create_request_and_lookup_by_folio(
     assert created_body["cuentaBancaria"] == "101328508"
     assert created_body["montoTotal"] == 56.0
     assert created_body["gastos"][0]["nombre"] == "Gasto - Papelería"
+    assert created_body["gastos"][0]["fecha"] == "2026-08-07"
     assert created_body["gastos"][0]["folio"] == "5FB2822E-396D-4725-8521-CDC4BDD20CCF"
     assert created_body["gastos"][0]["cfdiSubtotal"] == 48.28
     assert created_body["gastos"][0]["cfdiTaxAmount"] == 7.72

@@ -153,6 +153,7 @@ class FrontendGastoRead(BaseModel):
     id: str
     backend_id: UUID = Field(alias="backendId")
     nombre: str
+    fecha: date
     monto: float
     tipo: str
     type: str

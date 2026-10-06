@@ -130,6 +130,7 @@ function Acumulado( {currentRole} ) {
             tipo: g.tipo || g.type || 'Gasto General',
             type: g.type || g.tipo || 'Gasto General',
             categoria: g.categoria || g.tipo || g.type || 'Gasto General',
+            fecha: g.fecha || g.spent_on || null,
             facturas: g.facturas || 1,
             monto: parseFloat(g.monto) || 0,         
             observaciones: g.observaciones || g.observacion || '',

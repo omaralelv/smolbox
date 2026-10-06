@@ -13,6 +13,7 @@ import {
 
 import Drawer from '../components/shared/Drawer';
 import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../components/shared/roles';
+import { formatoFechaGasto } from '../lib/expenseDate';
 
 
 
@@ -775,6 +776,7 @@ function Detalle({ currentRole }) {
                     {/* ENCABEZADO DE COLUMNAS */}
                     <div style={styles.tableHeader}>
                         <span style={{ flex: 1.25}}></span>
+                        <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>FECHA FACTURA</span>
                         <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>MONTO</span>
 
                         {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
@@ -815,6 +817,10 @@ function Detalle({ currentRole }) {
                             <span style={{ flex: 1.25, fontWeight: 'bold' , width: '30px', textAlign: 'left', paddingLeft: '0px'}}>
                                 {gasto.nombre || `Gasto ${index + 1}`}
                                 {eliminado ? ' (Eliminado)' : ''}
+                            </span>
+
+                            <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
+                                {formatoFechaGasto(gasto.fecha || gasto.spent_on)}
                             </span>
 
                             <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
@@ -893,11 +899,17 @@ function Detalle({ currentRole }) {
 
                 {/* TOTAL FINAL DE LA CATEGORÍA */}
                 <div style={styles.totalRow}>
-                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', textAlign: 'left'}}>
+                    <span style={{flex: 1.5, fontWeight: 'bold', fontSize: '14px', textAlign: 'left'}}>
                         TOTAL {categoria.toUpperCase()}:
                     </span>
-                    <span style={{flex: 3, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
+                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
+                    </span>
+                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
                         {totalCategoria}
+                    </span>
+                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
+                    </span>
+                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
                     </span>
                 </div>
             </div>
