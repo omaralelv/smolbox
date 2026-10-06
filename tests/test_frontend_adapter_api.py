@@ -11,7 +11,10 @@ from app.api.v1.endpoints import frontend, reimbursement_requests
 from app.api.v1.endpoints.frontend import _frontend_tax_rate_for_expense
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense
-from app.models.reimbursement_request import ReimbursementRequest
+from app.models.reimbursement_request import (
+    ReimbursementRequest,
+    ReimbursementRequestStatus,
+)
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
 )
@@ -375,6 +378,140 @@ def test_request_calendar_dates_and_folios_use_mexico_city_time(
             },
         )(),
     ) == date(2026, 10, 5)
+
+
+def test_frontend_accepts_previous_request_end_date_in_next_request(
+    client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
+    user = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "frontend.same-end-date@example.com",
+            "full_name": "Frontend Same End Date",
+            "role": "store",
+            "password": "secret-password",
+        },
+    )
+    assert user.status_code == 201, user.text
+    store = client.post(
+        "/api/v1/stores/",
+        json={"code": "T995", "name": "Tienda Same End Date"},
+    )
+    assert store.status_code == 201, store.text
+    assignment = client.post(
+        f"/api/v1/stores/{store.json()['id']}/users",
+        json={"user_id": user.json()["id"], "role": "store"},
+    )
+    assert assignment.status_code == 201, assignment.text
+    _create_opening_cutoff(session_factory, store.json()["id"])
+    period = client.post(
+        "/api/v1/periods/",
+        json={
+            "name": "Periodo Same End Date",
+            "starts_on": "2026-09-01",
+            "ends_on": "2026-10-31",
+        },
+    )
+    assert period.status_code == 201, period.text
+    headers = _auth_headers(client, "frontend.same-end-date@example.com")
+    payload = {
+        "tienda": "T995",
+        "montoTotal": "56.00",
+        "gastos": [
+            {
+                "fecha": "19/09/2026",
+                "categoria": "Papelería",
+                "monto": "56.00",
+            }
+        ],
+    }
+
+    previous = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=headers,
+        json=payload,
+    )
+    assert previous.status_code == 201, previous.text
+    with session_factory() as db:
+        previous_request = db.get(
+            ReimbursementRequest,
+            UUID(previous.json()["backendId"]),
+        )
+        assert previous_request is not None
+        previous_request.status = ReimbursementRequestStatus.submitted
+        db.commit()
+
+    current = client.post(
+        "/api/v1/frontend/solicitudes/me",
+        headers=headers,
+        json=payload,
+    )
+
+    assert current.status_code == 201, current.text
+    _attach_valid_cfdi(
+        client,
+        current.json()["gastos"][0]["backendId"],
+        "56.00",
+        uuid="33333333-3333-4333-8333-333333333333",
+    )
+    blocked_submit = _transition(
+        client,
+        current.json()["backendId"],
+        "submitted",
+        user.json()["id"],
+    )
+    assert blocked_submit.status_code == 409, blocked_submit.text
+    assert blocked_submit.json()["detail"]["code"] == "INVALID_WORKFLOW_TRANSITION"
+    assert "posterior al inicio" in blocked_submit.json()["detail"]["message"]
+
+    with session_factory() as db:
+        current_request = db.get(
+            ReimbursementRequest,
+            UUID(current.json()["backendId"]),
+        )
+        assert current_request is not None
+        assert current_request.previous_reimbursement_ends_on == date(2026, 9, 19)
+        assert current_request.reimbursement_starts_on == date(2026, 9, 20)
+        assert current_request.reimbursement_ends_on is None
+
+    following_expense = client.post(
+        f"/api/v1/frontend/solicitudes/{current.json()['backendId']}/gastos/me",
+        headers=headers,
+        json={
+            "fecha": "20/09/2026",
+            "categoria": "Papelería",
+            "monto": "44.00",
+        },
+    )
+    assert following_expense.status_code == 201, following_expense.text
+    with session_factory() as db:
+        current_request = db.get(
+            ReimbursementRequest,
+            UUID(current.json()["backendId"]),
+        )
+        assert current_request is not None
+        assert current_request.reimbursement_ends_on == date(2026, 9, 20)
+        expense_on_20 = next(
+            expense
+            for expense in current_request.expenses
+            if expense.spent_on == date(2026, 9, 20)
+        )
+        expense_on_20_id = str(expense_on_20.id)
+
+    _attach_valid_cfdi(
+        client,
+        expense_on_20_id,
+        "44.00",
+        uuid="44444444-4444-4444-8444-444444444444",
+    )
+    submitted = _transition(
+        client,
+        current.json()["backendId"],
+        "submitted",
+        user.json()["id"],
+    )
+    assert submitted.status_code == 200, submitted.text
 
 
 def test_frontend_delete_draft_expense_removes_it_before_submission(

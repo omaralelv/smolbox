@@ -56,6 +56,46 @@ def test_summarize_reimbursement_request_balances_reported_total() -> None:
     assert summary.issues == []
 
 
+def test_summarize_reimbursement_request_requires_a_valid_current_period_to_submit() -> None:
+    expense_on_previous_end = _expense(
+        "100.00",
+        "papeleria",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+    )
+    expense_on_previous_end.spent_on = date(2026, 9, 19)
+    expense_in_current_period = _expense(
+        "100.00",
+        "papeleria",
+        [AttachmentType.receipt, AttachmentType.cfdi_xml],
+    )
+    expense_in_current_period.spent_on = date(2026, 9, 20)
+    request = SimpleNamespace(
+        id=uuid4(),
+        reported_total=Decimal("100.00"),
+        previous_reimbursement_ends_on=date(2026, 9, 19),
+        reimbursement_starts_on=date(2026, 9, 20),
+        reimbursement_ends_on=None,
+        expenses=[expense_on_previous_end],
+    )
+
+    incomplete_summary = summarize_reimbursement_request(request)
+
+    assert incomplete_summary.ready_for_submission is False
+    assert "reimbursement_period_incomplete" in {
+        issue.code for issue in incomplete_summary.issues
+    }
+
+    request.expenses.append(expense_in_current_period)
+    request.reported_total = Decimal("200.00")
+    request.reimbursement_ends_on = date(2026, 9, 20)
+    complete_summary = summarize_reimbursement_request(request)
+
+    assert complete_summary.ready_for_submission is True
+    assert "reimbursement_period_incomplete" not in {
+        issue.code for issue in complete_summary.issues
+    }
+
+
 def test_summarize_reimbursement_request_reports_missing_evidence() -> None:
     missing_evidence_expense = _expense("100.00", "papeleria", [])
     request = SimpleNamespace(

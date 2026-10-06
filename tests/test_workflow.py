@@ -131,6 +131,37 @@ def test_store_user_gets_generic_message_for_expense_outside_period() -> None:
     assert request.status == ReimbursementRequestStatus.draft
 
 
+def test_store_user_cannot_submit_until_current_period_is_complete() -> None:
+    request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
+    actor = User(
+        email="tienda.periodo.incompleto@example.com",
+        full_name="Tienda Periodo Incompleto",
+        role=UserRole.store,
+        is_active=True,
+    )
+    summary = _summary(ready_for_submission=False)
+    summary.issues = [
+        ReimbursementValidationIssue(
+            code="reimbursement_period_incomplete",
+            message=(
+                "Agrega un gasto con fecha igual o posterior al inicio "
+                "del periodo de reembolso antes de enviar la solicitud."
+            ),
+        )
+    ]
+
+    with pytest.raises(WorkflowTransitionError) as exc_info:
+        transition_reimbursement_request(
+            request,
+            actor=actor,
+            target_status=ReimbursementRequestStatus.submitted,
+            summary=summary,
+        )
+
+    assert "posterior al inicio" in str(exc_info.value)
+    assert request.status == ReimbursementRequestStatus.draft
+
+
 def test_store_user_can_submit_without_receipt_when_cfdi_is_valid() -> None:
     request = ReimbursementRequest(status=ReimbursementRequestStatus.draft)
     actor = User(

@@ -60,9 +60,18 @@ def actualizar_fecha_fin_reembolso(
     solicitud: ReimbursementRequest,
 ) -> date | None:
     db.flush()
-    solicitud.reimbursement_ends_on = obtener_ultima_fecha_gasto_reembolso(
+    ultima_fecha_gasto = obtener_ultima_fecha_gasto_reembolso(
         db,
         solicitud.id,
+    )
+    solicitud.reimbursement_ends_on = (
+        ultima_fecha_gasto
+        if ultima_fecha_gasto is not None
+        and (
+            solicitud.reimbursement_starts_on is None
+            or ultima_fecha_gasto >= solicitud.reimbursement_starts_on
+        )
+        else None
     )
     return solicitud.reimbursement_ends_on
 

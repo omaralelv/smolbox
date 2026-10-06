@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -59,6 +60,14 @@ class AccountingQueueStatus(str, enum.Enum):
 
 class ReimbursementRequest(Base):
     __tablename__ = "reimbursement_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "reimbursement_ends_on IS NULL "
+            "OR reimbursement_starts_on IS NULL "
+            "OR reimbursement_ends_on >= reimbursement_starts_on",
+            name="ck_reimbursement_request_coverage_dates",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     folio: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True, index=True)

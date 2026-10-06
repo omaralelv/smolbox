@@ -70,6 +70,15 @@ def summarize_reimbursement_request(
         "previous_reimbursement_ends_on",
         None,
     )
+    reimbursement_starts_on = getattr(request, "reimbursement_starts_on", None)
+    reimbursement_ends_on = getattr(request, "reimbursement_ends_on", None)
+    reimbursement_period_incomplete = (
+        reimbursement_starts_on is not None
+        and (
+            reimbursement_ends_on is None
+            or reimbursement_ends_on < reimbursement_starts_on
+        )
+    )
 
     expenses = list(request.expenses)
     expenses_by_id = {expense.id: expense for expense in expenses}
@@ -228,6 +237,17 @@ def summarize_reimbursement_request(
             ReimbursementValidationIssue(
                 code="reimbursement_period_unavailable",
                 message="No se pudo validar el periodo. Contacta a soporte.",
+            )
+        )
+
+    if reimbursement_period_incomplete:
+        issues.append(
+            ReimbursementValidationIssue(
+                code="reimbursement_period_incomplete",
+                message=(
+                    "Agrega un gasto con fecha igual o posterior al inicio "
+                    "del periodo de reembolso antes de enviar la solicitud."
+                ),
             )
         )
 
