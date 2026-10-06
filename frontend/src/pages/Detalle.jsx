@@ -862,7 +862,7 @@ function Detalle({ currentRole }) {
                                     <button
                                         style={{
                                             ...styles.iconBtn,
-                                            opacity: esParticion ? 0.4 : 1,
+                                            opacity: esParticion ? 0.2 : 1,
                                             cursor: esParticion ? 'not-allowed' : 'pointer'
                                         }}
                                         title={esParticion ? "Gasto proveniente de una partición" : "Particionar Gasto"}
@@ -1278,9 +1278,9 @@ const styles = {
     // REGLA 1: Estilo opacado / grisáceo para renglones rechazados/eliminados
     rowGris: {
         backgroundColor: '#f0eaea',
-        color: '#957878',
+        color: '#805f5f',
         border: '1px solid #957878',
-        opacity: 0.5,
+        opacity: 0.4,
     },
     
 
