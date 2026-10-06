@@ -540,6 +540,9 @@ function actionLabel(action, toStatus) {
         expense_observation_added: 'Observación agregada',
         expense_ocr_extracted: 'OCR leído',
         expense_ocr_failed: 'OCR no leído',
+        expense_partition_cancelled: 'Partición anulada',
+        expense_partitioned: 'Partición creada',
+        expense_partition_updated: 'Partición editada',
         expense_removed_from_request: 'Gasto eliminado',
         expense_review_updated: 'Gasto editado',
         expense_updated: 'Gasto editado',
@@ -583,6 +586,9 @@ function actionGroup(action) {
     if ([
         'expense_review_updated',
         'expense_updated',
+        'expense_partition_cancelled',
+        'expense_partitioned',
+        'expense_partition_updated',
         'request_updated',
     ].includes(action)) return 'edicion';
     if ([
@@ -604,6 +610,9 @@ function eventDetail(event, payload) {
         ? `Motivo: "${translatedMessage}"`
         : translatedMessage;
     if (messageForDetail) details.push(messageForDetail);
+    if (partitionMessageAction(event.action) && messageForDetail) {
+        return messageForDetail;
+    }
 
     if (Array.isArray(payload.changed_fields) && payload.changed_fields.length) {
         const changedFields = payload.changed_fields.filter(
@@ -656,6 +665,14 @@ function reasonMessageAction(action) {
     return [
         'expense_authorization_rejected',
         'expense_removed_from_request',
+    ].includes(action);
+}
+
+function partitionMessageAction(action) {
+    return [
+        'expense_partition_cancelled',
+        'expense_partitioned',
+        'expense_partition_updated',
     ].includes(action);
 }
 

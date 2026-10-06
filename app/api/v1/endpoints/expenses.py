@@ -729,9 +729,9 @@ def _review_update_expense_with_actor(
     _ensure_expense_not_excluded(expense)
 
     requested_fields = set(updates)
-    previous_values = _review_tracked_values(expense)
+    previous_values = _review_tracked_values(expense, db)
     _apply_expense_updates(expense, updates, db)
-    new_values = _review_tracked_values(expense)
+    new_values = _review_tracked_values(expense, db)
     changed_fields = _review_changed_fields(requested_fields, previous_values, new_values)
     changed_previous_values = _review_payload_values(previous_values, changed_fields)
     changed_new_values = _review_payload_values(new_values, changed_fields)
@@ -776,11 +776,36 @@ def _review_update_expense_with_actor(
     return expense
 
 
-def _review_tracked_values(expense: Expense) -> dict[str, object]:
+def _review_tracked_values(expense: Expense, db: Session) -> dict[str, object]:
     return {
         "category": expense.category,
-        "cfdi_tax_rate": expense.cfdi_tax_rate,
+        "cfdi_tax_rate": _review_display_tax_rate(expense, db),
     }
+
+
+def _review_display_tax_rate(expense: Expense, db: Session) -> Decimal | None:
+    if expense.cfdi_tax_rate is not None:
+        return expense.cfdi_tax_rate
+
+    inferred_rate = _review_tax_rate_from_amounts(expense)
+    return determinar_tasa_iva_para_gasto(
+        descripcion=expense.category or "",
+        numero_tienda=_store_code_for_expense(expense, db),
+        porcentaje_iva=inferred_rate,
+    )
+
+
+def _review_tax_rate_from_amounts(expense: Expense) -> Decimal | None:
+    subtotal = expense.cfdi_subtotal
+    tax_amount = expense.cfdi_tax_amount
+    if subtotal is None or tax_amount is None or subtotal <= Decimal("0.00"):
+        return None
+    try:
+        return (Decimal(tax_amount) / Decimal(subtotal) * Decimal(100)).quantize(
+            Decimal("0.01")
+        )
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _review_changed_fields(

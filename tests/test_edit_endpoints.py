@@ -2,6 +2,15 @@ from conftest import create_expense
 from fastapi.testclient import TestClient
 
 
+def _auth_headers(client: TestClient, email: str) -> dict[str, str]:
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "secret-password"},
+    )
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
 def _cfdi_xml(amount: str) -> bytes:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante
@@ -122,6 +131,16 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
         },
     )
     assert authorizer.status_code == 201, authorizer.text
+    admin = client.post(
+        "/api/v1/users/",
+        json={
+            "email": "admin.submit@example.com",
+            "full_name": "Admin Submit",
+            "role": "admin",
+            "password": "secret-password",
+        },
+    )
+    assert admin.status_code == 201, admin.text
 
     assignment = client.post(
         f"/api/v1/stores/{base_records['store_id']}/users",
@@ -133,6 +152,12 @@ def test_rejects_edit_after_submission(client: TestClient, base_records: dict[st
         json={"user_id": authorizer.json()["id"], "role": "authorizer"},
     )
     assert authorizer_assignment.status_code == 201, authorizer_assignment.text
+    authorizer_area = client.post(
+        f"/api/v1/authorization-areas/users/{authorizer.json()['id']}",
+        headers=_auth_headers(client, "admin.submit@example.com"),
+        json={"areaName": "Insumos"},
+    )
+    assert authorizer_area.status_code == 201, authorizer_area.text
 
     submitted = client.post(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/transition",
@@ -297,11 +322,11 @@ def test_accounting_review_can_edit_category_and_tax_rate(
         event
         for event in audit_events.json()
         if event["action"] == "expense_review_updated"
-        and event["message"] == "Cambio de impuesto de sin impuesto a 0%."
+        and event["message"] == "Cambio de impuesto de 0% a 8%."
     )
     assert review_event["event_payload"]["changed_fields"] == ["cfdi_tax_rate"]
-    assert review_event["event_payload"]["previous_values"] == {"cfdi_tax_rate": None}
-    assert review_event["event_payload"]["new_values"] == {"cfdi_tax_rate": "0.00"}
+    assert review_event["event_payload"]["previous_values"] == {"cfdi_tax_rate": "0.00"}
+    assert review_event["event_payload"]["new_values"] == {"cfdi_tax_rate": "8.00"}
 
     updated_zero_tax = client.patch(
         f"/api/v1/expenses/{expense['id']}/review",
@@ -342,17 +367,14 @@ def test_accounting_review_can_edit_category_and_tax_rate(
         event
         for event in audit_events.json()
         if event["action"] == "expense_review_updated"
-        and event["message"]
-        == "Cambio de categoría de No Deducibles a Papelería e impuesto de 0% a 16%."
+        and event["message"] == "Cambio de categoría de No Deducibles a Papelería."
     )
-    assert taxable_event["event_payload"]["changed_fields"] == ["category", "cfdi_tax_rate"]
+    assert taxable_event["event_payload"]["changed_fields"] == ["category"]
     assert taxable_event["event_payload"]["previous_values"] == {
         "category": "No Deducibles",
-        "cfdi_tax_rate": "0.00",
     }
     assert taxable_event["event_payload"]["new_values"] == {
         "category": "Papelería",
-        "cfdi_tax_rate": "16.00",
     }
 
     updated_tax_only = client.patch(

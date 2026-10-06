@@ -116,6 +116,7 @@ def create_expense(
     *,
     amount: str = "123.45",
     spent_on: str = "2026-08-07",
+    category: str = "Agua",
 ) -> dict[str, object]:
     response = client.post(
         "/api/v1/expenses/",
@@ -125,7 +126,7 @@ def create_expense(
             "amount": amount,
             "currency": "MXN",
             "spent_on": spent_on,
-            "category": "Agua",
+            "category": category,
         },
     )
     assert response.status_code == 201, response.text

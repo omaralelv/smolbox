@@ -68,7 +68,11 @@ from app.services.reimbursement_periods import (
     validate_expense_date_for_reimbursement,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
-from app.services.tax_rules import determinar_indice_iva_manual, determinar_tasa_iva_para_gasto
+from app.services.tax_rules import (
+    determinar_indice_iva_manual,
+    determinar_tasa_iva_para_gasto,
+    normalizar_texto,
+)
 from app.utils.folio_dates import (
     obtener_fecha_desde_folio,
 )
@@ -1049,8 +1053,11 @@ def partition_frontend_expense(
             },
         )
 
+    active_children = _active_partition_children(expense)
+    previous_partitions = [_partition_audit_item(child) for child in active_children]
+
     now = datetime.now(UTC)
-    for child in _active_partition_children(expense):
+    for child in active_children:
         child.status = ExpenseStatus.removed
         child.removed_at = now
         child.removed_by_user_id = current_user.id
@@ -1094,34 +1101,45 @@ def partition_frontend_expense(
         db.flush()
         created_children.append(child)
 
+    new_partitions = [_partition_audit_item(child) for child in created_children]
+    partition_action = (
+        "expense_partition_updated"
+        if previous_partitions
+        else "expense_partitioned"
+    )
+    partition_message = (
+        _partition_updated_message(
+            expense=expense,
+            original_amount=total_original,
+            previous_partitions=previous_partitions,
+            new_partitions=new_partitions,
+        )
+        if previous_partitions
+        else _partition_created_message(
+            expense=expense,
+            original_amount=total_original,
+            partitions=new_partitions,
+        )
+    )
+
     db.add(
         AuditLog(
             reimbursement_request_id=request.id,
             expense_id=expense.id,
             actor_user_id=current_user.id,
             actor_type=AuditActorType.user,
-            action="expense_partitioned",
-            message=(
-                partition_in.note
-                or f"Gasto particionado en {partition_count} partes."
-            ),
+            action=partition_action,
+            message=partition_message,
             event_payload={
                 "actor_role": current_user.role.value,
                 "request_status": request.status.value,
                 "parent_expense_id": str(expense.id),
+                "parent_expense_name": _expense_display_name(expense),
                 "partition_count": partition_count,
                 "original_amount": str(total_original),
                 "partition_total": str(total_particiones),
-                "partitions": [
-                    {
-                        "expense_id": str(child.id),
-                        "index": child.partition_index,
-                        "category": child.category,
-                        "amount": str(child.amount),
-                        "cfdi_tax_rate": str(child.cfdi_tax_rate),
-                    }
-                    for child in created_children
-                ],
+                "previous_partitions": previous_partitions,
+                "partitions": new_partitions,
             },
         )
     )
@@ -1159,6 +1177,7 @@ def cancel_frontend_expense_partition(
         )
 
     now = datetime.now(UTC)
+    cancelled_partitions = [_partition_audit_item(child) for child in active_children]
     for child in active_children:
         child.status = ExpenseStatus.removed
         child.removed_at = now
@@ -1172,13 +1191,19 @@ def cancel_frontend_expense_partition(
             actor_user_id=current_user.id,
             actor_type=AuditActorType.user,
             action="expense_partition_cancelled",
-            message="Partición anulada.",
+            message=_partition_cancelled_message(
+                expense=expense,
+                original_amount=_money(expense.amount),
+                partitions=cancelled_partitions,
+            ),
             event_payload={
                 "actor_role": current_user.role.value,
                 "request_status": request.status.value,
                 "parent_expense_id": str(expense.id),
+                "parent_expense_name": _expense_display_name(expense),
                 "partition_count": len(active_children),
                 "cancelled_expense_ids": [str(child.id) for child in active_children],
+                "cancelled_partitions": cancelled_partitions,
             },
         )
     )
@@ -1475,6 +1500,143 @@ def _active_partition_children(expense: Expense) -> list[Expense]:
 
 def _has_active_partition_children(expense: Expense) -> bool:
     return bool(_active_partition_children(expense))
+
+
+def _partition_audit_item(expense: Expense) -> dict[str, str | int | None]:
+    return {
+        "expense_id": str(expense.id),
+        "index": expense.partition_index,
+        "count": expense.partition_count,
+        "category": expense.category or "Gasto General",
+        "amount": str(_money(expense.amount)),
+        "cfdi_tax_rate": str(_rate_or_none(expense.cfdi_tax_rate) or Decimal("0.00")),
+    }
+
+
+def _partition_created_message(
+    *,
+    expense: Expense,
+    original_amount: Decimal,
+    partitions: list[dict[str, str | int | None]],
+) -> str:
+    header = (
+        f"Partición creada sobre {_expense_display_name(expense)}, "
+        f"Monto - {_format_money_for_audit(original_amount)}, "
+        f"Particiones - {len(partitions)}"
+    )
+    return "\n".join([header, *[_partition_line(partition) for partition in partitions]])
+
+
+def _partition_updated_message(
+    *,
+    expense: Expense,
+    original_amount: Decimal,
+    previous_partitions: list[dict[str, str | int | None]],
+    new_partitions: list[dict[str, str | int | None]],
+) -> str:
+    header = (
+        f"Partición editada sobre {_expense_display_name(expense)}, "
+        f"Monto - {_format_money_for_audit(original_amount)}, "
+        f"Particiones - {len(new_partitions)}"
+    )
+    changes = _partition_change_lines(previous_partitions, new_partitions)
+    if changes:
+        return "\n".join([header, *changes])
+    return "\n".join([header, *[_partition_line(partition) for partition in new_partitions]])
+
+
+def _partition_cancelled_message(
+    *,
+    expense: Expense,
+    original_amount: Decimal,
+    partitions: list[dict[str, str | int | None]],
+) -> str:
+    header = (
+        f"Partición anulada sobre {_expense_display_name(expense)}, "
+        f"Monto - {_format_money_for_audit(original_amount)}. "
+        f"Se anularon {len(partitions)} particiones:"
+    )
+    return "\n".join([header, *[_partition_line(partition) for partition in partitions]])
+
+
+def _partition_change_lines(
+    previous_partitions: list[dict[str, str | int | None]],
+    new_partitions: list[dict[str, str | int | None]],
+) -> list[str]:
+    previous_by_index = {
+        partition.get("index"): partition
+        for partition in previous_partitions
+    }
+    lines: list[str] = []
+    for new_partition in new_partitions:
+        index = new_partition.get("index")
+        previous_partition = previous_by_index.get(index)
+        if previous_partition is None:
+            lines.append(f"{_partition_label(new_partition)} creada: {_partition_summary(new_partition)}.")
+            continue
+
+        changes = _partition_field_changes(previous_partition, new_partition)
+        if changes:
+            lines.append(f"{_partition_label(new_partition)} cambió: {'; '.join(changes)}.")
+    return lines
+
+
+def _partition_field_changes(
+    previous_partition: dict[str, str | int | None],
+    new_partition: dict[str, str | int | None],
+) -> list[str]:
+    changes: list[str] = []
+    previous_category = str(previous_partition.get("category") or "")
+    new_category = str(new_partition.get("category") or "")
+    if normalizar_texto(previous_category) != normalizar_texto(new_category):
+        changes.append(f"categoría de {previous_category} a {new_category}")
+
+    previous_amount = _money(previous_partition.get("amount"))
+    new_amount = _money(new_partition.get("amount"))
+    if previous_amount != new_amount:
+        changes.append(
+            "monto de "
+            f"{_format_money_for_audit(previous_amount)} "
+            f"a {_format_money_for_audit(new_amount)}"
+        )
+
+    previous_rate = _rate_or_none(previous_partition.get("cfdi_tax_rate")) or Decimal("0.00")
+    new_rate = _rate_or_none(new_partition.get("cfdi_tax_rate")) or Decimal("0.00")
+    if previous_rate != new_rate:
+        changes.append(
+            "impuesto de "
+            f"{_format_tax_rate_for_audit(previous_rate)} "
+            f"a {_format_tax_rate_for_audit(new_rate)}"
+        )
+    return changes
+
+
+def _partition_line(partition: dict[str, str | int | None]) -> str:
+    return f"{_partition_label(partition)}: {_partition_summary(partition)}."
+
+
+def _partition_label(partition: dict[str, str | int | None]) -> str:
+    index = partition.get("index") or "?"
+    count = partition.get("count") or "?"
+    return f"{index}/{count}"
+
+
+def _partition_summary(partition: dict[str, str | int | None]) -> str:
+    return (
+        f"Categoría - {partition.get('category') or 'Gasto General'}, "
+        f"Monto - {_format_money_for_audit(_money(partition.get('amount')))}, "
+        "Impuesto - "
+        f"{_format_tax_rate_for_audit(_rate_or_none(partition.get('cfdi_tax_rate')) or Decimal('0.00'))}"
+    )
+
+
+def _format_money_for_audit(amount: Decimal) -> str:
+    return f"${_money(amount):,.2f}"
+
+
+def _format_tax_rate_for_audit(rate: Decimal) -> str:
+    normalized = rate.quantize(Decimal("0.01")).normalize()
+    return f"{normalized}%"
 
 
 def _frontend_accounting_queue_status(

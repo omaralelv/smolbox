@@ -1153,7 +1153,39 @@ def test_frontend_accounting_can_partition_expense(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
     )
     assert audit_events.status_code == 200, audit_events.text
-    assert any(event["action"] == "expense_partitioned" for event in audit_events.json())
+    created_event = next(
+        event for event in audit_events.json() if event["action"] == "expense_partitioned"
+    )
+    assert "Partición creada sobre Gasto - Agua" in created_event["message"]
+    assert "1/2: Categoría - Papelería, Monto - $1,000.00, Impuesto - 16%." in created_event["message"]
+    assert "2/2: Categoría - Agua, Monto - $500.00, Impuesto - 0%." in created_event["message"]
+
+    updated = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Servicio de Agua", "monto": "900.00", "impuesto": "0.00"},
+                {"categoria": "Papelería", "monto": "600.00", "impuesto": "16.00"},
+            ],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    updated_event = next(
+        event for event in audit_events.json() if event["action"] == "expense_partition_updated"
+    )
+    assert "Partición editada sobre Gasto - Agua" in updated_event["message"]
+    assert "1/2 cambió: categoría de Papelería a Servicio de Agua" in updated_event["message"]
+    assert "monto de $1,000.00 a $900.00" in updated_event["message"]
+    assert "impuesto de 16% a 0%" in updated_event["message"]
 
 
 def test_frontend_accounting_can_cancel_expense_partition(
@@ -1240,7 +1272,59 @@ def test_frontend_accounting_can_cancel_expense_partition(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
     )
     assert audit_events.status_code == 200, audit_events.text
-    assert any(event["action"] == "expense_partition_cancelled" for event in audit_events.json())
+    cancelled_event = next(
+        event for event in audit_events.json() if event["action"] == "expense_partition_cancelled"
+    )
+    assert "Partición anulada sobre Gasto - Agua" in cancelled_event["message"]
+    assert "1/2: Categoría - Papelería, Monto - $1,000.00, Impuesto - 16%." in cancelled_event["message"]
+    assert "2/2: Categoría - Agua, Monto - $500.00, Impuesto - 0%." in cancelled_event["message"]
+
+
+def test_frontend_review_tax_change_uses_default_previous_tax_rate(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(
+        client,
+        base_records,
+        amount="500.00",
+        spent_on="2026-08-07",
+        category="Papelería",
+    )
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "500.00",
+        uuid="10101010-1010-4010-8010-101010101010",
+    )
+    admin_user_id = _create_user(client, "admin", "frontend.tax.default.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    headers = _auth_headers(client, "frontend.tax.default.admin@example.com")
+    updated = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review/me",
+        headers=headers,
+        json={"cfdi_tax_rate": "0.00"},
+    )
+    assert updated.status_code == 200, updated.text
+
+    audit_events = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+    )
+    assert audit_events.status_code == 200, audit_events.text
+    review_event = next(
+        event for event in audit_events.json() if event["action"] == "expense_review_updated"
+    )
+    assert review_event["message"] == "Cambio de impuesto de 16% a 0%."
 
 
 def test_accounting_queue_status_is_single_until_accountant_opens_request(

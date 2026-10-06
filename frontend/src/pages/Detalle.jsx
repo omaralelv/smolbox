@@ -915,7 +915,7 @@ function Detalle({ currentRole }) {
 
                 // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
                 historial={historial.filter(obs => 
-                    idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
+                    gastoIdsRelacionados(gastoSeleccionado).some(id => idsIguales(obs.gastoId, id)) &&
                     PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
                 )}
                 onEnviarObservacion={handleEnviarObservacion}
@@ -1623,6 +1623,9 @@ function observacionDesdeEvento(evento) {
         'expense_removed_from_request',
         'expense_review_updated',
         'expense_authorization_rejected',
+        'expense_partitioned',
+        'expense_partition_updated',
+        'expense_partition_cancelled',
     ].includes(action)) {
         return null;
     }
@@ -1682,6 +1685,13 @@ function autorDesdeRol(rol) {
         sistema: 'SISTEMA',
     };
     return autores[rol] || String(rol || 'sistema').toUpperCase();
+}
+
+function gastoIdsRelacionados(gasto) {
+    return [
+        gastoHistorialId(gasto),
+        idGastoOriginal(gasto),
+    ].filter((id) => id !== null && id !== undefined);
 }
 
 function textoDesdeEvento(action, textoBase, autor) {
