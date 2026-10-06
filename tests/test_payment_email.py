@@ -89,7 +89,10 @@ def test_payment_email_is_sent_when_enabled_and_store_has_email(
     assert email["payment_id"] == response.json()["id"]
     assert email["store_id"] == payable_request["store_id"]
     assert email["request_ref"]
-    assert email["paid_at"]
+    assert len(email["paid_at"]) == 16
+    assert email["paid_at"][2] == "/" and email["paid_at"][5] == "/"
+    assert email["paid_at"][10] == " "
+    assert email["paid_at"][13] == ":"
 
 
 def test_payment_email_is_not_sent_when_ses_is_disabled(

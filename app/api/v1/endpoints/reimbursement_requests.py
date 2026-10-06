@@ -667,6 +667,9 @@ def record_reimbursement_request_payment_as_current_user(
     db.refresh(payment)
 
     store = db.get(Store, reimbursement_request.store_id)
+    payment_paid_at = payment.paid_at
+    if payment_paid_at.tzinfo is None:
+        payment_paid_at = payment_paid_at.replace(tzinfo=UTC)
     background_tasks.add_task(
         send_payment_registered_email,
         settings,
@@ -677,7 +680,7 @@ def record_reimbursement_request_payment_as_current_user(
         request_ref=reimbursement_request.folio or f"Solicitud {str(reimbursement_request.id)[:8]}",
         amount=str(payment.amount),
         currency=payment.currency,
-        paid_at=payment.paid_at.isoformat(),
+        paid_at=payment_paid_at.astimezone(MEXICO_CITY_TZ).strftime("%d/%m/%Y %H:%M"),
         reference=payment.reference,
     )
     return payment

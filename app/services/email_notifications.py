@@ -15,7 +15,7 @@ PAYMENT_TEMPLATE_TEXT = (
     "Se registró el pago de la solicitud {{request_ref}}.\n"
     "Monto: {{amount}} {{currency}}\n"
     "Fecha de pago: {{paid_at}}\n"
-    "Referencia: {{reference}}\n"
+    "Recuerda que siempre podrás revisar tus solicitudes pagadas a través del portal de Smolbox en el apartado de Histórico."
 )
 PAYMENT_TEMPLATE_HTML = (
     "<h1>Pago registrado</h1>"
@@ -25,6 +25,7 @@ PAYMENT_TEMPLATE_HTML = (
     "<li>Monto: <strong>{{amount}} {{currency}}</strong></li>"
     "<li>Fecha de pago: {{paid_at}}</li>"
     "</ul>"
+    "<p>Recuerda que siempre podrás revisar tus solicitudes pagadas a través del portal de Smolbox en el apartado de <strong>Histórico</strong>.</p>"
 )
 
 
