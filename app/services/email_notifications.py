@@ -24,7 +24,6 @@ PAYMENT_TEMPLATE_HTML = (
     "<ul>"
     "<li>Monto: <strong>{{amount}} {{currency}}</strong></li>"
     "<li>Fecha de pago: {{paid_at}}</li>"
-    "<li>Referencia: {{reference}}</li>"
     "</ul>"
 )
 
