@@ -273,6 +273,8 @@ def generar_polizas(
     inicio_caja = fin_ant + timedelta(days=1)
     fin_caja = max(gasto["spent_on"] for gasto in gastos_db)
     diff_caja = (fin_caja - inicio_caja).days
+    if diff_caja == 0:
+        diff_caja = 1
     solicitud_model = db.get(ReimbursementRequest, solicitud_id)
     if solicitud_model is None:
         raise HTTPException(
