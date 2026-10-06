@@ -50,6 +50,24 @@ def _resaltar_uidd_necesario(ws_sap, fila: int, uidd: str) -> None:
         )
 
 
+def _obtener_supervisor_tienda(db: Session, store_id) -> str:
+    supervisor = db.execute(
+        text("""
+            SELECT users.full_name
+            FROM store_user_assignments
+            JOIN users ON users.id = store_user_assignments.user_id
+            WHERE store_user_assignments.store_id = :store_id
+              AND store_user_assignments.role = 'authorizer'
+              AND store_user_assignments.is_active
+              AND users.is_active
+            ORDER BY store_user_assignments.created_at
+            LIMIT 1
+        """),
+        {"store_id": store_id},
+    ).scalar()
+    return supervisor or ""
+
+
 def _formatear_fecha_ultimo_gasto(gastos_db) -> str:
     """Devuelve la fecha más reciente de los gastos ya filtrados de la solicitud."""
     return max(gasto["spent_on"] for gasto in gastos_db).strftime("%d/%m/%Y")
@@ -172,22 +190,19 @@ def generar_polizas(
     # ========================================================
     # Ya que tenemos el numero_tienda de la base de datos (ej. "V101"), 
     # consultamos tu Excel como siempre lo hemos hecho:
-    if numero_tienda not in diccionario_tiendas:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"La tienda '{numero_tienda}' existe en SQL, "
-                "pero no en Copia de BASE DE TIENDAS.xlsx."
-            ),
-        )
+    # El Excel solo es un catálogo inicial: las tiendas creadas desde la app
+    # no están ahí y sus datos salen de la base de datos.
+    tienda_info = (
+        diccionario_tiendas.get(numero_tienda)
+        or diccionario_tiendas.get(numero_tienda.removeprefix("HUD-"))
+        or {}
+    )
 
-    tienda_info = diccionario_tiendas[numero_tienda]
-
-    nombre_tienda = tienda_info.get("PLAZA", "")
-    gerente = tienda_info.get("NOMBRE_GERENTE", "")
-    cuenta_tienda = tienda_info.get("CUENTA", "")
-    fondo = tienda_info.get("CAJA_CHICA", "")
-    responsable = tienda_info.get("RESPONSABLE", "")
+    nombre_tienda = tienda_info.get("PLAZA") or tienda_db.get("name") or ""
+    gerente = tienda_info.get("NOMBRE_GERENTE") or tienda_db.get("manager_name") or ""
+    cuenta_tienda = tienda_info.get("CUENTA") or tienda_db.get("bank_account") or ""
+    fondo = tienda_info.get("CAJA_CHICA") or float(tienda_db.get("petty_cash_fund") or 0)
+    responsable = tienda_info.get("RESPONSABLE") or tienda_db.get("assigned_accountant") or ""
     supervisor = tienda_info.get("SUPERVISOR", "")
 
     # ========================================================
@@ -477,6 +492,7 @@ def generar_polizas(
 
 
     # E) Creación del Archivo 2: Solicitud (En memoria)
+    supervisor = supervisor or _obtener_supervisor_tienda(db, store_id)
     wb_solicitud = load_workbook(ruta_plantilla)
     ws_solicitud = wb_solicitud.active
 

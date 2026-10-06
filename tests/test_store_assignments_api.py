@@ -238,3 +238,29 @@ def test_assignment_role_must_match_user_role(
     )
     assert assigned.status_code == 422
     assert assigned.json()["detail"]["code"] == "ASSIGNMENT_ROLE_MISMATCH"
+
+
+def test_create_store_user_saves_manager_account_and_fund(
+    client: TestClient,
+    session_factory,
+) -> None:
+    response = client.post(
+        "/api/v1/users/store",
+        json={
+            "code": "R003",
+            "full_name": "Tienda Nueva",
+            "email": "tienda.nueva@example.com",
+            "manager_name": " Ana Gerente ",
+            "bank_account": "0123456789",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["store"]["manager_name"] == "Ana Gerente"
+    assert response.json()["store"]["bank_account"] == "0123456789"
+    assert Decimal(response.json()["store"]["petty_cash_fund"]) == Decimal("0.00")
+
+    with session_factory() as db:
+        store = db.scalar(select(Store).where(Store.code == "R003"))
+        assert store is not None
+        assert store.petty_cash_fund == Decimal("0.00")

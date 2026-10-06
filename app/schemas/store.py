@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -12,6 +13,7 @@ class StoreBase(BaseModel):
     manager_name: str | None = Field(default=None, max_length=160)
     bank_account: str | None = Field(default=None, max_length=80)
     state_region: str | None = Field(default=None, max_length=120)
+    petty_cash_fund: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
 
     @field_validator("code")
     @classmethod
@@ -42,6 +44,7 @@ class StoreUpdate(BaseModel):
     manager_name: str | None = Field(default=None, max_length=160)
     bank_account: str | None = Field(default=None, max_length=80)
     state_region: str | None = Field(default=None, max_length=120)
+    petty_cash_fund: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
 
     @field_validator("code")
     @classmethod

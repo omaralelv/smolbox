@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -73,6 +74,16 @@ class StoreUserCreate(BaseModel):
     email: str = Field(min_length=1, max_length=255)
     is_active: bool = True
     password: str | None = Field(default=None, min_length=8, max_length=128)
+    manager_name: str | None = Field(default=None, max_length=160)
+    bank_account: str | None = Field(default=None, max_length=80)
+    petty_cash_fund: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
+
+    @field_validator("manager_name", "bank_account")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
     @field_validator("code")
     @classmethod

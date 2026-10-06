@@ -64,6 +64,9 @@ const EMPTY_FORM = {
     storeId: '',
     storeMode: 'existing',
     storeCode: '',
+    managerName: '',
+    bankAccount: '',
+    pettyCashFund: '0.00',
     supervisorId: '',
     authorizationArea: '',
 };
@@ -370,6 +373,9 @@ function Usuarios() {
             storeMode: modo,
             storeId: '',
             storeCode: '',
+            managerName: '',
+            bankAccount: '',
+            pettyCashFund: '0.00',
             supervisorId: '',
         }));
     };
@@ -398,6 +404,9 @@ function Usuarios() {
             storeId,
             storeMode: 'existing',
             storeCode: '',
+            managerName: '',
+            bankAccount: '',
+            pettyCashFund: '0.00',
             supervisorId: usuario.role === 'store' ? supervisorInicialParaTienda(storeId) : '',
             authorizationArea: asignaciones.areas?.[0] || '',
         });
@@ -469,6 +478,9 @@ function Usuarios() {
                     email: form.email.trim(),
                     is_active: form.isActive,
                     password: form.password || undefined,
+                    manager_name: form.managerName.trim() || undefined,
+                    bank_account: form.bankAccount.trim() || undefined,
+                    petty_cash_fund: form.pettyCashFund || '0.00',
                 });
                 mensajeGuardado = 'Tienda y usuario guardados correctamente.';
             } else {
@@ -744,6 +756,44 @@ function Usuarios() {
                                     required
                                 />
                             </label>
+                        )}
+
+                        {crearTiendaNueva && (
+                            <>
+                                <label style={styles.inputGroup}>
+                                    Gerente
+                                    <input
+                                        type="text"
+                                        value={form.managerName}
+                                        onChange={(event) => actualizarCampo('managerName', event.target.value)}
+                                        style={styles.input}
+                                        placeholder="Nombre del gerente"
+                                        maxLength={160}
+                                    />
+                                </label>
+                                <label style={styles.inputGroup}>
+                                    Cuenta
+                                    <input
+                                        type="text"
+                                        value={form.bankAccount}
+                                        onChange={(event) => actualizarCampo('bankAccount', event.target.value)}
+                                        style={styles.input}
+                                        placeholder="Cuenta de la tienda"
+                                        maxLength={80}
+                                    />
+                                </label>
+                                <label style={styles.inputGroup}>
+                                    Fondo
+                                    <input
+                                        type="number"
+                                        value={form.pettyCashFund}
+                                        onChange={(event) => actualizarCampo('pettyCashFund', event.target.value)}
+                                        style={styles.input}
+                                        min="0"
+                                        step="0.01"
+                                    />
+                                </label>
+                            </>
                         )}
 
                         <label style={styles.inputGroup}>

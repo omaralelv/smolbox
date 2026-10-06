@@ -77,6 +77,9 @@ def create_store_user(
         code=user_in.code,
         name=user_in.full_name,
         contact_email=user_in.email,
+        manager_name=user_in.manager_name,
+        bank_account=user_in.bank_account,
+        petty_cash_fund=user_in.petty_cash_fund,
     )
     user = User(
         email=user_in.email,
