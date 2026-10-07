@@ -120,6 +120,16 @@ COGNITO_APP_CLIENT_ID=tu_app_client_id
    ```
 
    La llamada a Textract esta aislada en `app/services/textract_ocr.py`.
+   El usuario o rol de AWS necesita `textract:AnalyzeExpense` y
+   `textract:DetectDocumentText` para usar ambas formas de lectura.
+   Los errores tecnicos se registran en el log de la API con la operacion, region,
+   codigo AWS y RequestId; las alertas al usuario conservan sus mensajes actuales.
+   Cuando AWS rechaza la lectura de un PDF, se renderizan temporalmente sus paginas
+   a PNG en memoria (hasta 20 paginas) y se vuelve a intentar el OCR, conservando el
+   archivo original. La imagen de cada pagina se limita a 8 millones de pixeles y
+   10 MB. Los PDF digitales con fecha y total siguen leyendose directamente.
+   Al actualizar una instalacion Docker, reconstruye la API para instalar
+   `pypdfium2`, necesario para esta alternativa.
 
 2. Levanta la API y PostgreSQL:
 
@@ -152,6 +162,24 @@ de prueba de Etapa 1 y quieres empezar limpio:
 docker compose down -v
 docker compose up --build
 ```
+
+## Bitacora durante la captura de gastos
+
+La captura tiene un identificador independiente del gasto. Sus movimientos se guardan en
+`audit_logs` desde que se abre el formulario, sin crear solicitudes vacias ni afectar montos.
+Las selecciones, cambios de datos, documentos seleccionados, validaciones y cancelaciones
+se registran antes de pulsar Anadir. Seleccionar un archivo no significa que ya se guardo
+como comprobante; la subida definitiva sigue ocurriendo al anadir el gasto.
+
+El resultado del OCR se registra desde el backend y conserva las alertas existentes.
+Al guardar el gasto, sus movimientos previos se vinculan a la solicitud en la misma
+transaccion, sin cambiar sus fechas. Las capturas no anadidas tambien son visibles en
+la bitacora, que consulta por dia y se actualiza cada 10 segundos. Las nuevas rutas
+requieren sesion y aplican permisos de tienda. No se requiere migracion de base de datos.
+
+Pruebas del registro en frontend: `node --test frontend/tests/captureAuditQueue.test.mjs`.
+La prueba de pantalla `frontend/tests/captureAudit.browser.mjs` usa Playwright y una app
+local indicada con `FRONTEND_TEST_URL`; sus respuestas son simuladas y no llama a AWS.
 
 ## Catalogo inicial de usuarios, tiendas y asignaciones
 

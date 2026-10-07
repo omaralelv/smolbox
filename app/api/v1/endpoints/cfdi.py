@@ -4,10 +4,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from app.api.dependencies.auth import bearer_scheme, get_current_user
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
@@ -23,6 +26,7 @@ from app.schemas.cfdi import (
 )
 from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_expense
+from app.services.expense_capture_audit import add_capture_event, get_capture
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
 from app.services.request_editability import is_request_editable
@@ -86,7 +90,78 @@ async def parse_cfdi(
 async def preview_invoice_ocr(
     file: Annotated[UploadFile, File()],
     settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[Session, Depends(get_db)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     document_type: Annotated[str, Form()] = "factura",
+    capture_id: Annotated[UUID | None, Form()] = None,
+) -> InvoiceOcrPreviewResult:
+    capture = None
+    actor = None
+    if capture_id is not None:
+        actor = get_current_user(credentials, db, settings)
+        capture = get_capture(db, capture_id, actor)
+        add_capture_event(
+            db,
+            capture,
+            actor,
+            action="expense_capture_ocr_started",
+            message="Lectura OCR iniciada antes de añadir el gasto.",
+            payload={
+                "filename": file.filename,
+                "document_type": document_type,
+                "source": "backend",
+            },
+        )
+        db.commit()
+    try:
+        result = await _preview_invoice_ocr(file, settings, document_type)
+    except HTTPException as exc:
+        if capture is not None:
+            db.refresh(capture)
+            detail = exc.detail
+            add_capture_event(
+                db,
+                capture,
+                actor,
+                action="expense_capture_ocr_failed",
+                message="Lectura o validación OCR no completada antes de añadir el gasto.",
+                payload={
+                    "filename": file.filename,
+                    "document_type": document_type,
+                    "source": "backend",
+                    "error_code": detail.get("code") if isinstance(detail, dict) else None,
+                    "error_message": detail.get("message") if isinstance(detail, dict) else detail,
+                },
+            )
+            db.commit()
+        raise
+    if capture is not None:
+        db.refresh(capture)
+        add_capture_event(
+            db,
+            capture,
+            actor,
+            action="expense_capture_ocr_completed",
+            message="Documento leído y validado con OCR antes de añadir el gasto.",
+            payload={
+                "filename": file.filename,
+                "document_type": document_type,
+                "source": "backend",
+                "extracted_total": str(result.extracted_total)
+                if result.extracted_total is not None
+                else None,
+                "extracted_date": str(result.extracted_date) if result.extracted_date else None,
+                "suggested_cfdi_uuid": result.suggested_cfdi_uuid,
+            },
+        )
+        db.commit()
+    return result
+
+
+async def _preview_invoice_ocr(
+    file: UploadFile,
+    settings: Settings,
+    document_type: str,
 ) -> InvoiceOcrPreviewResult:
     try:
         content = await read_upload_limited(file, settings.max_upload_bytes)
@@ -126,7 +201,8 @@ async def preview_invoice_ocr(
         )
 
     try:
-        result = service.extract_expense(
+        result = await run_in_threadpool(
+            service.extract_expense,
             content,
             content_type=content_type,
             filename=file.filename or "factura.pdf",

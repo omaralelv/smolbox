@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -24,8 +24,10 @@ from app.models.reimbursement_request import (
 from app.models.store import Store, StoreUserAssignment
 from app.models.store_spending_baseline import StoreSpendingBaseline
 from app.models.user import User, UserRole
-from app.schemas.audit_log import AuditLogRead
+from app.schemas.audit_log import AuditLogRead, FrontendAuditLogRead
 from app.schemas.frontend import (
+    FrontendCaptureCreate,
+    FrontendCaptureEventCreate,
     FrontendClickAuditCreate,
     FrontendContextRead,
     FrontendExpensePartitionCreate,
@@ -58,6 +60,13 @@ from app.services.authorization_areas import (
 from app.services.expense_authorization_rules import (
     category_requires_manual_authorization_area,
     resolve_expense_authorization,
+)
+from app.services.expense_capture_audit import (
+    CAPTURE_STARTED,
+    add_capture_event,
+    capture_event_message,
+    get_capture,
+    link_capture_to_expense,
 )
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
@@ -799,6 +808,7 @@ def create_frontend_request(
         expense = _expense_from_frontend(expense_in, request=request, period=period, db=db)
         db.add(expense)
         db.flush()
+        link_capture_to_expense(db, expense_in.capture_id, current_user, request, expense)
         _add_frontend_observation_events(
             expense_in,
             request=request,
@@ -878,6 +888,7 @@ def add_frontend_expense(
     db.add(expense)
     db.flush()
     actualizar_fecha_fin_reembolso(db, request)
+    link_capture_to_expense(db, expense_in.capture_id, current_user, request, expense)
     request.reported_total = _money(
         (request.reported_total or Decimal("0.00")) + expense.amount
     )
@@ -1193,6 +1204,133 @@ def cancel_frontend_expense_partition(
     db.expire_all()
     request = _get_request_by_id(request.id, db)
     return _request_payload(request, current_user, db)
+
+
+@router.post("/capturas/me", response_model=AuditLogRead, status_code=201)
+def start_expense_capture(
+    capture_in: FrontendCaptureCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> AuditLog:
+    if current_user.role not in {UserRole.store, UserRole.admin}:
+        raise HTTPException(status_code=403, detail="Solo tienda o admin pueden capturar gastos.")
+    if db.get(AuditLog, capture_in.capture_id) is not None:
+        return get_capture(db, capture_in.capture_id, current_user, require_open=False)
+    request = None
+    if capture_in.request_id:
+        request = _get_request_by_id(capture_in.request_id, db)
+        _ensure_request_visible(request, current_user, db)
+        if request.status not in {
+            ReimbursementRequestStatus.draft, ReimbursementRequestStatus.correction_required,
+        }:
+            raise HTTPException(status_code=409, detail="La solicitud ya no permite añadir gastos.")
+        store = request.store
+    else:
+        stores = _stores_for_user(current_user, db)
+        if not stores:
+            raise HTTPException(status_code=403, detail="No tienes una tienda asignada para capturar.")
+        store = stores[0]
+    capture = AuditLog(
+        id=capture_in.capture_id,
+        reimbursement_request_id=request.id if request else None,
+        actor_user_id=current_user.id,
+        actor_type=AuditActorType.user,
+        action=CAPTURE_STARTED,
+        message="Captura de gasto iniciada, todavía no añadida a la solicitud.",
+        event_payload={
+            "capture_id": str(capture_in.capture_id), "store_id": str(store.id),
+            "store_code": _frontend_store_code(store), "actor_role": current_user.role.value,
+            "actor_name": current_user.full_name, "category": capture_in.category,
+            "document_type": capture_in.document_type,
+        },
+        created_at=datetime.now(UTC),
+    )
+    db.add(capture)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return get_capture(db, capture_in.capture_id, current_user, require_open=False)
+    return capture
+
+
+@router.post("/capturas/{capture_id}/eventos/me", response_model=AuditLogRead, status_code=201)
+def record_expense_capture_event(
+    capture_id: UUID,
+    event_in: FrontendCaptureEventCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> AuditLog:
+    capture = get_capture(db, capture_id, current_user, require_open=False)
+    existing = db.get(AuditLog, event_in.event_id)
+    if existing:
+        if (existing.event_payload or {}).get("capture_id") != str(capture_id) or (
+            existing.actor_user_id != current_user.id or existing.id == capture.id
+        ):
+            raise HTTPException(status_code=409, detail="El identificador del movimiento ya existe.")
+        return existing
+    get_capture(db, capture_id, current_user)
+    event = add_capture_event(
+        db, capture, current_user,
+        action=f"expense_capture_{event_in.action}", message=capture_event_message(event_in),
+        payload={**event_in.model_dump(exclude={"event_id", "action"}), "source": "frontend"},
+        event_id=event_in.event_id,
+    )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        existing = db.get(AuditLog, event_in.event_id)
+        if existing is None or existing.actor_user_id != current_user.id or (
+            (existing.event_payload or {}).get("capture_id") != str(capture_id)
+        ):
+            raise HTTPException(status_code=409, detail="El identificador del movimiento ya existe.") from exc
+        return existing
+    return event
+
+
+@router.get("/audit-events/me", response_model=list[FrontendAuditLogRead])
+def list_frontend_audit_events(
+    day: date,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    utc_offset_minutes: Annotated[int, Query(ge=-840, le=840)] = -360,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[FrontendAuditLogRead]:
+    starts_at = datetime.combine(day, time.min, timezone(timedelta(minutes=utc_offset_minutes)))
+    statement = (
+        select(AuditLog, ReimbursementRequest, Store, User)
+        .outerjoin(ReimbursementRequest, AuditLog.reimbursement_request_id == ReimbursementRequest.id)
+        .outerjoin(Store, ReimbursementRequest.store_id == Store.id)
+        .outerjoin(User, AuditLog.actor_user_id == User.id)
+        .where(
+            AuditLog.created_at >= starts_at.astimezone(UTC),
+            AuditLog.created_at < (starts_at + timedelta(days=1)).astimezone(UTC),
+        )
+    )
+    if current_user.role in {UserRole.store, UserRole.authorizer}:
+        store_ids = [store.id for store in _stores_for_user(current_user, db)]
+        statement = statement.where(or_(
+            ReimbursementRequest.store_id.in_(store_ids),
+            and_(
+                AuditLog.reimbursement_request_id.is_(None),
+                AuditLog.event_payload["store_id"].as_string().in_([str(s) for s in store_ids]),
+            ),
+        ))
+    results = db.execute(statement.order_by(
+        AuditLog.created_at.desc(), AuditLog.id.desc()
+    ).limit(limit).offset(offset))
+    return [
+        FrontendAuditLogRead(
+            **AuditLogRead.model_validate(event).model_dump(),
+            store_code=_frontend_store_code(store) if store else (event.event_payload or {}).get("store_code"),
+            request_folio=request.folio if request else None,
+            actor_name=actor.full_name if actor else (event.event_payload or {}).get("actor_name"),
+            actor_role=actor.role.value if actor else (event.event_payload or {}).get("actor_role"),
+        )
+        for event, request, store, actor in results
+    ]
 
 
 @router.post(

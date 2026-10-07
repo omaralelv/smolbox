@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import {
@@ -13,9 +13,60 @@ import {
     validateExpenseCfdi,
 } from '../../lib/api';
 import { addDraftGasto, loadDraftGastos, loadDraftRequest, saveDraftRequest } from '../../lib/draftSolicitud';
+import { createCaptureAudit } from '../../lib/captureAudit';
 
 function AnadirGasto() {
     const navigate = useNavigate();
+    const [captureAudit] = useState(() => createCaptureAudit(loadDraftRequest()?.backendId || null));
+    const capturedValues = useRef({ category: 'Papelería', document_type: 'factura' });
+    const pendingFields = useRef({});
+    const fieldTimers = useRef({});
+    const captureTouched = useRef(false);
+    const captureFinished = useRef(false);
+
+    const auditField = useCallback((field, value) => {
+        window.clearTimeout(fieldTimers.current[field]);
+        delete fieldTimers.current[field];
+        delete pendingFields.current[field];
+        const next = String(value || '').slice(0, 2000);
+        const previousValue = capturedValues.current[field] || '';
+        if (next === previousValue) return;
+        captureTouched.current = true;
+        capturedValues.current[field] = next;
+        captureAudit.record('field_changed', { field, previousValue, value: next });
+    }, [captureAudit]);
+
+    const auditFieldSoon = (field, value) => {
+        pendingFields.current[field] = value;
+        window.clearTimeout(fieldTimers.current[field]);
+        fieldTimers.current[field] = window.setTimeout(() => auditField(field, value), 500);
+    };
+
+    useEffect(() => {
+        captureAudit.activate();
+        captureAudit.flush().catch((error) => console.warn('No se pudo iniciar la auditoría de captura.', error));
+        const leaveCapture = () => {
+            Object.entries(pendingFields.current).forEach(([field, value]) => auditField(field, value));
+            if (!captureFinished.current && captureTouched.current) captureAudit.record('left');
+        };
+        window.addEventListener('pagehide', leaveCapture);
+        return () => {
+            window.removeEventListener('pagehide', leaveCapture);
+            leaveCapture();
+            captureAudit.finish();
+        };
+    }, [captureAudit, auditField]);
+
+    const auditFile = (documentType, file) => {
+        captureTouched.current = true;
+        captureAudit.record('file_selected', {
+            documentType, filename: file?.name?.slice(0, 255) || null,
+        });
+    };
+
+    const auditValidation = (action, message = '') => captureAudit.record(action, {
+        message: message.slice(0, 2000),
+    });
 
     // 1. ESTADOS DEL FORMULARIO
     const [fecha, setFecha] = useState('');
@@ -41,6 +92,7 @@ function AnadirGasto() {
 
     // Cambio dinámico de tipo de documento
     const handleTipoDocumentoChange = (nuevoTipo) => {
+        auditField('document_type', nuevoTipo);
         setTipoDocumento(nuevoTipo);
         setMensajeValidacion('');
         if (nuevoTipo === 'vale' || nuevoTipo === 'recibo') {
@@ -56,6 +108,7 @@ function AnadirGasto() {
         const folioNormalizado = normalizarUuidLocal(folio);
         if (!folioNormalizado || folioNormalizado === '') {
             const mensaje = 'Primero captura o valida un folio fiscal.';
+            auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
@@ -65,6 +118,7 @@ function AnadirGasto() {
         const folioFiscalValido = normalizarUuidFiscalValido(folioNormalizado);
         if (tipoDocumento === 'factura' && !folioFiscalValido) {
             const mensaje = mensajeFolioFiscalManual();
+            auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
@@ -74,6 +128,7 @@ function AnadirGasto() {
         if (tipoDocumento === 'factura' && esPdf(facturaFile)) {
             if (!ocrCoincideConArchivoActual(ocrFactura, facturaFile)) {
                 const mensaje = 'Primero presiona "Validar Gasto" para extraer la información faltante de la factura.';
+                auditValidation('validation_failed', mensaje);
                 setEstadoValidacion('error');
                 setMensajeValidacion(mensaje);
                 alert(mensaje);
@@ -88,9 +143,12 @@ function AnadirGasto() {
 
         setFolio(folioFiscalValido || folioNormalizado);
         setFolioValidado(true);
+        auditField('folio', folioFiscalValido || folioNormalizado);
+        captureAudit.record('folio_confirmed', { value: folioFiscalValido || folioNormalizado });
     };
 
     const handleMontoChange = (nuevoMonto) => {
+        auditFieldSoon('amount', nuevoMonto);
         setMonto(nuevoMonto);
         const archivoDocumento = archivoParaTipoDocumento(tipoDocumento, { facturaFile, valeFile, reciboFile });
         const ocrDocumento = ocrParaTipoDocumento(tipoDocumento, { ocrFactura, ocrVale, ocrRecibo });
@@ -115,6 +173,7 @@ function AnadirGasto() {
     };
 
     const handleFolioChange = (nuevoFolio) => {
+        auditFieldSoon('folio', nuevoFolio);
         setFolio(nuevoFolio);
         setFolioValidado(false); // Resetea el estatus si el usuario edita el folio
         if (
@@ -128,6 +187,7 @@ function AnadirGasto() {
     };
 
     const handleValeFileChange = (file) => {
+        auditFile('vale', file);
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrVale, file);
         setValeFile(file || null);
         setEstadoValidacion(null);
@@ -138,6 +198,7 @@ function AnadirGasto() {
     };
 
     const handleReciboFileChange = (file) => {
+        auditFile('recibo', file);
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrRecibo, file);
         setReciboFile(file || null);
         setEstadoValidacion(null);
@@ -160,6 +221,7 @@ function AnadirGasto() {
     };
 
     const handleFacturaFileChange = async (file) => {
+        auditFile('factura', file);
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrFactura, file);
         setFacturaFile(file || null);
         setEstadoValidacion(null);
@@ -175,6 +237,7 @@ function AnadirGasto() {
         }
 
         if (!esXml(file) && !esPdf(file)) {
+            auditValidation('validation_failed', 'La factura debe ser un archivo válido.');
             setFacturaFile(null);
             setFolio('');
             setFolioValidado(false);
@@ -195,10 +258,12 @@ function AnadirGasto() {
         }
 
         try {
+            auditValidation('validation_started', 'Lectura de documento XML.');
             const parsed = await parseCfdi(file);
             const uuid = normalizarUuidFiscalValido(parsed.uuid);
 
             if (!uuid) {
+                auditValidation('validation_failed', 'La factura no trae folio fiscal válido.');
                 setFolio('');
                 setFolioValidado(false);
                 alert('La factura no trae folio fiscal válido.');
@@ -207,9 +272,12 @@ function AnadirGasto() {
 
             setFolio(uuid);
             setFolioValidado(false);
+            auditField('folio', uuid);
+            auditValidation('validation_completed', 'Documento XML leído. Folio pendiente de confirmar.');
         } 
         
         catch (error) {
+            auditValidation('validation_failed', apiErrorMessage(error));
             setFolio('');
             setFolioValidado(false);
             alert(apiErrorMessage(error));
@@ -243,9 +311,14 @@ function AnadirGasto() {
     // 2. LÓGICA DE SIMULACIÓN DE IA
     const handleValidarGasto = async () => {
         if (cargandoValidacion) return;
+        auditField('date', fecha);
+        auditField('amount', monto);
+        auditField('folio', folio);
+        auditValidation('validation_started');
 
         if (requiereAreaManual && !areaAutoriza.trim()) {
             const mensaje = 'Selecciona el área que autoriza para Pasajes y Taxis.';
+            auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
@@ -254,6 +327,7 @@ function AnadirGasto() {
 
         const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
         if (errorDocumento) {
+            auditValidation('validation_failed', errorDocumento);
             setEstadoValidacion('error');
             setMensajeValidacion(errorDocumento);
             alert(errorDocumento);
@@ -268,7 +342,8 @@ function AnadirGasto() {
             setMensajeValidacion('');
 
             try {
-                const ocrParsed = await leerDocumentoConOcr(archivoDocumento, ocrDocumento, tipoDocumento);
+                await captureAudit.flush();
+                const ocrParsed = await leerDocumentoConOcr(archivoDocumento, ocrDocumento, tipoDocumento, captureAudit.id);
                 const advertencias = validarResultadoDocumentoSimpleOcr(ocrParsed, monto, fecha, etiqueta);
                 const ocrActualizado = datosOcrParaBorrador(ocrParsed, archivoDocumento, { monto });
                 guardarOcrDocumento(tipoDocumento, ocrActualizado);
@@ -281,8 +356,10 @@ function AnadirGasto() {
                 );
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
+                auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             } catch (error) {
                 const mensaje = apiErrorMessage(error);
+                auditValidation('validation_failed', mensaje);
                 setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
                 setMensajeValidacion(mensaje);
                 alert(mensaje);
@@ -297,6 +374,7 @@ function AnadirGasto() {
 
         if (tipoDocumento === 'factura' && facturaEsXml && !folioValidado) {
             const mensaje = "Por favor, confirma el Folio Fiscal antes de validar.";
+            auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
@@ -315,13 +393,16 @@ function AnadirGasto() {
                 ]);
                 setMensajeValidacion(mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
+                auditValidation('validation_completed', mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
             } else if (facturaEsPdf) {
-                const ocrParsed = await leerFacturaPdfConOcr(facturaFile, ocrFactura);
+                await captureAudit.flush();
+                const ocrParsed = await leerFacturaPdfConOcr(facturaFile, ocrFactura, captureAudit.id);
                 const uuidOcr = normalizarUuidFiscalValido(ocrParsed.suggested_cfdi_uuid);
                 const folioActual = normalizarUuidFiscalValido(folio);
                 const folioParaGuardar = uuidOcr || folioActual;
                 if (uuidOcr) {
                     setFolio(uuidOcr);
+                    auditField('folio', uuidOcr);
                     setFolioValidado(Boolean(folioValidado && folioActual === uuidOcr));
                 } else if (!folioActual) {
                     setFolio('');
@@ -356,10 +437,12 @@ function AnadirGasto() {
                     : `Extracción de texto finalizada. Folio sugerido: ${folioDetectado}. Revisa que el Folio coincida con tu factura y presiona "Confirmar" para guardarlo.`;
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
+                auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             }
         } 
         catch (error) {
             const mensaje = apiErrorMessage(error);
+            auditValidation('validation_failed', mensaje);
             setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
@@ -373,9 +456,14 @@ function AnadirGasto() {
     const handleGuardarGasto = async (e) => {
         e.preventDefault();
         if (guardandoGasto) return;
+        auditField('date', fecha);
+        auditField('amount', monto);
+        auditField('folio', folio);
+        auditField('observations', observaciones);
 
         const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
         if (errorDocumento) {
+            auditValidation('validation_failed', errorDocumento);
             setEstadoValidacion('error');
             setMensajeValidacion(errorDocumento);
             alert(errorDocumento);
@@ -386,6 +474,7 @@ function AnadirGasto() {
         const facturaEsPdf = tipoDocumento === 'factura' && esPdf(facturaFile);
         if (tipoDocumento === 'factura' && facturaEsXml && !folioValidado) {
             const mensaje = 'Confirma el Folio Fiscal antes de añadir el gasto.';
+            auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
@@ -461,6 +550,7 @@ function AnadirGasto() {
 
         // 1. Creamos el objeto con la misma estructura que espera tu lista
         const nuevoGastoItem = {
+            captureId: captureAudit.id,
             id: Date.now(), // Un ID único usando el tiempo actual
             nombre: `Gasto - ${categoria}`,
             monto: parseFloat(monto) || 0,
@@ -508,6 +598,7 @@ function AnadirGasto() {
         setGuardandoGasto(true);
 
         try {
+            await captureAudit.flush();
             const { solicitud, gastoBackend } = await guardarGastoEnBorradorBackend(nuevoGastoItem);
             const gastoGuardado = {
                 ...nuevoGastoItem,
@@ -546,6 +637,8 @@ function AnadirGasto() {
 
             saveDraftRequest(solicitud);
             addDraftGasto(gastoGuardado);
+            captureFinished.current = true;
+            captureAudit.finish();
             alert("¡Gasto guardado exitosamente en la solicitud!");
             navigate('/solicitud/nueva');
         } catch (error) {
@@ -561,12 +654,26 @@ function AnadirGasto() {
 
 
     return (
-        <div style={styles.container}>
+        <div style={styles.container} data-audit-capture-id={captureAudit.id}>
         
         {/* HEADER DE LA PÁGINA CON BOTÓN CANCELAR */}
         <div style={styles.topRow}>
             <h2 style={styles.mainTitle}>Añadir Gasto</h2>
-            <button style={styles.cancelarBtn} onClick={() => navigate('/solicitud/nueva')}>
+            <button style={styles.cancelarBtn} onClick={async () => {
+                auditField('date', fecha);
+                auditField('amount', monto);
+                auditField('folio', folio);
+                auditField('observations', observaciones);
+                captureAudit.record('cancelled');
+                try {
+                    await captureAudit.flush();
+                    captureFinished.current = true;
+                    captureAudit.finish();
+                    navigate('/solicitud/nueva');
+                } catch (error) {
+                    alert(apiErrorMessage(error));
+                }
+            }}>
             Cancelar
             </button>
         </div>
@@ -580,19 +687,27 @@ function AnadirGasto() {
                 <div style={styles.formGrid}>
                     <div style={styles.inputGroup}>
                         <label style={styles.label}>Fecha de la Factura *</label>
-                        <input type="text" value={fecha} onChange={(e) => setFecha(e.target.value)} 
+                        <input type="text" value={fecha} onChange={(e) => {
+                            auditFieldSoon('date', e.target.value);
+                            setFecha(e.target.value);
+                        }}
+                            onBlur={(e) => auditField('date', e.target.value)}
                             placeholder="DD/MM/AAAA"
                             style={styles.input} />
                     </div>
                     <div style={styles.inputGroup}>
                         <label style={styles.label}>Categoría *</label>
-                        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={styles.select}>
+                        <select value={categoria} onChange={(e) => {
+                            auditField('category', e.target.value);
+                            setCategoria(e.target.value);
+                        }} style={styles.select}>
                             {categoriasGasto.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                         </select>
                     </div>
                     <div style={styles.inputGroup}>
                         <label style={styles.label}>Monto *</label>
                         <input type="number" value={monto} onChange={(e) => handleMontoChange(e.target.value)}
+                        onBlur={(e) => auditField('amount', e.target.value)}
                         placeholder="Ej. 123.45"
                         style={styles.input} />
                     </div>
@@ -607,6 +722,7 @@ function AnadirGasto() {
                                 type="text" 
                                 value={tipoDocumento === 'factura' ? folio : 'N/A'} 
                                 onChange={(e) => handleFolioChange(e.target.value)}
+                                onBlur={(e) => auditField('folio', e.target.value)}
                                 placeholder="Ej. 12345678-ABCD-1234-ABCD-1234567890AB"
                                 style={{
                                     ...styles.input,
@@ -639,7 +755,10 @@ function AnadirGasto() {
                         </label>
                         <select 
                             value={esInsumo ? 'Insumos' : areaAutoriza}
-                            onChange={(e) => setAreaAutoriza(e.target.value)} 
+                            onChange={(e) => {
+                                auditField('authorization_area', e.target.value);
+                                setAreaAutoriza(e.target.value);
+                            }}
                             disabled={!esTransporte}
                             style={{
                                 ...styles.select,
@@ -785,7 +904,11 @@ function AnadirGasto() {
                     style={styles.textarea}
                     placeholder="Escribe aquí notas adicionales sobre este reembolso..."
                     value={observaciones} 
-                    onChange={(e) => setObservaciones(e.target.value)} 
+                    onChange={(e) => {
+                        auditFieldSoon('observations', e.target.value);
+                        setObservaciones(e.target.value);
+                    }}
+                    onBlur={(e) => auditField('observations', e.target.value)}
                 />
             </div>
 
@@ -1207,6 +1330,7 @@ async function guardarGastoEnBorradorBackend(gasto) {
 
 function gastoPayloadParaBackend(gasto) {
     return {
+        captureId: gasto.captureId || null,
         fecha: gasto.fecha,
         categoria: gasto.tipo || gasto.type,
         monto: String(gasto.monto),
@@ -1409,7 +1533,7 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     return { parsed, advertencias };
 }
 
-async function leerDocumentoConOcr(file, ocrActual = null, tipoDocumento = 'factura') {
+async function leerDocumentoConOcr(file, ocrActual = null, tipoDocumento = 'factura', captureId = null) {
     if (ocrCoincideConArchivoActual(ocrActual, file)) {
         return {
             ...ocrActual,
@@ -1417,11 +1541,11 @@ async function leerDocumentoConOcr(file, ocrActual = null, tipoDocumento = 'fact
         };
     }
 
-    return previewInvoiceOcr(file, tipoDocumento);
+    return previewInvoiceOcr(file, tipoDocumento, captureId);
 }
 
-async function leerFacturaPdfConOcr(file, ocrActual = null) {
-    return leerDocumentoConOcr(file, ocrActual, 'factura');
+async function leerFacturaPdfConOcr(file, ocrActual = null, captureId = null) {
+    return leerDocumentoConOcr(file, ocrActual, 'factura', captureId);
 }
 
 async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, folioCapturado = null) {

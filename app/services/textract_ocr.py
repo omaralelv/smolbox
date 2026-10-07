@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
-from dataclasses import dataclass
+from contextlib import closing
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any
 
 from app.core.config import Settings
+from app.services.pdf_ocr import PdfOcrRenderError, render_pdf_pages
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_TEXTRACT_CONTENT_TYPES = {
     "application/pdf",
@@ -114,20 +119,133 @@ class TextractOcrService:
         if _text_pdf_result_is_sufficient(pdf_text_result):
             return pdf_text_result
 
-        client = self._client()
         try:
-            # Aqui vive la llamada real a AWS Textract.
-            response = client.analyze_expense(Document={"Bytes": content})
-        except Exception as exc:  # pragma: no cover - depends on AWS
-            if _is_textract_document_read_error(exc):
-                fallback_result = _extract_text_pdf_expense(content, content_type=content_type)
-                if fallback_result is not None:
-                    return fallback_result
+            client = self._client()
+        except Exception as exc:
+            self._log_error(exc, operation="create_client", filename=filename)
             raise TextractOcrError(f"Textract failed for {filename}: {exc}") from exc
 
-        return _parse_analyze_expense_response(
-            response,
-            store_raw_response=self.settings.textract_store_raw_response,
+        is_pdf = content_type.lower().split(";", maxsplit=1)[0] == "application/pdf"
+        try:
+            result = self._extract_document(client, content, filename=filename, is_pdf=is_pdf)
+        except TextractOcrError as exc:
+            if not is_pdf or not _is_textract_document_read_error(exc):
+                raise
+            try:
+                result = self._extract_rendered_pdf(client, content, filename=filename)
+            except PdfOcrRenderError as render_exc:
+                self._log_error(render_exc, operation="render_pdf", filename=filename)
+                if pdf_text_result is not None:
+                    return pdf_text_result
+                raise TextractOcrError(
+                    f"Textract PDF recovery failed for {filename}: {render_exc}"
+                ) from render_exc
+
+        if pdf_text_result is not None:
+            result = _merge_ocr_results(result, pdf_text_result)
+        if not result.raw_text.strip():
+            error = TextractOcrError(f"Textract returned no readable text for {filename}.")
+            self._log_error(error, operation="extract_expense", filename=filename)
+            raise error
+        return result
+
+    def _extract_document(
+        self,
+        client,
+        content: bytes,
+        *,
+        filename: str,
+        is_pdf: bool = False,
+        page_number: int | None = None,
+    ) -> TextractOcrResult:
+        try:
+            response = self._call_textract(
+                client, "analyze_expense", content, filename=filename, page_number=page_number
+            )
+        except TextractOcrError as exc:
+            if is_pdf or not _is_textract_document_read_error(exc):
+                raise
+            return self._detect_text(client, content, filename=filename, page_number=page_number)
+
+        result = _parse_analyze_expense_response(
+            response, store_raw_response=self.settings.textract_store_raw_response
+        )
+        if result.extracted_total is not None and result.extracted_date is not None:
+            return result
+        try:
+            detected = self._detect_text(
+                client, content, filename=filename, page_number=page_number
+            )
+        except TextractOcrError:
+            # A successful partial read still allows the existing manual-entry flow.
+            if result.raw_text.strip():
+                return result
+            raise
+        return _merge_ocr_results(result, detected)
+
+    def _detect_text(
+        self,
+        client,
+        content: bytes,
+        *,
+        filename: str,
+        page_number: int | None,
+    ) -> TextractOcrResult:
+        response = self._call_textract(
+            client, "detect_document_text", content, filename=filename, page_number=page_number
+        )
+        return _parse_detect_document_text_response(
+            response, store_raw_response=self.settings.textract_store_raw_response
+        )
+
+    def _extract_rendered_pdf(self, client, content: bytes, *, filename: str) -> TextractOcrResult:
+        results: list[TextractOcrResult] = []
+        with closing(render_pdf_pages(content)) as pages:
+            for page_number, page_content in enumerate(pages, start=1):
+                results.append(
+                    self._extract_document(
+                        client, page_content, filename=filename, page_number=page_number
+                    )
+                )
+        logger.info("Textract PDF recovery completed: filename=%r pages=%s", filename, len(results))
+        return _combine_page_results(results)
+
+    def _call_textract(
+        self,
+        client,
+        operation: str,
+        content: bytes,
+        *,
+        filename: str,
+        page_number: int | None,
+    ) -> dict[str, Any]:
+        try:
+            return getattr(client, operation)(Document={"Bytes": content})
+        except Exception as exc:
+            self._log_error(exc, operation=operation, filename=filename, page_number=page_number)
+            raise TextractOcrError(f"Textract {operation} failed for {filename}: {exc}") from exc
+
+    def _log_error(
+        self,
+        exc: Exception,
+        *,
+        operation: str,
+        filename: str,
+        page_number: int | None = None,
+    ) -> None:
+        response = getattr(exc, "response", None)
+        response = response if isinstance(response, dict) else {}
+        logger.warning(
+            "OCR failure: operation=%s filename=%r region=%s page=%s "
+            "error_code=%s request_id=%s error=%s",
+            operation,
+            filename,
+            self.settings.aws_region,
+            page_number,
+            (response.get("Error") or {}).get("Code", type(exc).__name__),
+            (response.get("ResponseMetadata") or {}).get("RequestId", "unknown"),
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
         )
 
     def _client(self):
@@ -205,6 +323,8 @@ def _parse_analyze_expense_response(
     total = _money_from_text(
         _first_summary_value(values_by_type, "TOTAL", "AMOUNT_DUE", "GRAND_TOTAL")
     )
+    if total is None:
+        total = _total_from_ocr_text(raw_text)
     supplier = _first_summary_value(values_by_type, "VENDOR_NAME", "NAME")
     extracted_date = _date_from_summary_or_text(values_by_type, raw_text)
     suggested_cfdi_uuid = _cfdi_uuid_from_text(raw_text)
@@ -218,6 +338,78 @@ def _parse_analyze_expense_response(
         suggested_cfdi_uuid=suggested_cfdi_uuid,
         confidence=confidence,
         raw_response=response if store_raw_response else None,
+    )
+
+
+def _parse_detect_document_text_response(
+    response: dict[str, Any], *, store_raw_response: bool
+) -> TextractOcrResult:
+    blocks = response.get("Blocks") or []
+    lines = [block for block in blocks if block.get("BlockType") == "LINE"]
+    raw_text = "\n".join(str(block["Text"]) for block in lines if block.get("Text"))
+    confidences = [
+        {"ValueDetection": {"Confidence": block["Confidence"]}}
+        for block in lines
+        if block.get("Confidence") is not None
+    ]
+    return TextractOcrResult(
+        raw_text=raw_text,
+        extracted_total=_total_from_ocr_text(raw_text),
+        extracted_date=_date_from_summary_or_text({}, raw_text),
+        extracted_supplier=None,
+        suggested_cfdi_uuid=_cfdi_uuid_from_text(raw_text),
+        confidence=_average_confidence(confidences),
+        raw_response=response if store_raw_response else None,
+    )
+
+
+def _merge_ocr_results(
+    primary: TextractOcrResult, fallback: TextractOcrResult
+) -> TextractOcrResult:
+    raw_response = primary.raw_response or fallback.raw_response
+    if primary.raw_response is not None and fallback.raw_response is not None:
+        raw_response = {"sources": [primary.raw_response, fallback.raw_response]}
+    return replace(
+        primary,
+        raw_text=_join_ocr_text([primary, fallback]),
+        extracted_total=primary.extracted_total
+        if primary.extracted_total is not None
+        else fallback.extracted_total,
+        extracted_date=primary.extracted_date or fallback.extracted_date,
+        extracted_supplier=primary.extracted_supplier or fallback.extracted_supplier,
+        suggested_cfdi_uuid=primary.suggested_cfdi_uuid or fallback.suggested_cfdi_uuid,
+        confidence=primary.confidence if primary.confidence is not None else fallback.confidence,
+        raw_response=raw_response,
+    )
+
+
+def _combine_page_results(results: list[TextractOcrResult]) -> TextractOcrResult:
+    raw_text = _join_ocr_text(results)
+    totals = [result.extracted_total for result in results if result.extracted_total is not None]
+    dates = [result.extracted_date for result in results if result.extracted_date is not None]
+    suppliers = [result.extracted_supplier for result in results if result.extracted_supplier]
+    uuids = [result.suggested_cfdi_uuid for result in results if result.suggested_cfdi_uuid]
+    confidences = [result.confidence for result in results if result.confidence is not None]
+    raw_responses = [result.raw_response for result in results if result.raw_response is not None]
+    return TextractOcrResult(
+        raw_text=raw_text,
+        # Invoice totals repeated on multiple pages are not separate expenses to sum.
+        extracted_total=totals[-1] if totals else _total_from_ocr_text(raw_text),
+        extracted_date=dates[0] if dates else _date_from_summary_or_text({}, raw_text),
+        extracted_supplier=suppliers[0] if suppliers else None,
+        suggested_cfdi_uuid=uuids[0] if uuids else _cfdi_uuid_from_text(raw_text),
+        confidence=(sum(confidences) / Decimal(len(confidences))).quantize(Decimal("0.01"))
+        if confidences
+        else None,
+        raw_response={"source": "rendered_pdf_pages", "pages": raw_responses}
+        if raw_responses
+        else None,
+    )
+
+
+def _join_ocr_text(results: list[TextractOcrResult]) -> str:
+    return "\n".join(
+        dict.fromkeys(line for result in results for line in result.raw_text.splitlines() if line)
     )
 
 
@@ -289,9 +481,7 @@ def _extract_text_pdf_expense(
 def _text_pdf_result_is_sufficient(result: TextractOcrResult | None) -> bool:
     if result is None:
         return False
-    if result.suggested_cfdi_uuid and result.extracted_date and result.extracted_total:
-        return True
-    return bool(result.extracted_date and result.extracted_total)
+    return result.extracted_date is not None and result.extracted_total is not None
 
 
 def _pdf_text_from_bytes(content: bytes) -> str | None:
@@ -306,9 +496,7 @@ def _pdf_text_from_bytes(content: bytes) -> str | None:
             return None
 
         text_parts = [
-            text
-            for page in reader.pages
-            if (text := (page.extract_text() or "").strip())
+            text for page in reader.pages if (text := (page.extract_text() or "").strip())
         ]
     except Exception:  # noqa: BLE001
         return None
@@ -339,14 +527,16 @@ def _total_from_ocr_text(raw_text: str | None) -> Decimal | None:
         if line_values:
             return line_values[-1]
 
-        nearby_values: list[Decimal] = []
         for nearby_line in lines[index + 1 : index + 12]:
             if _looks_like_new_section_after_total(nearby_line):
                 break
-            nearby_values.extend(_money_values_from_text(nearby_line))
-
-        if nearby_values:
-            return nearby_values[-1]
+            if re.fullmatch(
+                r"(?:MXN|M\.?N\.?|PESOS|\$)?\s*-?\d[\d,]*(?:\.\d{1,2})?"
+                r"\s*(?:MXN|M\.?N\.?|PESOS)?",
+                nearby_line,
+                flags=re.IGNORECASE,
+            ):
+                return _money_from_text(nearby_line)
 
     return None
 
@@ -365,7 +555,11 @@ def _money_values_from_text(value: str) -> list[Decimal]:
 
 def _is_total_label_line(value: str) -> bool:
     compact = _compact_search_text(value)
-    return "TOTAL" in compact and "SUBTOTAL" not in compact
+    if compact.startswith("LACANTIDADDE"):
+        return True
+    return "TOTAL" in compact and not any(
+        excluded in compact for excluded in ("SUBTOTAL", "IMPUESTO", "RETENCION", "TRASLADO")
+    )
 
 
 def _looks_like_new_section_after_total(value: str) -> bool:
@@ -380,6 +574,15 @@ def _looks_like_new_section_after_total(value: str) -> bool:
 
 
 def _is_textract_document_read_error(exc: Exception) -> bool:
+    cause: BaseException | None = exc
+    while cause is not None:
+        response = getattr(cause, "response", None)
+        if isinstance(response, dict) and (response.get("Error") or {}).get("Code"):
+            return response["Error"]["Code"] in {
+                "UnsupportedDocumentException",
+                "BadDocumentException",
+            }
+        cause = cause.__cause__
     error_text = f"{exc.__class__.__name__} {exc}".lower()
     return (
         "unsupported document" in error_text
@@ -462,9 +665,7 @@ def _date_from_text(value: str | None) -> date | None:
 def _date_context_rank(value: str) -> int:
     compact = _compact_search_text(value)
     has_positive_context = any(hint in compact for hint in DATE_CONTEXT_HINTS)
-    has_deprioritized_context = any(
-        hint in compact for hint in DEPRIORITIZED_DATE_CONTEXT_HINTS
-    )
+    has_deprioritized_context = any(hint in compact for hint in DEPRIORITIZED_DATE_CONTEXT_HINTS)
 
     if has_positive_context and not has_deprioritized_context:
         return 0

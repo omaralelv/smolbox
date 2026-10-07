@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { currentToken, recordFrontendClick } from '../../lib/api';
+import { recordCaptureClick } from '../../lib/captureAudit';
 
 const CLICKABLE_SELECTOR = [
     'button',
@@ -34,6 +35,13 @@ function ClickAuditTracker() {
 
             const clickable = target.closest(CLICKABLE_SELECTOR);
             if (!clickable || clickable.closest('[data-audit-ignore="true"]')) return;
+
+            const captureId = clickable.closest('[data-audit-capture-id]')?.getAttribute('data-audit-capture-id');
+            if (captureId) {
+                const label = readableClickLabel(clickable);
+                if (label) recordCaptureClick(captureId, label);
+                return;
+            }
 
             const auditContext = clickable.closest('[data-audit-request-id]');
             const requestId = auditContext?.getAttribute('data-audit-request-id');
@@ -70,6 +78,7 @@ function readableClickLabel(element) {
         element.getAttribute('data-audit-label'),
         element.getAttribute('aria-label'),
         element.getAttribute('title'),
+        element instanceof HTMLSelectElement ? element.selectedOptions[0]?.textContent : null,
         inputLabel(element),
         element.textContent,
         element.querySelector?.('img')?.getAttribute('alt'),

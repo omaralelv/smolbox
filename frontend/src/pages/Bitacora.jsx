@@ -4,10 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     apiErrorMessage,
     currentToken,
-    getFrontendBandeja,
-    getFrontendHistorico,
-    getRequestAuditEvents,
-    listAllUsers,
+    getFrontendAuditEvents,
 } from '../lib/api';
 
 const ACTION_GROUPS = [
@@ -105,44 +102,16 @@ function Bitacora() {
         }
 
         async function loadAuditData() {
-            setLoading(true);
             setError('');
 
             try {
-                const [bandejaResult, historicoResult, usersResult] = await Promise.allSettled([
-                    getFrontendBandeja(),
-                    getFrontendHistorico(),
-                    listAllUsers(),
-                ]);
-
-                const bandeja = fulfilledArray(bandejaResult);
-                const historico = fulfilledArray(historicoResult);
-
-                if (!bandeja.length && !historico.length) {
-                    const firstError = [bandejaResult, historicoResult].find(
-                        (result) => result.status === 'rejected'
-                    );
-                    if (firstError) throw firstError.reason;
-                }
-
-                const users = fulfilledArray(usersResult);
-                const usersById = new Map(
-                    users.map((user) => [String(user.id), user])
-                );
-                const requests = uniqueRequests([...bandeja, ...historico]).slice(0, 120);
-
-                const auditResults = await Promise.allSettled(
-                    requests.map((request) => {
-                        const requestId = request.backendId || request.backend_id || request.id;
-                        if (!requestId) return Promise.resolve([]);
-                        return getRequestAuditEvents(requestId).then((auditEvents) => (
-                            auditEvents.map((event) => normalizeAuditEvent(event, request, usersById))
-                        ));
-                    })
-                );
-
-                const normalizedEvents = auditResults
-                    .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
+                const auditEvents = await getFrontendAuditEvents(selectedDate);
+                const normalizedEvents = auditEvents
+                    .map((event) => normalizeAuditEvent(event, {
+                        backendId: event.reimbursement_request_id,
+                        folio: event.request_folio,
+                        tienda: event.store_code,
+                    }))
                     .filter(Boolean)
                     .sort(compareAuditEvents);
 
@@ -156,12 +125,20 @@ function Bitacora() {
             }
         }
 
-        loadAuditData();
+        let refreshing = false;
+        const refresh = async () => {
+            if (refreshing) return;
+            refreshing = true;
+            try { await loadAuditData(); } finally { refreshing = false; }
+        };
+        refresh();
+        const timer = window.setInterval(refresh, 10_000);
 
         return () => {
             active = false;
+            window.clearInterval(timer);
         };
-    }, [navigate]);
+    }, [navigate, selectedDate]);
 
     const dayEvents = useMemo(() => (
         events.filter((event) => event.dateKey === selectedDate)
@@ -272,7 +249,7 @@ function Bitacora() {
 
     const summary = useMemo(() => ({
         movements: filteredEvents.length,
-        requests: new Set(filteredEvents.map((event) => event.requestId)).size,
+        requests: new Set(filteredEvents.map((event) => event.requestId).filter(Boolean)).size,
         users: new Set(filteredEvents.map((event) => event.actorName).filter(Boolean)).size,
     }), [filteredEvents]);
 
@@ -468,29 +445,11 @@ function SummaryCard({ label, value }) {
     );
 }
 
-function fulfilledArray(result) {
-    return result.status === 'fulfilled' && Array.isArray(result.value)
-        ? result.value
-        : [];
-}
-
-function uniqueRequests(requests) {
-    const byId = new Map();
-    requests.forEach((request) => {
-        const id = request?.backendId || request?.backend_id || request?.id;
-        if (id && !byId.has(String(id))) {
-            byId.set(String(id), request);
-        }
-    });
-    return [...byId.values()];
-}
-
-function normalizeAuditEvent(event, request, usersById) {
+function normalizeAuditEvent(event, request) {
     const payload = event.event_payload || event.payload || {};
     const actorId = event.actor_user_id || event.actorUserId;
-    const actor = actorId ? usersById.get(String(actorId)) : null;
-    const actorRole = payload.actor_role || actor?.role || event.actor_type || 'system';
-    const actorDisplayName = actorName(actor, event.actor_type || event.actorType, actorId);
+    const actorRole = payload.actor_role || event.actor_role || event.actor_type || 'system';
+    const actorDisplayName = payload.actor_name || event.actor_name || actorName(null, event.actor_type || event.actorType, actorId);
     const requestId = String(request.backendId || request.backend_id || request.id || '');
     const createdAt = String(event.created_at || event.createdAt || '');
     const timestamp = Date.parse(createdAt);
@@ -503,7 +462,7 @@ function normalizeAuditEvent(event, request, usersById) {
     return {
         id: String(event.id),
         requestId,
-        requestLabel: request.folio || request.id || requestId,
+        requestLabel: request.folio || request.id || requestId || 'Captura no añadida',
         storeKey: String(storeLabel).trim().toLowerCase(),
         storeLabel,
         actionLabel: actionLabel(event.action, event.to_status || event.toStatus),
@@ -537,6 +496,20 @@ function actionLabel(action, toStatus) {
         expense_cfdi_validated: 'Factura validada',
         expense_created: 'Gasto cargado',
         expense_created_from_frontend: 'Gasto cargado',
+        expense_capture_started: 'Captura iniciada',
+        expense_capture_click: 'Click durante captura',
+        expense_capture_field_changed: 'Dato de captura editado',
+        expense_capture_file_selected: 'Documento seleccionado',
+        expense_capture_validation_started: 'Validación iniciada',
+        expense_capture_validation_completed: 'Formulario validado',
+        expense_capture_validation_failed: 'Validación no completada',
+        expense_capture_folio_confirmed: 'Folio confirmado',
+        expense_capture_ocr_started: 'OCR iniciado',
+        expense_capture_ocr_completed: 'OCR leído',
+        expense_capture_ocr_failed: 'OCR no completado',
+        expense_capture_added: 'Captura añadida',
+        expense_capture_cancelled: 'Captura cancelada',
+        expense_capture_left: 'Captura no añadida',
         expense_observation_added: 'Observación agregada',
         expense_ocr_extracted: 'OCR leído',
         expense_ocr_failed: 'OCR no leído',
@@ -566,6 +539,11 @@ function actionLabel(action, toStatus) {
 }
 
 function actionGroup(action) {
+    if (action === 'expense_capture_click') return 'click';
+    if (action === 'expense_capture_field_changed') return 'edicion';
+    if (action === 'expense_capture_file_selected') return 'documento';
+    if (action.startsWith('expense_capture_validation_') || action.startsWith('expense_capture_ocr_')
+        || action === 'expense_capture_folio_confirmed') return 'validacion';
     if ([
         'expense_created',
         'expense_created_from_frontend',
@@ -604,6 +582,13 @@ function actionGroup(action) {
 }
 
 function eventDetail(event, payload) {
+    if (event.action.startsWith('expense_capture_')) {
+        return [event.message, payload.error_message,
+            payload.extracted_total != null ? `Monto leído: ${payload.extracted_total}.` : '',
+            payload.extracted_date ? `Fecha leída: ${payload.extracted_date}.` : '',
+            payload.suggested_cfdi_uuid ? `Folio leído: ${payload.suggested_cfdi_uuid}.` : '',
+        ].filter(Boolean).join(' ');
+    }
     const details = [];
     const translatedMessage = event.message ? translateMessage(event.message) : '';
     const messageForDetail = reasonMessageAction(event.action) && translatedMessage
@@ -755,6 +740,9 @@ function dateInputFromValue(value) {
 
 const styles = {
     container: {
+        width: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box',
         maxWidth: '1400px',
         margin: '0 auto',
         padding: '34px 28px 56px',

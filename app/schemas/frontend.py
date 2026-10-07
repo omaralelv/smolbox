@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -266,6 +267,54 @@ class FrontendClickAuditCreate(BaseModel):
     )
 
 
+class FrontendCaptureCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    capture_id: UUID = Field(alias="captureId")
+    request_id: UUID | None = Field(default=None, alias="requestId")
+    category: str = Field(default="Papelería", max_length=120)
+    document_type: Literal["factura", "vale", "recibo"] = Field(
+        default="factura", alias="documentType"
+    )
+
+
+class FrontendCaptureEventCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    event_id: UUID = Field(alias="eventId")
+    action: Literal[
+        "click",
+        "field_changed",
+        "file_selected",
+        "validation_started",
+        "validation_completed",
+        "validation_failed",
+        "folio_confirmed",
+        "cancelled",
+        "left",
+    ]
+    field: (
+        Literal[
+            "category",
+            "amount",
+            "date",
+            "folio",
+            "authorization_area",
+            "document_type",
+            "observations",
+        ]
+        | None
+    ) = None
+    previous_value: str | None = Field(default=None, max_length=2000, alias="previousValue")
+    value: str | None = Field(default=None, max_length=2000)
+    label: str | None = Field(default=None, max_length=160)
+    filename: str | None = Field(default=None, max_length=255)
+    document_type: Literal["factura", "vale", "recibo"] | None = Field(
+        default=None, alias="documentType"
+    )
+    message: str | None = Field(default=None, max_length=2000)
+
+
 class FrontendExpensePartitionItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -295,6 +344,7 @@ class FrontendExpensePartitionCreate(BaseModel):
 class FrontendGastoCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    capture_id: UUID | None = Field(default=None, alias="captureId")
     fecha: str | date | None = None
     categoria: str | None = None
     monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
@@ -367,7 +417,6 @@ class FrontendSolicitudCreate(BaseModel):
     period_id: UUID | None = None
     tienda: str | None = None
 
-
     reported_total: Decimal | None = Field(
         default=None,
         ge=0,
@@ -380,6 +429,4 @@ class FrontendSolicitudCreate(BaseModel):
 
     notes: str | None = None
 
-    gastos: list[FrontendGastoCreate] = Field(
-        default_factory=list
-    )
+    gastos: list[FrontendGastoCreate] = Field(default_factory=list)

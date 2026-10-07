@@ -239,6 +239,25 @@ export async function recordFrontendClick(requestIdOrFolio, payload) {
     });
 }
 
+export async function startExpenseCapture(payload) {
+    return request('/frontend/capturas/me', { method: 'POST', body: payload, keepalive: true });
+}
+
+export async function recordExpenseCaptureEvent(captureId, payload) {
+    return request(`/frontend/capturas/${captureId}/eventos/me`, {
+        method: 'POST', body: payload, keepalive: true,
+    });
+}
+
+export async function getFrontendAuditEvents(day) {
+    const params = new URLSearchParams({
+        day,
+        utc_offset_minutes: String(-new Date(`${day}T12:00:00`).getTimezoneOffset()),
+        limit: '200',
+    });
+    return listAllPages((offset) => request(`/frontend/audit-events/me?${params}&offset=${offset}`));
+}
+
 export async function listUsers() {
     return request('/users/');
 }
@@ -421,10 +440,11 @@ export async function parseCfdi(file) {
     });
 }
 
-export async function previewInvoiceOcr(file, documentType = 'factura') {
+export async function previewInvoiceOcr(file, documentType = 'factura', captureId = null) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('document_type', documentType);
+    if (captureId) formData.append('capture_id', captureId);
     return request('/cfdi/ocr-preview', {
         method: 'POST',
         body: formData,
@@ -707,6 +727,7 @@ async function fetchWithAuth(url, options = {}) {
         headers,
         body: isFormData ? options.body : options.body ? JSON.stringify(options.body) : undefined,
         signal: options.signal,
+        keepalive: options.keepalive || false,
     });
 }
 
