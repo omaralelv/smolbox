@@ -228,6 +228,22 @@ export async function getFrontendSolicitud(requestIdOrFolio) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
 }
 
+export async function getReimbursementValidationSummary(requestId) {
+    try {
+        return await request(
+            `/reimbursement-requests/${encodeURIComponent(requestId)}/validation-summary`
+        );
+    } catch (error) {
+        if (error instanceof Error && error.message === 'Not Found') {
+            throw new Error(
+                'El servidor API no ofrece el resumen de validación. Actualiza y despliega el servicio API.',
+                { cause: error }
+            );
+        }
+        throw error;
+    }
+}
+
 export async function getRequestAuditEvents(requestId) {
     return request(`/reimbursement-requests/${requestId}/audit-events`);
 }

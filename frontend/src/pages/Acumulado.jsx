@@ -8,9 +8,11 @@ import {
     downloadRequestInvoicesZip,
     executeRequestAction,
     getFrontendSolicitud,
+    getReimbursementValidationSummary,
     uploadReimbursementExcel,
 } from '../lib/api';
 import { resumirGastos } from '../lib/expenseSummary';
+import { accountingReadinessBlockers } from '../lib/reimbursementValidation';
 
 function Acumulado( {currentRole} ) {
 
@@ -182,6 +184,24 @@ function Acumulado( {currentRole} ) {
             for (const accion of acciones) {
                 const accionPermitida = solicitud.availableActions?.includes(accion) || accion === 'prepare_sap_policy';
                 if (!accionPermitida) continue;
+                if (accion === 'mark_accounting_reviewed') {
+                    const validationSummary = await getReimbursementValidationSummary(
+                        solicitud.backendId
+                    );
+                    const blockers = accountingReadinessBlockers(
+                        validationSummary,
+                        solicitud.gastos || []
+                    );
+                    if (blockers.length) {
+                        setSolicitudActual(solicitud);
+                        localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitud]));
+                        alert(
+                            `No se puede enviar a gerencia todavía. Corrige lo siguiente:\n\n`
+                            + blockers.map((blocker) => `• ${blocker}`).join('\n')
+                        );
+                        return;
+                    }
+                }
                 await executeRequestAction(solicitud.backendId, accion);
                 solicitud = await getFrontendSolicitud(solicitud.backendId);
             }
