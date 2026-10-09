@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-29T11:00:00"
+  Moneda="MXN"
+  Total="340.00"
+  MetodoPago="PPD">
+  <cfdi:Emisor Rfc="GHI020202123" Nombre="SERVICIOS INTEGRALES DIGITALES S DE RL"/>
+  <cfdi:Receptor Rfc="CCC020202CCC" Nombre="EMPRESA EJEMPLO SA DE CV"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="3F40B059-8667-4F69-BE2A-98E841627D65"/>
+  </cfdi:Complemento></cfdi:Comprobante>

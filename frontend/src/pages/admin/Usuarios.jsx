@@ -1,0 +1,1360 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import {
+    apiErrorMessage,
+    assignAuthorizationAreaToUser,
+    assignUserToStore,
+    createStoreUser,
+    createUser,
+    currentToken,
+    deleteUser,
+    listAuthorizationAreas,
+    listAuthorizationAreasForUser,
+    listAllStores,
+    listAllUsers,
+    listStoreUserAssignments,
+    updateUser,
+} from '../../lib/api';
+import { passwordPolicyHelpText, passwordPolicyMessage } from '../../lib/passwordPolicy';
+
+const ROLE_OPTIONS = [
+    { value: 'store', label: 'Tienda' },
+    { value: 'authorizer', label: 'Supervisor' },
+    { value: 'accountant', label: 'Contabilidad' },
+    { value: 'accounting_manager', label: 'Gerencia' },
+    { value: 'treasury', label: 'Tesoreria' },
+    { value: 'director', label: 'Direccion' },
+    { value: 'admin', label: 'Admin' },
+];
+
+// Configuración de las secciones según la maqueta
+const ROLE_SECTIONS = [
+    { roleKey: 'store', title: 'TIENDAS' },
+    { roleKey: 'authorizer', title: 'SUPERVISORES' },
+    { roleKey: 'accountant', title: 'CONTABILIDAD' },
+    { roleKey: 'accounting_manager', title: 'GERENCIA' },
+    { roleKey: 'treasury', title: 'TESORERÍA' },
+    { roleKey: 'director', title: 'DIRECCIÓN' },
+    { roleKey: 'admin', title: 'ADMINS' },
+]; 
+
+const STORE_SCOPED_ROLES = new Set(['store']);
+
+const DEFAULT_AUTHORIZATION_AREAS = [
+    'Auditoria Interna',
+    'Gestoria',
+    'Insumos',
+    'Mantenimiento',
+    'Operaciones',
+    'Pago de Luz',
+    'Recursos Humanos',
+    'Servicio de Agua',
+    'Sistemas',
+    'Supervisores',
+    'Trafico',
+];
+
+const EMPTY_FORM = {
+    fullName: '',
+    email: '',
+    password: '',
+    role: 'store',
+    isActive: true,
+    storeId: '',
+    storeMode: 'new',
+    storeCode: '',
+    managerName: '',
+    bankAccount: '',
+    pettyCashFund: '0.00',
+    supervisorId: '',
+    authorizationArea: '',
+};
+
+async function cargarAsignacionesPorUsuario(usuarios, tiendas) {
+    const usuariosPorId = Object.fromEntries(usuarios.map((usuario) => [usuario.id, usuario]));
+    const asignaciones = Object.fromEntries(
+        usuarios.map((usuario) => [usuario.id, { areas: [], storeIds: [], storeId: '', tiendas: [] }])
+    );
+
+    const areasPorUsuario = await Promise.all(
+        usuarios
+            .filter((usuario) => usuario.role === 'authorizer')
+            .map(async (usuario) => {
+                try {
+                    const data = await listAuthorizationAreasForUser(usuario.id);
+                    return [usuario.id, Array.isArray(data) ? data : []];
+                } catch {
+                    return [usuario.id, []];
+                }
+            })
+    );
+
+    areasPorUsuario.forEach(([usuarioId, areas]) => {
+        if (!asignaciones[usuarioId]) return;
+        asignaciones[usuarioId].areas = areas
+            .filter((area) => area.is_active !== false)
+            .map((area) => area.authorization_area?.name)
+            .filter(Boolean);
+    });
+
+    const asignacionesTiendas = await Promise.all(
+        tiendas.map(async (tienda) => {
+            try {
+                const data = await listStoreUserAssignments(tienda.id);
+                return [tienda, Array.isArray(data) ? data : []];
+            } catch {
+                return [tienda, []];
+            }
+        })
+    );
+
+    asignacionesTiendas.forEach(([tienda, usuariosTienda]) => {
+        usuariosTienda
+            .filter((asignacion) => asignacion.is_active !== false)
+            .forEach((asignacion) => {
+                const usuario = usuariosPorId[asignacion.user_id];
+                if (!usuario || !asignaciones[asignacion.user_id]) return;
+                if (asignacion.role && asignacion.role !== usuario.role) return;
+                asignaciones[asignacion.user_id].storeIds.push(tienda.id);
+                asignaciones[asignacion.user_id].storeId ||= tienda.id;
+                asignaciones[asignacion.user_id].tiendas.push(`${tienda.code}-${tienda.name}`);
+            });
+    });
+
+    return asignaciones;
+}
+
+function mostrarListaAsignada(valores, textoVacio = 'Sin asignar') {
+    if (!Array.isArray(valores) || valores.length === 0) return textoVacio;
+    return valores.join(', ');
+}
+
+function normalizarTexto(valor) {
+    return String(valor || '').trim().toLocaleLowerCase('es');
+}
+
+function obtenerNombreMostrado(usuario, asignaciones, tiendas) {
+    if (usuario.role !== 'store') return usuario.full_name;
+    if (asignaciones.tiendas?.length) return asignaciones.tiendas[0];
+
+    const tiendaPorNombre = tiendas.find(
+        (tienda) => normalizarTexto(tienda.name) === normalizarTexto(usuario.full_name)
+    );
+    return tiendaPorNombre
+        ? `${tiendaPorNombre.code}-${tiendaPorNombre.name}`
+        : usuario.full_name;
+}
+
+function Usuarios() {
+    const navigate = useNavigate();
+    const [usuarios, setUsuarios] = useState([]);
+    const [tiendas, setTiendas] = useState([]);
+    const [areas, setAreas] = useState(DEFAULT_AUTHORIZATION_AREAS);
+    const [asignacionesPorUsuario, setAsignacionesPorUsuario] = useState({});
+
+    // Estado para controlar qué tablas por rol están colapsadas
+    const [seccionesAbiertas, setSeccionesAbiertas] = useState({
+        store: false,
+        authorizer: false,
+        accountant: false,
+        accounting_manager: false,
+        treasury: false,
+        director: false,
+        admin: false,
+    });
+
+    // Estados para Formulario y Edición
+    const [form, setForm] = useState(EMPTY_FORM);
+    const [usuarioEditarId, setUsuarioEditarId] = useState(null);
+    const [mostrarUsuario, setMostrarUsuario] = useState(false);
+
+    // Estado para mostrar contraseña
+    const [mostrarPassword, setMostrarPassword] = useState(false);
+    
+    // Estados para Eliminación
+    const [usuarioAEliminar, setUsuarioAEliminar] = useState(null);
+    const [justificacion, setJustificacion] = useState('');
+    const [mostrarEliminar, setMostrarEliminar] = useState(false);
+
+    const [cargando, setCargando] = useState(true);
+    const [guardando, setGuardando] = useState(false);
+    const [error, setError] = useState('');
+    const [mensaje, setMensaje] = useState('');
+
+    const requiereTienda = STORE_SCOPED_ROLES.has(form.role);
+    const requiereArea = form.role === 'authorizer';
+    const crearTiendaNueva = (
+        !usuarioEditarId
+        && requiereTienda
+        && form.storeMode === 'new'
+    );
+    const ocultarNombreUsuario = (
+        !usuarioEditarId
+        && requiereTienda
+        && !crearTiendaNueva
+    );
+
+    const rolesPorValor = useMemo(
+        () => Object.fromEntries(ROLE_OPTIONS.map((role) => [role.value, role.label])),
+        []
+    );
+
+
+    // Agrupación de usuarios por rol
+    const usuariosPorRol = useMemo(() => {
+        const agrupados = {
+            store: [],
+            authorizer: [],
+            accountant: [],
+            accounting_manager: [],
+            treasury: [],
+            director: [],
+            admin: [],
+        };
+
+        // Agrupar usuarios por rol
+        usuarios.forEach((u) => {
+            if (agrupados[u.role]) {
+                agrupados[u.role].push(u);
+            }
+        });
+
+        // Ordenar alfabéticamente por nombre dentro de cada grupo
+        Object.keys(agrupados).forEach((roleKey) => {
+            agrupados[roleKey].sort((a, b) => {
+                // Obtenemos el nombre visual que se renderiza en la tabla
+                const nombreA = obtenerNombreMostrado(a, asignacionesPorUsuario[a.id] || {}, tiendas);
+                const nombreB = obtenerNombreMostrado(b, asignacionesPorUsuario[b.id] || {}, tiendas);
+
+                return nombreA.localeCompare(nombreB, 'es', { numeric: true, sensitivity: 'base' });
+            });
+        });
+
+
+        //Object.keys(agrupados).forEach((roleKey) => {
+        //    agrupados[roleKey].sort((a, b) =>
+        //        (a.full_name || '').localeCompare(b.full_name || '', 'es', { sensitivity: 'base' })
+        //    );
+        //});
+
+        return agrupados;
+    }, [usuarios]);
+    
+
+
+    const supervisoresActivos = useMemo(
+        () => usuarios.filter((usuario) => usuario.role === 'authorizer' && usuario.is_active),
+        [usuarios]
+    );
+
+    const supervisoresPorTienda = useMemo(() => {
+        const resultado = {};
+        supervisoresActivos.forEach((supervisor) => {
+            const asignaciones = asignacionesPorUsuario[supervisor.id] || {};
+            (asignaciones.storeIds || []).forEach((storeId) => {
+                resultado[storeId] ||= [];
+                resultado[storeId].push(supervisor);
+            });
+        });
+        return resultado;
+    }, [asignacionesPorUsuario, supervisoresActivos]);
+
+    const supervisorInicialParaTienda = (storeId) => {
+        if (!storeId) return '';
+        return supervisoresPorTienda[storeId]?.[0]?.id || '';
+    };
+
+    const reloadData = async () => {
+        const [usuariosData, tiendasData] = await Promise.all([listAllUsers(), listAllStores()]);
+        const areasData = await listAuthorizationAreas().catch(() => []);
+
+        const usuariosLista = Array.isArray(usuariosData) ? usuariosData : [];
+        const tiendasLista = Array.isArray(tiendasData) ? tiendasData : [];
+        const asignaciones = await cargarAsignacionesPorUsuario(usuariosLista, tiendasLista);
+
+        setUsuarios(usuariosLista);
+        setTiendas(tiendasLista);
+        setAsignacionesPorUsuario(asignaciones);
+
+        const nombresAreas = Array.isArray(areasData)
+            ? areasData.filter((area) => area.is_active !== false).map((area) => area.name)
+            : [];
+        setAreas(nombresAreas.length ? nombresAreas : DEFAULT_AUTHORIZATION_AREAS);
+    };
+
+
+
+    useEffect(() => {
+        let activo = true;
+
+        if (!currentToken()) {
+            navigate('/login');
+            return () => {
+                activo = false;
+            };
+        }
+
+        async function cargarDatos() {
+            setCargando(true);
+            setError('');
+
+            try {
+                const [usuariosData, tiendasData] = await Promise.all([
+                    listAllUsers(),
+                    listAllStores(),
+                ]);
+                let areasData = [];
+
+                try {
+                    areasData = await listAuthorizationAreas();
+                } catch {
+                    areasData = [];
+                }
+
+                if (!activo) return;
+
+                const usuariosLista = Array.isArray(usuariosData) ? usuariosData : [];
+                const tiendasLista = Array.isArray(tiendasData) ? tiendasData : [];
+                const asignaciones = await cargarAsignacionesPorUsuario(usuariosLista, tiendasLista);
+
+                if (!activo) return;
+                setUsuarios(usuariosLista);
+                setTiendas(tiendasLista);
+                setAsignacionesPorUsuario(asignaciones);
+                const nombresAreas = Array.isArray(areasData)
+                    ? areasData
+                        .filter((area) => area.is_active !== false)
+                        .map((area) => area.name)
+                    : [];
+                setAreas(nombresAreas.length ? nombresAreas : DEFAULT_AUTHORIZATION_AREAS);
+            } catch (err) {
+                if (!activo) return;
+                setError(apiErrorMessage(err));
+            } finally {
+                if (activo) setCargando(false);
+            }
+        }
+
+        cargarDatos();
+
+        return () => {
+            activo = false;
+        };
+    }, [navigate]);
+
+    const actualizarCampo = (campo, valor) => {
+        setForm((actual) => {
+            const siguiente = {
+                ...actual,
+                [campo]: valor,
+                ...(campo === 'role' && valor !== 'authorizer' ? { authorizationArea: '' } : {}),
+                ...(campo === 'role' && !STORE_SCOPED_ROLES.has(valor)
+                    ? {
+                        storeId: '',
+                        storeMode: 'existing',
+                        storeCode: '',
+                        supervisorId: '',
+                    }
+                    : {}),
+                ...(campo === 'role' && valor === 'store' ? { storeMode: 'new' } : {}),
+                ...(campo === 'role' && valor !== 'store' ? { supervisorId: '' } : {}),
+            };
+
+            if (campo === 'storeId' && siguiente.role === 'store') {
+                siguiente.supervisorId = supervisorInicialParaTienda(valor);
+            }
+
+            if (campo === 'role' && valor === 'store' && siguiente.storeId) {
+                siguiente.supervisorId = supervisorInicialParaTienda(siguiente.storeId);
+            }
+
+            return siguiente;
+        });
+    };
+
+    const cambiarModoTienda = (modo) => {
+        setForm((actual) => ({
+            ...actual,
+            storeMode: modo,
+            storeId: '',
+            storeCode: '',
+            managerName: '',
+            bankAccount: '',
+            pettyCashFund: '0.00',
+            supervisorId: '',
+        }));
+    };
+
+    const abrirVentanaUsuario = () => {
+        setUsuarioEditarId(null);
+        setForm(EMPTY_FORM);
+        setError('');
+        setMensaje('');
+        setMostrarUsuario(true);
+        setMostrarPassword(false);
+    };
+
+
+
+    const abrirVentanaEditarUsuario = (usuario) => {
+        const asignaciones = asignacionesPorUsuario[usuario.id] || {};
+        const storeId = asignaciones.storeId || '';
+        setUsuarioEditarId(usuario.id);
+        setForm({
+            fullName: usuario.full_name || '',
+            email: usuario.email || '',
+            password: '', // Se deja vacío a menos que se quiera actualizar
+            role: usuario.role || 'store',
+            isActive: usuario.is_active !== false,
+            storeId,
+            storeMode: 'existing',
+            storeCode: '',
+            managerName: '',
+            bankAccount: '',
+            pettyCashFund: '0.00',
+            supervisorId: usuario.role === 'store' ? supervisorInicialParaTienda(storeId) : '',
+            authorizationArea: asignaciones.areas?.[0] || '',
+        });
+        setError('');
+        setMensaje('');
+        setMostrarUsuario(true);
+        setMostrarPassword(false);
+    };
+
+
+
+    const cerrarVentanaUsuario = () => {
+        if (guardando) return;
+        setMostrarUsuario(false);
+    };
+
+    const handleGuardarUsuario = async (event) => {
+        event.preventDefault();
+        setError('');
+        setMensaje('');
+
+        if (form.isActive && requiereArea && !form.authorizationArea) {
+            setError('Selecciona el area que autoriza este supervisor.');
+            return;
+        }
+        if (!usuarioEditarId && requiereTienda && !crearTiendaNueva && !form.storeId) {
+            setError('Selecciona una tienda existente para asignar al usuario.');
+            return;
+        }
+        const tiendaSeleccionada = tiendas.find((tienda) => tienda.id === form.storeId);
+        if (!usuarioEditarId && requiereTienda && !crearTiendaNueva && !tiendaSeleccionada) {
+            setError('No se encontró la tienda seleccionada. Actualiza la lista e inténtalo de nuevo.');
+            return;
+        }
+        if (form.password) {
+            const passwordError = passwordPolicyMessage(form.password);
+            if (passwordError) {
+                setError(passwordError);
+                return;
+            }
+        }
+        if (crearTiendaNueva && !/^(?:[TVLARO]|FE)\d{3}$/i.test(form.storeCode.trim())) {
+            setError('El código debe iniciar con T, V, L, A, R, O o FE y terminar con tres dígitos.');
+            return;
+        }
+
+        setGuardando(true);
+
+        try {
+            let mensajeGuardado = 'Usuario guardado correctamente.';
+            if (usuarioEditarId) {
+                // Modo EDICIÓN
+                await updateUser(usuarioEditarId, {
+                    email: form.email.trim(),
+                    full_name: form.fullName.trim(),
+                    role: form.role,
+                    is_active: form.isActive,
+                    ...(form.password ? { password: form.password } : {}),
+                });
+
+                if (form.isActive && requiereTienda && form.storeId) {
+                    await assignUserToStore(form.storeId, usuarioEditarId, form.role);
+                }
+
+                if (form.isActive && requiereArea) {
+                    await assignAuthorizationAreaToUser(usuarioEditarId, form.authorizationArea);
+                }
+
+                if (form.storeId && form.supervisorId) {
+                    await assignUserToStore(form.storeId, form.supervisorId, 'authorizer');
+                }
+
+                mensajeGuardado = 'Usuario actualizado correctamente.';
+            } else if (crearTiendaNueva) {
+                await createStoreUser({
+                    code: form.storeCode.trim().toUpperCase(),
+                    full_name: form.fullName.trim(),
+                    email: form.email.trim(),
+                    is_active: form.isActive,
+                    password: form.password || undefined,
+                    manager_name: form.managerName.trim() || undefined,
+                    bank_account: form.bankAccount.trim() || undefined,
+                    petty_cash_fund: form.pettyCashFund || '0.00',
+                });
+                mensajeGuardado = 'Tienda y usuario guardados correctamente.';
+            } else {
+                // Modo CREACIÓN
+                const usuario = await createUser({
+                    email: form.email.trim(),
+                    full_name: (
+                        requiereTienda && !crearTiendaNueva
+                            ? tiendaSeleccionada.name
+                            : form.fullName.trim()
+                    ),
+                    role: form.role,
+                    is_active: form.isActive,
+                    password: form.password || undefined,
+                });
+
+                if (form.isActive && requiereTienda && form.storeId) {
+                    await assignUserToStore(form.storeId, usuario.id, form.role);
+                }
+
+                if (form.isActive && requiereArea) {
+                    await assignAuthorizationAreaToUser(usuario.id, form.authorizationArea);
+                }
+
+                if (form.storeId && form.supervisorId) {
+                    await assignUserToStore(form.storeId, form.supervisorId, 'authorizer');
+                }
+            }
+
+            const [usuariosActualizados, tiendasActualizadas] = await Promise.all([
+                listAllUsers(),
+                listAllStores(),
+            ]);
+            const usuariosLista = Array.isArray(usuariosActualizados) ? usuariosActualizados : [];
+            const tiendasLista = Array.isArray(tiendasActualizadas) ? tiendasActualizadas : [];
+            const asignaciones = await cargarAsignacionesPorUsuario(usuariosLista, tiendasLista);
+
+            setUsuarios(usuariosLista);
+            setTiendas(tiendasLista);
+            setAsignacionesPorUsuario(asignaciones);
+            setMensaje(mensajeGuardado);
+            setMostrarUsuario(false);
+            setForm(EMPTY_FORM);
+        } catch (err) {
+            setError(apiErrorMessage(err));
+        } finally {
+            setGuardando(false);
+        }
+    };
+
+    // Funciones del Modal de Eliminación
+    const abrirVentanaEliminar = (usuario) => {
+        setUsuarioAEliminar(usuario);
+        setJustificacion('');
+        setError('');
+        setMostrarEliminar(true);
+    };
+
+    const cerrarVentanaEliminar = () => {
+        if (guardando) return;
+        setMostrarEliminar(false);
+        setUsuarioAEliminar(null);
+        setJustificacion('');
+    };
+
+    const handleConfirmarEliminar = async (event) => {
+        event.preventDefault();
+        if (!justificacion.trim()) {
+            setError('Debes ingresar una justificación para eliminar el usuario.');
+            return;
+        }
+
+        setGuardando(true);
+        setError('');
+
+        try {
+            await deleteUser(usuarioAEliminar.id, { reason: justificacion.trim() });
+            setMensaje(`Usuario "${usuarioAEliminar.full_name}" eliminado correctamente.`);
+            await reloadData();
+            cerrarVentanaEliminar();
+        } catch (err) {
+            setError(apiErrorMessage(err));
+        } finally {
+            setGuardando(false);
+        }
+    };
+
+
+
+
+    return (
+        <div style={styles.container}>
+            <div style={styles.headerRow}>
+                <div>
+                    <h1 style={styles.title}>Administración de Usuarios</h1>
+                </div>
+                <button type="button" style={styles.primaryButton} onClick={abrirVentanaUsuario}>
+                    Crear Usuario
+                </button>
+            </div>
+
+            {error && <div style={styles.error}>{error}</div>}
+            {mensaje && <div style={styles.success}>{mensaje}</div>}
+
+
+                {cargando ? (
+                    <div style={styles.emptyState}>Cargando usuarios...</div>
+                ) : usuarios.length === 0 ? (
+                    <div style={styles.emptyState}>No hay usuarios registrados.</div>
+                ) : (
+                <div style={styles.sectionsWrapper}>
+                    {ROLE_SECTIONS.map((seccion) => {
+                        const listaUsuariosRole = usuariosPorRol[seccion.roleKey] || [];
+                        const estaAbierto = seccionesAbiertas[seccion.roleKey];
+                        
+                    return (
+                        <div key={seccion.roleKey} style={styles.sectionContainer}>
+                                {/* Header rosa Desplegable */}
+                                <div
+                                    style={styles.collapsibleHeader}
+                                    onClick={() => 
+                                        setSeccionesAbiertas((prev) => ({
+                                            ...prev,
+                                            [seccion.roleKey]: !prev[seccion.roleKey],
+                                        }))
+                                    }
+                                >
+                                    <span style={styles.arrowIcon}>
+                                        {estaAbierto ? '▼' : '►'}
+                                    </span>
+                                    <span>{seccion.title}</span>
+                                </div>
+
+                                {/* Contenido Desplegable */}
+                                {estaAbierto && (
+                                    <div style={styles.table}>
+                                        <div style={styles.tableHeader}>
+                                            <span>NOMBRE</span>
+                                            <span>CORREO</span>
+                                            <span>ROL</span>
+                                            <span>ÁREA</span>
+                                            <span>ESTATUS</span>
+                                            <span>HERRAMIENTAS</span>
+                                        </div>
+
+                                        {listaUsuariosRole.length === 0 ? (
+                                            <div style={styles.emptyState}>
+                                                No hay usuarios registrados con este rol.
+                                            </div>
+                                        ) : (
+                                            listaUsuariosRole.map((usuario) => {
+                                                const asignaciones = asignacionesPorUsuario[usuario.id] || {};
+                                                const areaAsignada = usuario.role === 'authorizer'
+                                                    ? mostrarListaAsignada(asignaciones.areas, 'Sin área')
+                                                    : 'No aplica';
+                                                const nombreMostrado = obtenerNombreMostrado(
+                                                    usuario,
+                                                    asignaciones,
+                                                    tiendas
+                                                );
+
+                                                return(
+                                                    <div key={usuario.id} style={styles.row}>
+                                                        <span>{nombreMostrado}</span>
+                                                        <span>{usuario.email}</span>
+                                                        <span>{rolesPorValor[usuario.role] || usuario.role}</span>
+                                                        <span>{areaAsignada}</span>
+                                                        <span>{usuario.is_active ? 'Activo' : 'Inactivo'}</span>
+                                                        <div style={styles.toolsCell}>
+                                                            <button
+                                                                type="button"
+                                                                style={styles.iconBtn}
+                                                                onClick={() => abrirVentanaEditarUsuario(usuario)}
+                                                                title="Editar Usuario"
+                                                            >
+                                                                <img src="/Editar.png" alt="Editar" style={styles.iconImg} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                style={{ ...styles.iconBtn }}
+                                                                onClick={() => abrirVentanaEliminar(usuario)}
+                                                                title="Eliminar Usuario"
+                                                            >
+                                                                <img src="/Eliminar.png" alt="Eliminar" style={styles.iconImg} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+                )}
+            
+
+
+
+
+
+
+
+            {/* Modal Crear / Editar Usuario */}
+            {mostrarUsuario && (
+                <div style={styles.modalBackdrop}>
+                    <form style={styles.modal} onSubmit={handleGuardarUsuario}>
+                        <div style={styles.modalHeader}>
+                            <h2 style={styles.modalTitle}>
+                                {usuarioEditarId ? 'Editar Usuario' : 'Nuevo Usuario'}
+                            </h2>
+                        </div>
+
+                        <label style={styles.inputGroup}>
+                            Rol
+                            <select
+                                value={form.role}
+                                onChange={(event) => actualizarCampo('role', event.target.value)}
+                                style={styles.input}
+                            >
+                                {ROLE_OPTIONS.map((role) => (
+                                    <option key={role.value} value={role.value}>
+                                        {role.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        {!usuarioEditarId && requiereTienda && (
+                            <label style={styles.inputGroup}>
+                                Asociación de tienda
+                                <select
+                                    value={form.storeMode}
+                                    onChange={(event) => cambiarModoTienda(event.target.value)}
+                                    style={styles.input}
+                                >
+                                    <option value="new">Crear tienda nueva</option>
+                                    <option value="existing">Asignar tienda existente</option>
+                                </select>
+                            </label>
+                        )}
+
+                        {crearTiendaNueva && (
+                            <label style={styles.inputGroup}>
+                                Código de tienda
+                                <input
+                                    type="text"
+                                    value={form.storeCode}
+                                    onChange={(event) => actualizarCampo(
+                                        'storeCode',
+                                        event.target.value.toUpperCase(),
+                                    )}
+                                    style={styles.input}
+                                    placeholder="T123 o FE123"
+                                    maxLength={5}
+                                    pattern="(?:[TVLARO]|FE)[0-9]{3}"
+                                    title="Usa T, V, L, A, R, O o FE seguido de tres dígitos."
+                                    required
+                                />
+                            </label>
+                        )}
+
+                        {!ocultarNombreUsuario && (
+                            <label style={styles.inputGroup}>
+                                {crearTiendaNueva ? 'Nombre / plaza de la tienda' : 'Nombre'}
+                                <input
+                                    type="text"
+                                    value={form.fullName}
+                                    onChange={(event) => actualizarCampo('fullName', event.target.value)}
+                                    style={styles.input}
+                                    placeholder={crearTiendaNueva ? 'Ej. San Francisco' : 'Nombre Completo'}
+                                    required
+                                />
+                                {crearTiendaNueva && (
+                                    <small>
+                                        Este nombre también se usará para la cuenta de usuario de la tienda.
+                                    </small>
+                                )}
+                            </label>
+                        )}
+
+
+                        {crearTiendaNueva && (
+                            <>
+                                <label style={styles.inputGroup}>
+                                    Gerente
+                                    <input
+                                        type="text"
+                                        value={form.managerName}
+                                        onChange={(event) => actualizarCampo('managerName', event.target.value)}
+                                        style={styles.input}
+                                        placeholder="Nombre del gerente"
+                                        maxLength={160}
+                                    />
+                                </label>
+                                <label style={styles.inputGroup}>
+                                    Cuenta bancaria
+                                    <input
+                                        type="text"
+                                        value={form.bankAccount}
+                                        onChange={(event) => actualizarCampo('bankAccount', event.target.value)}
+                                        style={styles.input}
+                                        placeholder="Cuenta bancaria de la tienda"
+                                        maxLength={80}
+                                    />
+                                </label>
+                                <label style={styles.inputGroup}>
+                                    Fondo
+                                    <input
+                                        type="number"
+                                        value={form.pettyCashFund}
+                                        onChange={(event) => actualizarCampo('pettyCashFund', event.target.value)}
+                                        style={styles.input}
+                                        min="0"
+                                        step="0.01"
+                                    />
+                                </label>
+                            </>
+                        )}
+
+                        {requiereTienda && !crearTiendaNueva && (
+                            <label style={styles.inputGroup}>
+                                Tienda
+                                <select
+                                    value={form.storeId}
+                                    onChange={(event) => actualizarCampo('storeId', event.target.value)}
+                                    style={styles.input}
+                                >
+                                    <option value="">Sin tienda asignada</option>
+                                    {tiendas.map((tienda) => (
+                                        <option key={tienda.id} value={tienda.id}>
+                                            {tienda.code} - {tienda.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+
+                        {form.role === 'store' && (
+                            <label style={styles.inputGroup}>
+                                Supervisor
+                                <select
+                                    value={form.supervisorId}
+                                    onChange={(event) => actualizarCampo('supervisorId', event.target.value)}
+                                    style={styles.input}
+                                    disabled={!form.storeId || supervisoresActivos.length === 0}
+                                >
+                                    <option value="">
+                                        {form.storeId ? 'Sin supervisor asignado' : 'Selecciona una tienda primero'}
+                                    </option>
+                                    {supervisoresActivos.map((supervisor) => (
+                                        <option key={supervisor.id} value={supervisor.id}>
+                                            {supervisor.full_name} - {supervisor.email}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+
+                        <label style={styles.inputGroup}>
+                            Correo
+                            <input
+                                type="email"
+                                value={form.email}
+                                onChange={(event) => actualizarCampo('email', event.target.value)}
+                                style={styles.input}
+                                placeholder='nombre@vertiche.com.mx'
+                                required
+                            />
+                        </label>
+
+                        <label style={styles.inputGroup}>
+                            Contraseña
+                            <div style={styles.passwordWrapper}>
+                                <input
+                                    type={mostrarPassword ? 'text' : 'password'}
+                                    value={form.password}
+                                    onChange={(event) => actualizarCampo('password', event.target.value)}
+                                    style={styles.passwordInput}
+                                    minLength={8}
+                                    placeholder="Opcional: Cognito enviará una contraseña temporal"
+                                />
+                                <button
+                                    type="button"
+                                    style={styles.eyeButton}
+                                    onClick={() => setMostrarPassword((prev) => !prev)}
+                                    title={mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                                >
+                                    <svg
+                                        width="18"
+                                        height="18"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="#666"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    >
+                                        {mostrarPassword ? (
+                                            /* Icono Ojo Tachado / Ocultar */
+                                            <>
+                                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                                <line x1="1" y1="1" x2="23" y2="23" />
+                                            </>
+                                        ) : (
+                                            /* Icono Ojo Normal / Mostrar */
+                                            <>
+                                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                <circle cx="12" cy="12" r="3" />
+                                            </>
+                                        )}
+                                    </svg>
+                                </button>
+                            </div>
+                            <small>
+                                Déjala vacía para que Cognito envíe una invitación y solicite el cambio
+                                en el primer inicio de sesión.
+                            </small>
+                            <small style={styles.passwordHint}>{passwordPolicyHelpText()}</small>
+                            
+                        </label>
+
+
+
+                        {crearTiendaNueva && (
+                            <small>
+                                La tienda y su cuenta se vincularán al guardarse. El supervisor podrá
+                                asignarse después de crear la tienda.
+                            </small>
+                        )}
+
+                        {requiereArea && (
+                            <label style={styles.inputGroup}>
+                                Área que autoriza
+                                <select
+                                    value={form.authorizationArea}
+                                    onChange={(event) => actualizarCampo(
+                                        'authorizationArea',
+                                        event.target.value
+                                    )}
+                                    style={styles.input}
+                                    required={form.isActive}
+                                >
+                                    <option value="">Seleccionar área...</option>
+                                    {areas.map((area) => (
+                                        <option key={area} value={area}>
+                                            {area}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+
+                        <label style={styles.switchGroup}>
+                            
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={form.isActive}
+                                style={{
+                                    ...styles.switchButton,
+                                    ...(form.isActive ? styles.switchButtonOn : {}),
+                                }}
+                                onClick={() => actualizarCampo('isActive', !form.isActive)}
+                            >
+                                <span
+                                    style={{
+                                        ...styles.switchKnob,
+                                        ...(form.isActive ? styles.switchKnobOn : {}),
+                                    }}
+                                />
+                            </button>
+                            <strong style={styles.switchText}>
+                                {form.isActive ? 'Activo' : 'Inactivo'}
+                            </strong>
+                        </label>
+
+                        <div style={styles.actions}>
+                            <button
+                                type="button"
+                                style={styles.secondaryButton}
+                                onClick={cerrarVentanaUsuario}
+                                disabled={guardando}
+                            >
+                                Cancelar
+                            </button>
+                            <button type="submit" style={styles.saveButton} disabled={guardando}>
+                                {guardando ? 'Guardando...' : 'Guardar'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+
+            {/* Modal Eliminar Usuario */}
+            {mostrarEliminar && usuarioAEliminar && (
+                <div style={styles.modalBackdrop}>
+                    <form style={styles.modal} onSubmit={handleConfirmarEliminar}>
+                        <div style={styles.modalHeader}>
+                            <h2 style={styles.modalTitle}>Eliminar Usuario</h2>
+                        </div>
+
+                        <p style={{ margin: 0, fontSize: '13px', color: '#333' }}>
+                            ¿Estás seguro de que deseas eliminar al usuario{' '}
+                            <strong>{usuarioAEliminar.full_name}</strong>?
+                        </p>
+
+                        <label style={styles.inputGroup}>
+                            <textarea
+                                value={justificacion}
+                                onChange={(e) => setJustificacion(e.target.value)}
+                                style={{ ...styles.input, minHeight: '80px', resize: 'vertical' }}
+                                placeholder="Escribe el motivo de la baja..."
+                                required
+                            />
+                        </label>
+
+                        <div style={styles.actions}>
+                            <button
+                                type="button"
+                                style={styles.secondaryButton}
+                                onClick={cerrarVentanaEliminar}
+                                disabled={guardando}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="submit"
+                                style={{ ...styles.saveButton }}
+                                disabled={guardando}
+                            >
+                                {guardando ? 'Eliminando...' : 'Eliminar'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+        </div>
+    );
+}
+
+const styles = {
+    container: {
+        maxWidth: '1450px',
+        margin: '0 auto',
+        padding: '10px 10px',
+        textAlign: 'left',
+        fontFamily: 'var(--sans)',
+        width: '100%',
+        boxSizing: 'border-box'
+    },
+    headerRow: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '16px',
+        marginBottom: '20px',
+    },
+    title: {
+        margin: 0,
+        fontSize: '24px',
+        //fontWeight: 600,
+    },
+    subtitle: {
+        color: '#666',
+        fontSize: '14px',
+    },
+
+    primaryButton: {
+        background: 'var(--sb-sendBtnBg)',
+        color: 'var(--text-CBtn)',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        padding: '8px 20px',
+        fontSize: '13px',
+        fontWeight: '600',
+        cursor: 'pointer',
+        boxShadow: 'var(--shadow)',
+        transition: 'transform 0.1s',
+    },
+    saveButton: {
+        background: 'var(--gradient)',
+        color: 'var(--text-CBtn)',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        padding: '8px 20px',
+        fontSize: '14px',
+        fontWeight: '700',
+        cursor: 'pointer',
+        boxShadow: 'var(--shadow)',
+        transition: 'transform 0.1s',
+    },
+    secondaryButton: {
+        backgroundColor: 'var(--sb-WBtnBg)',
+        color: 'var(--text-WBtn)',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        padding: '8px 15px',
+        fontSize: '14px',
+        fontWeight: '700',
+        cursor: 'pointer',
+        transition: 'transform 0.1s',
+    },
+
+
+
+    sectionsWrapper: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '18px',
+    },
+    sectionContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: '6px',
+        overflow: 'hidden',
+    },
+    collapsibleHeader: {
+        backgroundColor: '#fca5a5',
+        color: '#ffffff',
+        padding: '10px 16px',
+        fontSize: '16px',
+        fontWeight: '700',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        cursor: 'pointer',
+        userSelect: 'none',
+        letterSpacing: '0.5px',
+    },
+    arrowIcon: {
+        fontSize: '16px',
+    },
+
+
+
+    table: {
+        border: '1px solid var(--border)',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        backgroundColor: '#fff',
+    },
+    tableHeader: {
+        display: 'grid',
+        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 0.5fr 0.5fr',
+        gap: '12px',
+        padding: '8px 16px',
+        backgroundColor: '#fef2f2',
+        color: '#000000',
+        fontSize: '14px',
+        fontWeight: '700',
+        textTransform: 'uppercase',
+    },
+    row: {
+        display: 'grid',
+        gridTemplateColumns: '1.3fr 1.8fr 0.6fr 0.5fr 0.5fr 0.5fr',
+        gap: '12px',
+        padding: '10px 16px',
+        borderTop: '1px solid var(--border)',
+        color: '#333',
+        fontSize: '12px',
+        alignItems: 'center',
+    },
+
+
+    toolsCell: {
+        display: 'flex',
+        gap: '20px',
+        alignItems: 'center',
+    },
+    iconBtn: {
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+        display: 'flex',
+        alignItems: 'center',
+        paddingRight: '5px',
+    },
+    iconImg: {
+        width: '16px',
+        height: '16px',
+        objectFit: 'contain'
+    },
+
+
+
+    emptyState: {
+        padding: '22px 16px',
+        color: '#989898',
+        fontSize: '13px',
+        textAlign: 'center',
+    },
+    error: {
+        marginBottom: '14px',
+        padding: '10px 12px',
+        border: '1px solid #d31c00',
+        borderRadius: '6px',
+        backgroundColor: '#ff383821',
+        color: '#d31c00',
+        fontSize: '14px',
+        whiteSpace: 'pre-line',
+    },
+    success: {
+        marginBottom: '14px',
+        padding: '10px 12px',
+        border: '1px solid #339900',
+        borderRadius: '6px',
+        backgroundColor: 'var(--sb-pagadaBg)',
+        color: 'var(--text-pagada)',
+        fontSize: '14px',
+    },
+    modalBackdrop: {
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px',
+        zIndex: 1000,
+    },
+    modal: {
+        width: 'min(520px, 100%)',
+        backgroundColor: '#fff',
+        borderRadius: '8px',
+        border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow)',
+        padding: '22px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '14px',
+        overflowY: 'auto',
+        maxHeight: '80vh',
+    },
+    modalHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '4px',
+    },
+    modalTitle: {
+        margin: 0,
+        fontSize: '22px',
+        fontWeight: 700,
+    },
+
+    passwordWrapper: {
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        width: '100%',
+    },
+    passwordInput: {
+        border: '1px solid var(--border)',
+        borderRadius: '6px',
+        padding: '10px 40px 10px 12px', // Espacio reservado a la derecha para el botón del ojo
+        color: '#323232',
+        backgroundColor: '#fff',
+        fontSize: '13px',
+        width: '100%',
+        boxSizing: 'border-box',
+    },
+    eyeButton: {
+        position: 'absolute',
+        right: '10px',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '4px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+
+
+    closeButton: {
+        border: '1px solid #ffffff',
+        backgroundColor: 'var(--sb-WBtnBg)',
+        color: 'var(--text)',
+        borderRadius: '20px',
+        width: '28px',
+        height: '28px',
+        cursor: 'pointer',
+        fontWeight: '700',
+        fontSize: '16px',
+    },
+    inputGroup: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        color: '#000000',
+        fontSize: '14px',
+        fontWeight: '600',
+    },
+    input: {
+        border: '1px solid var(--border)',
+        borderRadius: '6px',
+        padding: '10px 12px',
+        color: '#323232',
+        backgroundColor: '#fff',
+        fontSize: '13px',
+    },
+    passwordHint: {
+        color: '#666',
+        fontSize: '12px',
+        fontWeight: '400',
+        lineHeight: 1.4,
+        whiteSpace: 'pre-line',
+    },
+    switchGroup: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        color: '#000000',
+        fontSize: '14px',
+        fontWeight: '600',
+    },
+    switchButton: {
+        width: '42px',
+        height: '24px',
+        border: '1px solid var(--border)',
+        borderRadius: '999px',
+        backgroundColor: '#d7d7d7',
+        padding: '2px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        transition: 'background-color 0.15s ease',
+    },
+    switchButtonOn: {
+        backgroundColor: 'var(--sb-sendBtnBg)',
+    },
+    switchKnob: {
+        width: '18px',
+        height: '18px',
+        borderRadius: '999px',
+        backgroundColor: '#ffffff',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
+        transform: 'translateX(0)',
+        transition: 'transform 0.15s ease',
+    },
+    switchKnobOn: {
+        transform: 'translateX(18px)',
+    },
+    switchText: {
+        fontSize: '13px',
+        color: '#323232',
+    },
+    actions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '8px',
+    },
+};
+
+export default Usuarios;
