@@ -77,7 +77,10 @@ from app.services.reimbursement_periods import (
     obtener_contexto_periodo_reembolso,
     validate_expense_date_for_reimbursement,
 )
-from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.reimbursement_validation import (
+    calculate_active_expense_total,
+    summarize_reimbursement_request,
+)
 from app.services.tax_rules import (
     determinar_indice_iva_manual,
     determinar_tasa_iva_para_gasto,
@@ -1063,7 +1066,7 @@ def partition_frontend_expense(
         tax_rate = _rate_or_none(partition.impuesto) or Decimal("0.00")
         tax_amount, tax_subtotal = _tax_amounts_from_rate(amount, tax_rate)
         child = Expense(
-            reimbursement_request_id=request.id,
+            reimbursement_request=request,
             period_id=expense.period_id,
             partition_parent_expense_id=expense.id,
             partition_index=index,
@@ -1136,6 +1139,7 @@ def partition_frontend_expense(
             },
         )
     )
+    request.reported_total = calculate_active_expense_total(request)
     db.commit()
     db.expire_all()
     request = _get_request_by_id(request.id, db)
@@ -1177,6 +1181,7 @@ def cancel_frontend_expense_partition(
         child.removed_by_user_id = current_user.id
         child.removal_reason = "Partición anulada."
 
+    request.reported_total = calculate_active_expense_total(request)
     db.add(
         AuditLog(
             reimbursement_request_id=request.id,
@@ -1381,17 +1386,9 @@ def _active_frontend_expense_total(
     *,
     excluding_expense_id: UUID | None = None,
 ) -> Decimal:
-    return _money(
-        sum(
-            (
-                expense.amount
-                for expense in request.expenses
-                if expense.id != excluding_expense_id
-                if expense.status not in {ExpenseStatus.removed, ExpenseStatus.rejected}
-                and expense.removed_at is None
-            ),
-            Decimal("0.00"),
-        )
+    return calculate_active_expense_total(
+        request,
+        excluding_expense_id=excluding_expense_id,
     )
 
 

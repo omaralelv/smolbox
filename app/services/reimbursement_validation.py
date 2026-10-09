@@ -82,16 +82,8 @@ def summarize_reimbursement_request(
 
     expenses = list(request.expenses)
     expenses_by_id = {expense.id: expense for expense in expenses}
-    active_partition_parent_ids = {
-        parent_id
-        for expense in expenses
-        if (
-            (parent_id := getattr(expense, "partition_parent_expense_id", None)) is not None
-            and not _is_removed(expense)
-            and not _is_rejected(expense)
-        )
-    }
-
+    payable_expenses = _active_payable_expenses(expenses)
+    payable_expense_ids = {expense.id for expense in payable_expenses}
     active_expenses = []
     for expense in expenses:
         if _is_removed(expense):
@@ -100,12 +92,10 @@ def summarize_reimbursement_request(
         if _is_rejected(expense):
             rejected_expense_ids.append(expense.id)
             continue
-        if expense.id in active_partition_parent_ids:
+        if expense.id not in payable_expense_ids:
             continue
 
         amount = _money(expense.amount)
-        if amount <= Decimal("0.00"):
-            continue
 
         evidence_expense = _evidence_expense(expense, expenses_by_id)
         evidence_validations = getattr(evidence_expense, "cfdi_validations", [])
@@ -316,6 +306,45 @@ def summarize_reimbursement_request(
         is_balanced=not has_error,
         issues=issues,
     )
+
+
+def calculate_active_expense_total(
+    request: ReimbursementRequestLike,
+    *,
+    excluding_expense_id: UUID | None = None,
+) -> Decimal:
+    expenses = _active_payable_expenses(
+        list(request.expenses),
+        excluding_expense_id=excluding_expense_id,
+    )
+    return _money(sum((_money(expense.amount) for expense in expenses), Decimal("0.00")))
+
+
+def _active_payable_expenses(
+    expenses: list[ExpenseLike],
+    *,
+    excluding_expense_id: UUID | None = None,
+) -> list[ExpenseLike]:
+    candidate_expenses = [
+        expense for expense in expenses if expense.id != excluding_expense_id
+    ]
+    active_partition_parent_ids = {
+        parent_id
+        for expense in candidate_expenses
+        if (
+            (parent_id := getattr(expense, "partition_parent_expense_id", None)) is not None
+            and not _is_removed(expense)
+            and not _is_rejected(expense)
+        )
+    }
+    return [
+        expense
+        for expense in candidate_expenses
+        if not _is_removed(expense)
+        and not _is_rejected(expense)
+        and expense.id not in active_partition_parent_ids
+        and _money(expense.amount) > Decimal("0.00")
+    ]
 
 
 def _has_attachment_type(attachments: list[AttachmentLike], expected: AttachmentType) -> bool:

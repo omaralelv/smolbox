@@ -44,7 +44,10 @@ from app.services.reimbursement_periods import (
     actualizar_fecha_fin_reembolso,
     validate_expense_date_for_reimbursement,
 )
-from app.services.reimbursement_validation import summarize_reimbursement_request
+from app.services.reimbursement_validation import (
+    calculate_active_expense_total,
+    summarize_reimbursement_request,
+)
 from app.services.request_editability import is_request_editable
 from app.services.tax_rules import (
     categoria_tiene_iva_cero_por_regla,
@@ -1290,12 +1293,7 @@ def _ensure_expense_not_excluded(expense: Expense) -> None:
 
 
 def _active_expense_total(reimbursement_request: ReimbursementRequest) -> Decimal:
-    total = Decimal("0.00")
-    for expense in reimbursement_request.expenses:
-        if expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected} or expense.removed_at is not None:
-            continue
-        total += Decimal(expense.amount)
-    return total.quantize(Decimal("0.01"))
+    return calculate_active_expense_total(reimbursement_request)
 
 
 def _reject_null_fields(updates: dict[str, object], fields: set[str]) -> None:

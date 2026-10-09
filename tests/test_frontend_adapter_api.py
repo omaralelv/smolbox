@@ -1537,6 +1537,110 @@ def test_frontend_accounting_can_cancel_expense_partition(
     assert "2/2: Categoría - Agua, Monto - $500.00, Impuesto - 0%." in cancelled_event["message"]
 
 
+def test_removing_partition_child_recalculates_reported_total_without_parent_double_count(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(client, base_records, amount="1500.00", spent_on="2026-08-07")
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "1500.00",
+        uuid="77777777-7777-4777-8777-777777777777",
+    )
+    admin_user_id = _create_user(client, "admin", "frontend.partition.remove.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    headers = _auth_headers(client, "frontend.partition.remove.admin@example.com")
+    partitioned = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Papelería", "monto": "1000.00", "impuesto": "16.00"},
+                {"categoria": "Agua", "monto": "500.00", "impuesto": "0.00"},
+            ],
+        },
+    )
+    assert partitioned.status_code == 200, partitioned.text
+
+    cancelled = client.delete(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["calculatedTotal"] == 1500.0
+
+    partitioned = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Papelería", "monto": "1000.00", "impuesto": "16.00"},
+                {"categoria": "Agua", "monto": "500.00", "impuesto": "0.00"},
+            ],
+        },
+    )
+    assert partitioned.status_code == 200, partitioned.text
+    child = next(
+        gasto
+        for gasto in partitioned.json()["gastos"]
+        if gasto["idOriginal"] == expense["id"] and gasto["monto"] == 500.0
+    )
+
+    removed = client.post(
+        f"/api/v1/expenses/{child['backendId']}/remove",
+        json={
+            "actor_user_id": admin_user_id,
+            "reason": "Parte no reembolsable",
+            "adjust_reported_total": True,
+        },
+    )
+    assert removed.status_code == 200, removed.text
+
+    summary = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/validation-summary"
+    )
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["calculated_total"] == "1000.00"
+    assert summary.json()["reported_total"] == "1000.00"
+
+    repartitioned = client.post(
+        (
+            f"/api/v1/frontend/solicitudes/{base_records['request_id']}"
+            f"/gastos/{expense['id']}/particiones/me"
+        ),
+        headers=headers,
+        json={
+            "particiones": [
+                {"categoria": "Papelería", "monto": "900.00", "impuesto": "16.00"},
+                {"categoria": "Agua", "monto": "600.00", "impuesto": "0.00"},
+            ],
+        },
+    )
+    assert repartitioned.status_code == 200, repartitioned.text
+    assert repartitioned.json()["calculatedTotal"] == 1500.0
+    assert repartitioned.json()["reportedTotal"] == 1500.0
+
+
 def test_frontend_review_tax_change_uses_default_previous_tax_rate(
     client: TestClient,
     base_records: dict[str, str],
