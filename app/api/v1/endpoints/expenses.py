@@ -738,7 +738,7 @@ def _review_update_expense_with_actor(
     _apply_expense_updates(expense, updates, db)
     if "spent_on" in updates and expense.reimbursement_request is not None:
         actualizar_fecha_fin_reembolso(db, expense.reimbursement_request)
-    new_values = _review_tracked_values(expense)
+    new_values = _review_tracked_values(expense, db)
     changed_fields = _review_changed_fields(requested_fields, previous_values, new_values)
     changed_previous_values = _review_payload_values(previous_values, changed_fields)
     changed_new_values = _review_payload_values(new_values, changed_fields)

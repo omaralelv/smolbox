@@ -1584,6 +1584,45 @@ def test_frontend_review_tax_change_uses_default_previous_tax_rate(
     assert review_event["message"] == "Cambio de impuesto de 16% a 0%."
 
 
+def test_frontend_review_can_edit_normal_expense_category(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> None:
+    expense = create_expense(
+        client,
+        base_records,
+        amount="500.00",
+        spent_on="2026-08-07",
+        category="Papelería",
+    )
+    _attach_valid_cfdi(
+        client,
+        expense["id"],
+        "500.00",
+        uuid="20202020-2020-4020-8020-202020202020",
+    )
+    admin_user_id = _create_user(client, "admin", "frontend.category.edit.admin@example.com")
+    assert _transition(client, base_records["request_id"], "submitted", admin_user_id).status_code == 200
+    assert (
+        _transition(
+            client,
+            base_records["request_id"],
+            "under_accounting_review",
+            admin_user_id,
+        ).status_code
+        == 200
+    )
+
+    headers = _auth_headers(client, "frontend.category.edit.admin@example.com")
+    updated = client.patch(
+        f"/api/v1/expenses/{expense['id']}/review/me",
+        headers=headers,
+        json={"category": "Agua", "note": "Cambio de categoría: Agua."},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["category"] == "Agua"
+
+
 def test_accounting_queue_status_is_single_until_accountant_opens_request(
     client: TestClient,
     base_records: dict[str, str],
