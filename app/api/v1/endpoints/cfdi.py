@@ -27,7 +27,7 @@ from app.schemas.cfdi import (
 from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_expense
 from app.services.expense_capture_audit import add_capture_event, get_capture
-from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
@@ -174,10 +174,12 @@ async def _preview_invoice_ocr(
         ) from exc
 
     try:
-        content_type = detect_attachment_content_type(
+        content_type, ocr_content = await run_in_threadpool(
+            prepare_attachment_for_processing,
             file.filename or "factura.pdf",
             content,
             AttachmentType.receipt,
+            max_bytes=settings.max_upload_bytes,
         )
     except InvalidAttachment as exc:
         raise HTTPException(
@@ -203,7 +205,7 @@ async def _preview_invoice_ocr(
     try:
         result = await run_in_threadpool(
             service.extract_expense,
-            content,
+            ocr_content,
             content_type=content_type,
             filename=file.filename or "factura.pdf",
         )

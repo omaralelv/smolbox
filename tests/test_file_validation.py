@@ -4,7 +4,12 @@ from zipfile import ZipFile
 import pytest
 
 from app.models.attachment import AttachmentType
-from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.file_validation import (
+    InvalidAttachment,
+    detect_attachment_content_type,
+    prepare_attachment_for_processing,
+)
+from app.services.pdf_normalization import PdfNormalizationError
 
 
 def _xlsx_bytes() -> bytes:
@@ -66,3 +71,54 @@ def test_rejects_files_disguised_with_allowed_extensions(
     )
     with pytest.raises(InvalidAttachment):
         detect_attachment_content_type(filename, content, attachment_type)
+
+
+@pytest.mark.parametrize(
+    ("filename", "content", "attachment_type"),
+    [
+        ("receipt.pdf", b"%PDF-1.4\ncontent\n%%EOF", AttachmentType.receipt),
+        ("receipt.jpg", b"\xff\xd8\xffimage", AttachmentType.receipt),
+        ("receipt.png", b"\x89PNG\r\n\x1a\nimage", AttachmentType.receipt),
+        ("invoice.xml", b"<Comprobante />", AttachmentType.cfdi_xml),
+        ("cash.xlsx", _xlsx_bytes(), AttachmentType.cash_box_format),
+    ],
+)
+def test_valid_uploads_are_not_rewritten(monkeypatch, filename, content, attachment_type) -> None:
+    def unexpected_normalization(*args, **kwargs):
+        raise AssertionError("Valid uploads must follow the existing path")
+
+    monkeypatch.setattr(
+        "app.services.file_validation.normalize_pdf_for_processing", unexpected_normalization
+    )
+    content_type, processing_content = prepare_attachment_for_processing(
+        filename, content, attachment_type, max_bytes=1024 * 1024
+    )
+    assert content_type == detect_attachment_content_type(filename, content, attachment_type)
+    assert processing_content is content
+
+
+@pytest.mark.parametrize("attachment_type", [AttachmentType.receipt, AttachmentType.other])
+def test_failed_recovery_preserves_the_original_validation_message(attachment_type) -> None:
+    content = b"^{doc_title = test}\r\n%PDF-1.4\ncorrupted\n%%EOF"
+    with pytest.raises(InvalidAttachment) as original:
+        detect_attachment_content_type("invoice.pdf", content, attachment_type)
+    with pytest.raises(InvalidAttachment) as recovered:
+        prepare_attachment_for_processing(
+            "invoice.pdf", content, attachment_type, max_bytes=1024 * 1024
+        )
+    assert str(recovered.value) == str(original.value)
+    assert isinstance(recovered.value.__cause__, PdfNormalizationError)
+
+
+@pytest.mark.parametrize("attachment_type", [AttachmentType.cash_box_format, AttachmentType.cfdi_xml])
+def test_pdf_recovery_does_not_bypass_other_attachment_types(monkeypatch, attachment_type) -> None:
+    def unexpected_normalization(*args, **kwargs):
+        raise AssertionError("Only PDF evidence can be recovered")
+
+    monkeypatch.setattr(
+        "app.services.file_validation.normalize_pdf_for_processing", unexpected_normalization
+    )
+    with pytest.raises(InvalidAttachment):
+        prepare_attachment_for_processing(
+            "invoice.pdf", b"prefix%PDF-1.4\n%%EOF", attachment_type, max_bytes=1024 * 1024
+        )

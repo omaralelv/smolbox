@@ -4,6 +4,7 @@ from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
 from app.models.attachment import AttachmentType
+from app.services.pdf_normalization import PdfNormalizationError, normalize_pdf_for_processing
 
 
 class InvalidAttachment(ValueError):
@@ -27,6 +28,29 @@ def detect_attachment_content_type(
         return _detect_supporting_document(extension, content)
 
     raise InvalidAttachment("Unsupported attachment type")
+
+
+def prepare_attachment_for_processing(
+    filename: str,
+    content: bytes,
+    attachment_type: AttachmentType,
+    *,
+    max_bytes: int,
+) -> tuple[str, bytes]:
+    try:
+        return detect_attachment_content_type(filename, content, attachment_type), content
+    except InvalidAttachment as original_error:
+        if Path(filename).suffix.lower() != ".pdf" or attachment_type not in {
+            AttachmentType.receipt,
+            AttachmentType.other,
+        }:
+            raise
+        try:
+            normalized = normalize_pdf_for_processing(content, max_bytes=max_bytes)
+            content_type = detect_attachment_content_type(filename, normalized, attachment_type)
+        except (PdfNormalizationError, InvalidAttachment) as recovery_error:
+            raise original_error from recovery_error
+        return content_type, normalized
 
 
 def _detect_cash_box_format(extension: str, content: bytes) -> str:

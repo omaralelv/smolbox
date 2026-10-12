@@ -6,6 +6,7 @@ from io import BytesIO
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 from PIL import Image, ImageDraw
+from pypdf import PdfReader
 
 from app.services.pdf_ocr import PdfOcrRenderError
 from app.services.textract_ocr import (
@@ -692,6 +693,87 @@ def test_preview_and_upload_preserve_original_pdf_after_ocr_recovery(
     stored = list(test_settings.upload_dir.rglob("*.pdf"))
     assert len(stored) == 1
     assert stored[0].read_bytes() == content
+
+
+@pytest.mark.parametrize("attachment_type", ["receipt", "other"])
+@pytest.mark.parametrize("reuse_preview", [True, False])
+def test_prefixed_pdf_is_normalized_for_ocr_but_stored_and_identified_as_original(
+    client, base_records, monkeypatch, test_settings, attachment_type, reuse_preview
+) -> None:
+    original = b"^{doc_title = test-invoice}\r\n" + _scanned_pdf()
+    test_settings.textract_enabled = True
+    test_settings.max_upload_bytes = 10 * 1024 * 1024
+    documents = []
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            content = Document["Bytes"]
+            documents.append(content)
+            assert content.startswith(b"%PDF-")
+            assert len(PdfReader(BytesIO(content), strict=True).pages) == 1
+            return _expense_response(
+                "COMERCIAL IAC", "CIA090819PW4", "Fecha: 07/08/2026", "Total $100.00"
+            )
+
+    monkeypatch.setattr(TextractOcrService, "_client", lambda self: FakeClient())
+    preview = client.post(
+        "/api/v1/cfdi/ocr-preview",
+        files={"file": ("invoice.pdf", original, "application/pdf")},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["checksum_sha256"] == sha256(original).hexdigest()
+    assert len(documents) == 1
+    assert documents[0] != original
+
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Proveedor Demo",
+            "amount": "100.00",
+            "spent_on": "2026-08-07",
+            "category": "Papeleria",
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    data = {"attachment_type": attachment_type}
+    if reuse_preview:
+        data["ocr_preview_token"] = preview.json()["verification_token"]
+    uploaded = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
+        data=data,
+        files={"file": ("invoice.pdf", original, "application/pdf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert uploaded.json()["checksum_sha256"] == sha256(original).hexdigest()
+    assert uploaded.json()["size_bytes"] == len(original)
+    assert uploaded.json()["ocr_extraction"]["status"] == "succeeded"
+    assert len(documents) == (1 if reuse_preview else 2)
+    stored = list(test_settings.upload_dir.rglob("*.pdf"))
+    assert len(stored) == 1
+    assert stored[0].read_bytes() == original
+    downloaded = client.get(f"/api/v1/attachments/{uploaded.json()['id']}/download")
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == original
+
+
+def test_prefixed_corrupt_pdf_keeps_the_existing_alert_and_never_calls_ocr(
+    client, monkeypatch, test_settings
+) -> None:
+    test_settings.textract_enabled = True
+
+    def unexpected_ocr(*args, **kwargs):
+        raise AssertionError("Invalid PDFs must not reach OCR")
+
+    monkeypatch.setattr(TextractOcrService, "extract_expense", unexpected_ocr)
+    response = client.post(
+        "/api/v1/cfdi/ocr-preview",
+        files={
+            "file": ("invoice.pdf", b"prefix\n%PDF-1.4\ncorrupt\n%%EOF", "application/pdf")
+        },
+    )
+    assert response.status_code == 415, response.text
+    assert response.json()["detail"] == "The PDF file does not have a valid signature"
 
 
 def test_preview_returns_partial_read_for_manual_fields_without_bypassing_receiver_validation(

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
@@ -14,7 +15,7 @@ from app.models.expense import Expense
 from app.models.ocr_extraction import OcrExtraction, OcrExtractionStatus
 from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.attachment import AttachmentRead
-from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
+from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
 from app.services.ocr_preview import verify_ocr_preview_token
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
@@ -73,10 +74,12 @@ async def upload_attachment(
         ) from exc
 
     try:
-        content_type = detect_attachment_content_type(
+        content_type, ocr_content = await run_in_threadpool(
+            prepare_attachment_for_processing,
             file.filename or "upload",
             content,
             attachment_type,
+            max_bytes=settings.max_upload_bytes,
         )
     except InvalidAttachment as exc:
         raise HTTPException(
@@ -104,7 +107,7 @@ async def upload_attachment(
         _maybe_extract_attachment_ocr(
             attachment,
             expense,
-            content=content,
+            content=ocr_content,
             checksum_sha256=stored.checksum_sha256,
             ocr_preview_token=ocr_preview_token,
             settings=settings,
