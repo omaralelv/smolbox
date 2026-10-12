@@ -748,8 +748,8 @@ function Detalle({ currentRole }) {
         }
     };
 
-    // Evaluamos si ambos están abiertos para ocultar FOLIO FISCAL
-    const ocultarFolio = documentoActivo && observacionesAbiertas;
+    // Al abrir ambos paneles, ocultamos las columnas de folio y autorización.
+    const ocultarColumnasComplementarias = Boolean(documentoActivo && observacionesAbiertas);
 
     
 
@@ -777,14 +777,16 @@ function Detalle({ currentRole }) {
                     <div style={styles.tableHeader}>
                         <span style={{ flex: 1.25}}></span>
                         <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>FECHA FACTURA</span>
-                        <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>MONTO</span>
+                        <span style={{ flex: 1, textAlign: 'center', width: '50px', paddingLeft: '120px'}}>MONTO</span>
 
                         {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
-                            {!ocultarFolio && (
+                            {!ocultarColumnasComplementarias && (
                                 <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingRight: '5px'}}>FOLIO FISCAL</span>
                             )}
 
-                        <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px',  }}>AUTORIZACION</span>
+                        {!ocultarColumnasComplementarias && (
+                            <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px' }}>AUTORIZACION</span>
+                        )}
                         <span style={{ flex: 1, textAlign: 'right', paddingRight: '5px' }}>HERRAMIENTAS</span>
                     </div>
                     
@@ -828,16 +830,18 @@ function Detalle({ currentRole }) {
                             </span>
 
                             {/* OCULTAR CELDA DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
-                                {!ocultarFolio && (
+                                {!ocultarColumnasComplementarias && (
                                     <span style={{ flex: 1, fontSize: '12px', wordBreak: 'break-all', paddingLeft: 50 }}>
                                         {gasto.folioFiscal || gasto.folio || 'N/A'}
                                     </span>
                                 )}
 
-                            <span style={{ flex: 1, textAlign: 'right'}}>
-                                {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
-                                {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
-                            </span>
+                            {!ocultarColumnasComplementarias && (
+                                <span style={{ flex: 1, textAlign: 'right'}}>
+                                    {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
+                                    {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
+                                </span>
+                            )}
 
 
 
