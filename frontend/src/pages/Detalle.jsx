@@ -750,7 +750,7 @@ function Detalle({ currentRole }) {
 
     // Al abrir ambos paneles, ocultamos las columnas de folio y autorización.
     const ocultarColumnasComplementarias = Boolean(documentoActivo && observacionesAbiertas);
-
+    const ocultarAutorizacion = Boolean(documentoActivo || observacionesAbiertas);
     
 
 
@@ -777,16 +777,17 @@ function Detalle({ currentRole }) {
                     <div style={styles.tableHeader}>
                         <span style={{ flex: 1.25}}></span>
                         <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '110px'}}>FECHA FACTURA</span>
-                        <span style={{ flex: 1, textAlign: 'center', width: '50px', paddingLeft: '120px'}}>MONTO</span>
+                        <span style={{ flex: 1, textAlign: 'left', width: '30px', paddingLeft: '50px'}}>MONTO</span>
 
                         {/* OCULTAR ENCABEZADO DE FOLIO SI AMBOS PANELES ESTÁN ABIERTOS */}
                             {!ocultarColumnasComplementarias && (
                                 <span style={{ flex: 1, textAlign: 'left', width: '20px', paddingRight: '5px'}}>FOLIO FISCAL</span>
                             )}
 
-                        {!ocultarColumnasComplementarias && (
+                        {!ocultarAutorizacion && (
                             <span style={{ flex: 1, textAlign: 'left', paddingLeft: '10px' }}>AUTORIZACION</span>
                         )}
+                        
                         <span style={{ flex: 1, textAlign: 'right', paddingRight: '5px' }}>HERRAMIENTAS</span>
                     </div>
                     
@@ -825,7 +826,7 @@ function Detalle({ currentRole }) {
                                 {formatoFechaGasto(gasto.fecha || gasto.spent_on)}
                             </span>
 
-                            <span style={{ flex: 1, textAlign: 'center' , width: '50px', paddingLeft: '120px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
+                            <span style={{ flex: 1, textAlign: 'center' , width: '30px', paddingLeft: '60px', textDecoration: estaDesactivado ? 'line-through' : 'none'}}>
                                 {parseFloat(gasto.monto || 0).toFixed(2)}
                             </span>
 
@@ -836,7 +837,7 @@ function Detalle({ currentRole }) {
                                     </span>
                                 )}
 
-                            {!ocultarColumnasComplementarias && (
+                            {!ocultarAutorizacion && (
                                 <span style={{ flex: 1, textAlign: 'right'}}>
                                     {gasto.autorizacion === 'no_autorizado' && <span style={styles.badgeNoAutorizado}>No Autorizado</span>}
                                     {gasto.autorizacion === 'autorizado' && <span style={styles.badgeAutorizado}>Autorizado</span>}
@@ -908,13 +909,36 @@ function Detalle({ currentRole }) {
                     </span>
                     <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
                     </span>
+                    
+                    {(!ocultarColumnasComplementarias && !ocultarAutorizacion) && (
+                        <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '30px', textAlign: 'left' }}>
+                            {totalCategoria}
+                        </span>
+                    )}
+                    
+                    {ocultarColumnasComplementarias && (
+                        <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '100px', textAlign: 'left' }}>
+                            {totalCategoria}
+                        </span>
+                    )}
+
+                    {(ocultarAutorizacion && !ocultarColumnasComplementarias) && (
+                        <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '140px', textAlign: 'left' }}>
+                            {totalCategoria}
+                        </span>
+                    )}
+                    
+                    {!ocultarColumnasComplementarias && (
+                        <span 
+                            style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
+                        </span>
+                    )}
+
+                    
+                    
                     <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
-                        {totalCategoria}
                     </span>
-                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
-                    </span>
-                    <span style={{flex: 1, fontWeight: 'bold', fontSize: '14px', marginLeft: '80px', textAlign: 'left' }}>
-                    </span>
+                    
                 </div>
             </div>
 
