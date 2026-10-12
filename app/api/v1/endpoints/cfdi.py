@@ -208,6 +208,7 @@ async def _preview_invoice_ocr(
             ocr_content,
             content_type=content_type,
             filename=file.filename or "factura.pdf",
+            search_cfdi_uuid=document_type.strip().lower() == "factura",
         )
     except TextractOcrError as exc:
         raise HTTPException(

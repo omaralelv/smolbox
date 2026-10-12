@@ -11,7 +11,7 @@ from io import BytesIO
 from typing import Any
 
 from app.core.config import Settings
-from app.services.pdf_ocr import PdfOcrRenderError, render_pdf_pages
+from app.services.pdf_ocr import PdfOcrRenderError, render_invoice_header, render_pdf_pages
 
 logger = logging.getLogger(__name__)
 
@@ -111,28 +111,45 @@ class TextractOcrService:
         *,
         content_type: str,
         filename: str,
+        search_cfdi_uuid: bool = False,
     ) -> TextractOcrResult | None:
+        """Retry missing invoice UUIDs when requested, retaining readable partial results."""
         if not self.is_enabled or not self.supports_content_type(content_type):
             return None
 
         pdf_text_result = _extract_text_pdf_expense(content, content_type=content_type)
-        if _text_pdf_result_is_sufficient(pdf_text_result):
+        if _ocr_result_is_sufficient(pdf_text_result, search_cfdi_uuid=search_cfdi_uuid):
             return pdf_text_result
 
         try:
             client = self._client()
         except Exception as exc:
             self._log_error(exc, operation="create_client", filename=filename)
+            if _ocr_result_is_sufficient(pdf_text_result):
+                return pdf_text_result
             raise TextractOcrError(f"Textract failed for {filename}: {exc}") from exc
 
         is_pdf = content_type.lower().split(";", maxsplit=1)[0] == "application/pdf"
+        search_missing_uuid = search_cfdi_uuid and (
+            pdf_text_result is None or pdf_text_result.suggested_cfdi_uuid is None
+        )
         try:
-            result = self._extract_document(client, content, filename=filename, is_pdf=is_pdf)
+            result = self._extract_document(
+                client,
+                content,
+                filename=filename,
+                is_pdf=is_pdf,
+                search_cfdi_uuid=search_missing_uuid,
+            )
         except TextractOcrError as exc:
             if not is_pdf or not _is_textract_document_read_error(exc):
+                if _ocr_result_is_sufficient(pdf_text_result):
+                    return pdf_text_result
                 raise
             try:
-                result = self._extract_rendered_pdf(client, content, filename=filename)
+                result = self._extract_rendered_pdf(
+                    client, content, filename=filename, search_cfdi_uuid=search_missing_uuid
+                )
             except PdfOcrRenderError as render_exc:
                 self._log_error(render_exc, operation="render_pdf", filename=filename)
                 if pdf_text_result is not None:
@@ -140,9 +157,16 @@ class TextractOcrService:
                 raise TextractOcrError(
                     f"Textract PDF recovery failed for {filename}: {render_exc}"
                 ) from render_exc
+            except TextractOcrError:
+                if _ocr_result_is_sufficient(pdf_text_result):
+                    return pdf_text_result
+                raise
 
         if pdf_text_result is not None:
-            result = _merge_ocr_results(result, pdf_text_result)
+            if _ocr_result_is_sufficient(pdf_text_result):
+                result = _merge_ocr_results(pdf_text_result, result)
+            else:
+                result = _merge_ocr_results(result, pdf_text_result)
         if not result.raw_text.strip():
             error = TextractOcrError(f"Textract returned no readable text for {filename}.")
             self._log_error(error, operation="extract_expense", filename=filename)
@@ -157,6 +181,7 @@ class TextractOcrService:
         filename: str,
         is_pdf: bool = False,
         page_number: int | None = None,
+        search_cfdi_uuid: bool = False,
     ) -> TextractOcrResult:
         try:
             response = self._call_textract(
@@ -165,12 +190,22 @@ class TextractOcrService:
         except TextractOcrError as exc:
             if is_pdf or not _is_textract_document_read_error(exc):
                 raise
-            return self._detect_text(client, content, filename=filename, page_number=page_number)
+            result = self._detect_text(client, content, filename=filename, page_number=page_number)
+            if search_cfdi_uuid and result.suggested_cfdi_uuid is None:
+                result = self._recover_invoice_header_uuid(
+                    client,
+                    content,
+                    result,
+                    filename=filename,
+                    is_pdf=is_pdf,
+                    page_number=page_number,
+                )
+            return result
 
         result = _parse_analyze_expense_response(
             response, store_raw_response=self.settings.textract_store_raw_response
         )
-        if result.extracted_total is not None and result.extracted_date is not None:
+        if _ocr_result_is_sufficient(result, search_cfdi_uuid=search_cfdi_uuid):
             return result
         try:
             detected = self._detect_text(
@@ -181,7 +216,17 @@ class TextractOcrService:
             if result.raw_text.strip():
                 return result
             raise
-        return _merge_ocr_results(result, detected)
+        result = _merge_ocr_results(result, detected)
+        if search_cfdi_uuid and result.suggested_cfdi_uuid is None:
+            result = self._recover_invoice_header_uuid(
+                client,
+                content,
+                result,
+                filename=filename,
+                is_pdf=is_pdf,
+                page_number=page_number,
+            )
+        return result
 
     def _detect_text(
         self,
@@ -198,15 +243,50 @@ class TextractOcrService:
             response, store_raw_response=self.settings.textract_store_raw_response
         )
 
-    def _extract_rendered_pdf(self, client, content: bytes, *, filename: str) -> TextractOcrResult:
+    def _recover_invoice_header_uuid(
+        self,
+        client,
+        content: bytes,
+        result: TextractOcrResult,
+        *,
+        filename: str,
+        is_pdf: bool,
+        page_number: int | None,
+    ) -> TextractOcrResult:
+        try:
+            header = render_invoice_header(content, is_pdf=is_pdf)
+        except PdfOcrRenderError as exc:
+            self._log_error(
+                exc, operation="render_invoice_header", filename=filename, page_number=page_number
+            )
+            return result
+        try:
+            detected = self._detect_text(client, header, filename=filename, page_number=page_number)
+        except TextractOcrError:
+            return result
+        # Cropped text is only evidence for the UUID, not a new invoice total or date.
+        detected = replace(
+            detected, extracted_total=None, extracted_date=None, extracted_supplier=None
+        )
+        return _merge_ocr_results(result, detected)
+
+    def _extract_rendered_pdf(
+        self, client, content: bytes, *, filename: str, search_cfdi_uuid: bool = False
+    ) -> TextractOcrResult:
         results: list[TextractOcrResult] = []
         with closing(render_pdf_pages(content)) as pages:
             for page_number, page_content in enumerate(pages, start=1):
                 results.append(
                     self._extract_document(
-                        client, page_content, filename=filename, page_number=page_number
+                        client,
+                        page_content,
+                        filename=filename,
+                        page_number=page_number,
+                        search_cfdi_uuid=search_cfdi_uuid,
                     )
                 )
+                if results[-1].suggested_cfdi_uuid is not None:
+                    search_cfdi_uuid = False
         logger.info("Textract PDF recovery completed: filename=%r pages=%s", filename, len(results))
         return _combine_page_results(results)
 
@@ -478,10 +558,16 @@ def _extract_text_pdf_expense(
     )
 
 
-def _text_pdf_result_is_sufficient(result: TextractOcrResult | None) -> bool:
+def _ocr_result_is_sufficient(
+    result: TextractOcrResult | None, *, search_cfdi_uuid: bool = False
+) -> bool:
     if result is None:
         return False
-    return result.extracted_date is not None and result.extracted_total is not None
+    return (
+        result.extracted_date is not None
+        and result.extracted_total is not None
+        and (not search_cfdi_uuid or result.suggested_cfdi_uuid is not None)
+    )
 
 
 def _pdf_text_from_bytes(content: bytes) -> str | None:

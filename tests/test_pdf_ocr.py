@@ -5,7 +5,7 @@ from PIL import Image
 from pypdf import PdfWriter
 
 from app.services import pdf_ocr
-from app.services.pdf_ocr import PdfOcrRenderError, render_pdf_pages
+from app.services.pdf_ocr import PdfOcrRenderError, render_invoice_header, render_pdf_pages
 
 
 def _blank_pdf(page_count: int, *, width: int = 612, height: int = 792, password=None) -> bytes:
@@ -63,3 +63,61 @@ def test_png_encoding_limits_file_size_without_modifying_the_source_image(monkey
     with Image.open(BytesIO(content)) as image:
         assert image.format == "PNG"
         assert image.width < 512
+
+
+def test_invoice_header_is_cropped_enlarged_and_leaves_source_unchanged() -> None:
+    with Image.new("RGB", (600, 1000), "white") as image:
+        image.paste("black", (0, 0, 600, 400))
+        source = BytesIO()
+        image.save(source, format="PNG")
+    original = source.getvalue()
+    header = render_invoice_header(original, is_pdf=False)
+    with Image.open(BytesIO(header)) as image:
+        assert image.format == "PNG"
+        assert image.size == (1200, 800)
+        assert image.convert("L").getextrema() == (0, 0)
+    with Image.open(BytesIO(original)) as image:
+        assert image.size == (600, 1000)
+        assert image.getpixel((0, 900)) == (255, 255, 255)
+
+
+def test_invoice_header_uses_only_the_first_pdf_page(monkeypatch) -> None:
+    source = BytesIO()
+    with Image.new("RGB", (600, 1000), "white") as image:
+        image.save(source, format="PNG")
+    closed = False
+
+    def pages(content):
+        nonlocal closed
+        try:
+            yield source.getvalue()
+            raise AssertionError("Header recovery must not render subsequent pages")
+        finally:
+            closed = True
+
+    monkeypatch.setattr(pdf_ocr, "render_pdf_pages", pages)
+    render_invoice_header(b"pdf", is_pdf=True)
+    assert closed
+
+
+def test_invoice_header_bounds_enlarged_dimensions() -> None:
+    header = render_invoice_header(_blank_pdf(1), is_pdf=True)
+    with Image.open(BytesIO(header)) as image:
+        assert max(image.size) <= pdf_ocr.MAX_OCR_IMAGE_SIDE
+        assert image.width * image.height <= pdf_ocr.MAX_OCR_IMAGE_PIXELS
+        assert image.width > 2000
+    assert len(header) <= pdf_ocr.MAX_OCR_IMAGE_BYTES
+
+
+def test_invoice_header_rejects_oversized_images_before_cropping(monkeypatch) -> None:
+    source = BytesIO()
+    with Image.new("RGB", (100, 100), "white") as image:
+        image.save(source, format="PNG")
+    monkeypatch.setattr(pdf_ocr, "MAX_OCR_IMAGE_PIXELS", 9999)
+    with pytest.raises(PdfOcrRenderError, match="pixel limit"):
+        render_invoice_header(source.getvalue(), is_pdf=False)
+
+
+def test_invoice_header_reports_unreadable_image() -> None:
+    with pytest.raises(PdfOcrRenderError):
+        render_invoice_header(b"not an image", is_pdf=False)

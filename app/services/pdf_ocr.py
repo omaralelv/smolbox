@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import closing
 from io import BytesIO
 from math import isfinite, sqrt
 from threading import Lock
@@ -12,6 +13,7 @@ MAX_OCR_IMAGE_PIXELS = 8_000_000
 MAX_OCR_IMAGE_SIDE = 4_000
 MAX_OCR_IMAGE_BYTES = 10 * 1024 * 1024
 PDF_RENDER_DPI = 200
+INVOICE_HEADER_HEIGHT_RATIO = 0.4
 
 # PDFium calls must be serialized, including document creation and cleanup.
 _PDFIUM_LOCK = Lock()
@@ -51,6 +53,37 @@ def render_pdf_pages(content: bytes) -> Iterator[bytes]:
         if document is not None:
             with _PDFIUM_LOCK:
                 document.close()
+
+
+def render_invoice_header(content: bytes, *, is_pdf: bool) -> bytes:
+    """Prepare one bounded, enlarged header without changing the source document."""
+    if is_pdf:
+        with closing(render_pdf_pages(content)) as pages:
+            content = next(pages)
+    try:
+        with Image.open(BytesIO(content)) as image:
+            if image.width * image.height > MAX_OCR_IMAGE_PIXELS:
+                raise PdfOcrRenderError("Invoice image exceeds the header recovery pixel limit.")
+            header_height = max(1, int(image.height * INVOICE_HEADER_HEIGHT_RATIO))
+            with (
+                image.crop((0, 0, image.width, header_height)) as cropped,
+                cropped.convert("RGB") as header,
+            ):
+                scale = min(
+                    2.0,
+                    MAX_OCR_IMAGE_SIDE / max(header.size),
+                    sqrt(MAX_OCR_IMAGE_PIXELS / (header.width * header.height)),
+                )
+                size = (
+                    max(1, int(header.width * scale)),
+                    max(1, int(header.height * scale)),
+                )
+                with header.resize(size, Image.Resampling.LANCZOS) as enlarged:
+                    return _image_as_png(enlarged)
+    except PdfOcrRenderError:
+        raise
+    except Exception as exc:
+        raise PdfOcrRenderError(f"Could not prepare invoice header for OCR: {exc}") from exc
 
 
 def _render_page(document, index: int) -> Image.Image:

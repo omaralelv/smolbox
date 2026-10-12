@@ -385,6 +385,421 @@ def test_detect_document_text_completes_missing_fields_without_overwriting_total
     assert "CIA090819PW4" in result.raw_text
 
 
+@pytest.mark.parametrize("content_type", ["application/pdf", "image/jpeg"])
+@pytest.mark.parametrize("store_raw_response", [False, True])
+def test_invoice_missing_uuid_retries_text_even_when_total_and_date_are_complete(
+    monkeypatch, test_settings, content_type, store_raw_response
+) -> None:
+    content = _scanned_pdf() if content_type == "application/pdf" else b"image"
+    calls = []
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            calls.append(("analyze_expense", Document["Bytes"]))
+            return _expense_response("Fecha: 11/08/2026", "Total $259.00")
+
+        def detect_document_text(self, Document):
+            calls.append(("detect_document_text", Document["Bytes"]))
+            return {
+                "Blocks": [
+                    {"BlockType": "LINE", "Text": "UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1"},
+                    {"BlockType": "LINE", "Text": "Fecha: 12/08/2026"},
+                    {"BlockType": "LINE", "Text": "Total $999.00"},
+                ]
+            }
+
+    def unexpected_header(*args, **kwargs):
+        raise AssertionError("A recovered UUID must not trigger a header retry")
+
+    test_settings.textract_enabled = True
+    test_settings.textract_store_raw_response = store_raw_response
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    monkeypatch.setattr("app.services.textract_ocr.render_invoice_header", unexpected_header)
+    result = service.extract_expense(
+        content, content_type=content_type, filename="invoice.pdf", search_cfdi_uuid=True
+    )
+    assert result.suggested_cfdi_uuid == "86ED2CC8-3EBB-4451-8364-1FB45BF855D1"
+    assert result.extracted_total == Decimal("259.00")
+    assert result.extracted_date == date(2026, 8, 11)
+    assert calls == [("analyze_expense", content), ("detect_document_text", content)]
+    if store_raw_response:
+        assert len(result.raw_response["sources"]) == 2
+    else:
+        assert result.raw_response is None
+
+
+def test_invoice_with_complete_uuid_does_not_make_extra_calls(monkeypatch, test_settings) -> None:
+    class FakeClient:
+        def analyze_expense(self, Document):
+            return _expense_response(
+                "Fecha: 11/08/2026",
+                "Total $259.00",
+                "UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1",
+            )
+
+        def detect_document_text(self, Document):
+            raise AssertionError("Complete invoices must not need a second read")
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    result = service.extract_expense(
+        b"image", content_type="image/jpeg", filename="invoice.jpg", search_cfdi_uuid=True
+    )
+    assert result.suggested_cfdi_uuid == "86ED2CC8-3EBB-4451-8364-1FB45BF855D1"
+
+
+@pytest.mark.parametrize("document_type", ["factura", " FACTURA ", "vale", "recibo"])
+def test_preview_only_searches_missing_uuid_for_invoices(
+    client, monkeypatch, test_settings, document_type
+) -> None:
+    calls = []
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            calls.append("analyze")
+            return _expense_response(
+                "COMERCIAL IAC", "CIA090819PW4", "Fecha: 11/08/2026", "Total $259.00"
+            )
+
+        def detect_document_text(self, Document):
+            calls.append("detect")
+            return {
+                "Blocks": [
+                    {"BlockType": "LINE", "Text": "UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1"}
+                ]
+            }
+
+    test_settings.textract_enabled = True
+    monkeypatch.setattr(TextractOcrService, "_client", lambda self: FakeClient())
+    response = client.post(
+        "/api/v1/cfdi/ocr-preview",
+        data={"document_type": document_type},
+        files={"file": ("scan.jpg", b"\xff\xd8\xffimage", "image/jpeg")},
+    )
+    assert response.status_code == 200, response.text
+    is_invoice = document_type.strip().lower() == "factura"
+    assert calls == (["analyze", "detect"] if is_invoice else ["analyze"])
+    assert bool(response.json()["suggested_cfdi_uuid"]) == is_invoice
+
+
+@pytest.mark.parametrize(
+    "header_uuid",
+    [
+        "86ED2CC8-3EBB-4451-8364-1FB45BF855D1",
+        "86OD2CC8-3EBB-4451-8364-1FB45BF855D1",
+        None,
+    ],
+)
+def test_missing_invoice_uuid_uses_one_header_attempt_without_guessing_characters(
+    monkeypatch, test_settings, header_uuid
+) -> None:
+    content = _scanned_pdf()
+    documents = []
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            assert Document["Bytes"] == content
+            return _expense_response("Fecha: 11/08/2026", "Total $259.00")
+
+        def detect_document_text(self, Document):
+            documents.append(Document["Bytes"])
+            if len(documents) == 1:
+                assert Document["Bytes"] == content
+                return {"Blocks": []}
+            assert len(documents) == 2
+            with Image.open(BytesIO(Document["Bytes"])) as header:
+                assert header.format == "PNG"
+                assert header.width > header.height
+            text = f"UUID {header_uuid}" if header_uuid else "Factura sin folio legible"
+            return {
+                "Blocks": [
+                    {"BlockType": "LINE", "Text": text},
+                    {"BlockType": "LINE", "Text": "Total $999.00"},
+                    {"BlockType": "LINE", "Text": "Fecha: 12/08/2026"},
+                ]
+            }
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    result = service.extract_expense(
+        content, content_type="application/pdf", filename="invoice.pdf", search_cfdi_uuid=True
+    )
+    expected_uuid = header_uuid if header_uuid and "O" not in header_uuid else None
+    assert result.suggested_cfdi_uuid == expected_uuid
+    assert result.extracted_total == Decimal("259.00")
+    assert result.extracted_date == date(2026, 8, 11)
+    assert len(documents) == 2
+
+
+@pytest.mark.parametrize("error_code", ["AccessDeniedException", "ThrottlingException"])
+def test_uuid_text_permission_failure_keeps_partial_data_and_skips_header(
+    monkeypatch, test_settings, caplog, error_code
+) -> None:
+    class FakeClient:
+        def analyze_expense(self, Document):
+            return _expense_response("Fecha: 11/08/2026", "Total $259.00")
+
+        def detect_document_text(self, Document):
+            raise _aws_error(error_code, "DetectDocumentText")
+
+    def unexpected_header(*args, **kwargs):
+        raise AssertionError("Permission/throttling failures must not trigger image recovery")
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    monkeypatch.setattr("app.services.textract_ocr.render_invoice_header", unexpected_header)
+    result = service.extract_expense(
+        _scanned_pdf(),
+        content_type="application/pdf",
+        filename="invoice.pdf",
+        search_cfdi_uuid=True,
+    )
+    assert result.suggested_cfdi_uuid is None
+    assert result.extracted_total == Decimal("259.00")
+    assert result.extracted_date == date(2026, 8, 11)
+    assert f"error_code={error_code}" in caplog.text
+
+
+@pytest.mark.parametrize("failure", ["render", "detect"])
+def test_header_recovery_failure_preserves_readable_data(
+    monkeypatch, test_settings, caplog, failure
+) -> None:
+    calls = 0
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            return _expense_response("Fecha: 11/08/2026", "Total $259.00")
+
+        def detect_document_text(self, Document):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise _aws_error("BadDocumentException", "DetectDocumentText")
+            return {"Blocks": []}
+
+    def fail_render(*args, **kwargs):
+        raise PdfOcrRenderError("header unavailable")
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    if failure == "render":
+        monkeypatch.setattr("app.services.textract_ocr.render_invoice_header", fail_render)
+    result = service.extract_expense(
+        _scanned_pdf(),
+        content_type="application/pdf",
+        filename="invoice.pdf",
+        search_cfdi_uuid=True,
+    )
+    assert result.extracted_total == Decimal("259.00")
+    assert result.extracted_date == date(2026, 8, 11)
+    assert result.suggested_cfdi_uuid is None
+    assert calls == (1 if failure == "render" else 2)
+    assert (
+        "header unavailable" in caplog.text
+        if failure == "render"
+        else "BadDocumentException" in caplog.text
+    )
+
+
+def test_text_pdf_with_missing_uuid_uses_ocr_but_keeps_original_date_and_total(
+    monkeypatch, test_settings
+) -> None:
+    monkeypatch.setattr(
+        "app.services.textract_ocr._pdf_text_from_bytes",
+        lambda content: "COMERCIAL IAC\nCIA090819PW4\nFecha: 11/08/2026\nTotal $259.00",
+    )
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            return _expense_response("Fecha: 12/08/2026", "Total $999.00")
+
+        def detect_document_text(self, Document):
+            return {
+                "Blocks": [
+                    {"BlockType": "LINE", "Text": "UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1"}
+                ]
+            }
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    result = service.extract_expense(
+        b"pdf", content_type="application/pdf", filename="invoice.pdf", search_cfdi_uuid=True
+    )
+    assert result.suggested_cfdi_uuid == "86ED2CC8-3EBB-4451-8364-1FB45BF855D1"
+    assert result.extracted_total == Decimal("259.00")
+    assert result.extracted_date == date(2026, 8, 11)
+
+
+@pytest.mark.parametrize("failure", ["client", "analyze", "rendered_page"])
+def test_optional_uuid_ocr_failure_keeps_readable_text_pdf(
+    monkeypatch, test_settings, failure
+) -> None:
+    monkeypatch.setattr(
+        "app.services.textract_ocr._pdf_text_from_bytes",
+        lambda content: "Fecha: 11/08/2026\nTotal $259.00",
+    )
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            if failure == "rendered_page" and Document["Bytes"].startswith(b"%PDF-"):
+                raise _aws_error("UnsupportedDocumentException")
+            raise _aws_error("AccessDeniedException")
+
+    def create_client():
+        if failure == "client":
+            raise RuntimeError("credentials unavailable")
+        return FakeClient()
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", create_client)
+    result = service.extract_expense(
+        _scanned_pdf(),
+        content_type="application/pdf",
+        filename="invoice.pdf",
+        search_cfdi_uuid=True,
+    )
+    assert result.extracted_total == Decimal("259.00")
+    assert result.extracted_date == date(2026, 8, 11)
+    assert result.suggested_cfdi_uuid is None
+
+
+def test_header_uuid_recovery_does_not_fill_missing_date_or_amount(
+    monkeypatch, test_settings
+) -> None:
+    calls = 0
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            return _expense_response("COMERCIAL IAC", "CIA090819PW4")
+
+        def detect_document_text(self, Document):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {"Blocks": []}
+            return {
+                "Blocks": [
+                    {"BlockType": "LINE", "Text": "UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1"},
+                    {"BlockType": "LINE", "Text": "Total $999.00"},
+                    {"BlockType": "LINE", "Text": "Fecha: 12/08/2026"},
+                ]
+            }
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    result = service.extract_expense(
+        _scanned_pdf(),
+        content_type="application/pdf",
+        filename="invoice.pdf",
+        search_cfdi_uuid=True,
+    )
+    assert result.suggested_cfdi_uuid == "86ED2CC8-3EBB-4451-8364-1FB45BF855D1"
+    assert result.extracted_total is None
+    assert result.extracted_date is None
+
+
+def test_rendered_invoice_stops_uuid_retries_after_first_page_has_uuid(
+    monkeypatch, test_settings
+) -> None:
+    pages = 0
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            nonlocal pages
+            if Document["Bytes"].startswith(b"%PDF-"):
+                raise _aws_error("UnsupportedDocumentException")
+            pages += 1
+            lines = ["Fecha: 11/08/2026", "Total $259.00"]
+            if pages == 1:
+                lines.append("UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1")
+            return _expense_response(*lines)
+
+        def detect_document_text(self, Document):
+            raise AssertionError("An already recovered UUID does not need repeated searches")
+
+    test_settings.textract_enabled = True
+    service = TextractOcrService(test_settings)
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    result = service.extract_expense(
+        _scanned_pdf(2),
+        content_type="application/pdf",
+        filename="invoice.pdf",
+        search_cfdi_uuid=True,
+    )
+    assert pages == 2
+    assert result.suggested_cfdi_uuid == "86ED2CC8-3EBB-4451-8364-1FB45BF855D1"
+    assert result.extracted_total == Decimal("259.00")
+
+
+def test_recovered_invoice_uuid_is_reused_on_upload_without_altering_original(
+    client, base_records, monkeypatch, test_settings
+) -> None:
+    content = _scanned_pdf()
+    calls = []
+
+    class FakeClient:
+        def analyze_expense(self, Document):
+            calls.append("analyze")
+            return _expense_response(
+                "COMERCIAL IAC", "CIA090819PW4", "Fecha: 11/08/2026", "Total $259.00"
+            )
+
+        def detect_document_text(self, Document):
+            calls.append("detect")
+            return {
+                "Blocks": [
+                    {"BlockType": "LINE", "Text": "UUID 86ED2CC8-3EBB-4451-8364-1FB45BF855D1"}
+                ]
+            }
+
+    test_settings.textract_enabled = True
+    test_settings.max_upload_bytes = 10 * 1024 * 1024
+    monkeypatch.setattr(TextractOcrService, "_client", lambda self: FakeClient())
+    preview = client.post(
+        "/api/v1/cfdi/ocr-preview",
+        files={"file": ("invoice.pdf", content, "application/pdf")},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["suggested_cfdi_uuid"] == "86ED2CC8-3EBB-4451-8364-1FB45BF855D1"
+    assert preview.json()["checksum_sha256"] == sha256(content).hexdigest()
+    expense = client.post(
+        "/api/v1/expenses/",
+        json={
+            "reimbursement_request_id": base_records["request_id"],
+            "merchant": "Proveedor Demo",
+            "amount": "259.00",
+            "spent_on": "2026-08-11",
+            "category": "Papeleria",
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    uploaded = client.post(
+        f"/api/v1/expenses/{expense.json()['id']}/attachments",
+        data={
+            "attachment_type": "receipt",
+            "ocr_preview_token": preview.json()["verification_token"],
+        },
+        files={"file": ("invoice.pdf", content, "application/pdf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert (
+        uploaded.json()["ocr_extraction"]["suggested_cfdi_uuid"]
+        == preview.json()["suggested_cfdi_uuid"]
+    )
+    assert calls == ["analyze", "detect"]
+    downloaded = client.get(f"/api/v1/attachments/{uploaded.json()['id']}/download")
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == content
+
+
 def test_detect_document_text_recovers_when_image_expense_analysis_cannot_read(
     monkeypatch, test_settings
 ) -> None:
@@ -505,9 +920,11 @@ def test_extract_expense_falls_back_to_text_pdf_when_textract_rejects_document(
     assert result.extracted_total == Decimal("1171.00")
 
 
+@pytest.mark.parametrize("search_cfdi_uuid", [False, True])
 def test_extract_expense_uses_text_pdf_before_textract_when_data_is_complete(
     monkeypatch,
     test_settings,
+    search_cfdi_uuid,
 ) -> None:
     test_settings.textract_enabled = True
 
@@ -536,6 +953,7 @@ def test_extract_expense_uses_text_pdf_before_textract_when_data_is_complete(
         b"%PDF-1.4\ncontent\n%%EOF",
         content_type="application/pdf",
         filename="factura.pdf",
+        search_cfdi_uuid=search_cfdi_uuid,
     )
 
     assert result is not None
@@ -547,7 +965,8 @@ def test_extract_expense_uses_text_pdf_before_textract_when_data_is_complete(
 def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_settings) -> None:
     test_settings.textract_enabled = True
 
-    def fake_extract_expense(self, content, *, content_type, filename):
+    def fake_extract_expense(self, content, *, content_type, filename, search_cfdi_uuid=False):
+        assert search_cfdi_uuid
         return TextractOcrResult(
             raw_text=(
                 "Razón Social: COMERCIAL IAC\n"
@@ -580,7 +999,8 @@ def test_invoice_ocr_preview_returns_verified_result(client, monkeypatch, test_s
 def test_invoice_ocr_preview_rejects_wrong_receiver(client, monkeypatch, test_settings) -> None:
     test_settings.textract_enabled = True
 
-    def fake_extract_expense(self, content, *, content_type, filename):
+    def fake_extract_expense(self, content, *, content_type, filename, search_cfdi_uuid=False):
+        assert search_cfdi_uuid
         return TextractOcrResult(
             raw_text=(
                 "Razón Social: OTRA EMPRESA\n"
@@ -617,7 +1037,8 @@ def test_non_invoice_ocr_preview_does_not_require_invoice_receiver(
 ) -> None:
     test_settings.textract_enabled = True
 
-    def fake_extract_expense(self, content, *, content_type, filename):
+    def fake_extract_expense(self, content, *, content_type, filename, search_cfdi_uuid=False):
+        assert not search_cfdi_uuid
         return TextractOcrResult(
             raw_text="Vale interno con total 100.00",
             extracted_total=Decimal("100.00"),
@@ -655,7 +1076,11 @@ def test_preview_and_upload_preserve_original_pdf_after_ocr_recovery(
             if Document["Bytes"].startswith(b"%PDF-"):
                 raise _aws_error("UnsupportedDocumentException")
             return _expense_response(
-                "COMERCIAL IAC", "CIA090819PW4", "Fecha: 07/08/2026", "Total $100.00"
+                "COMERCIAL IAC",
+                "CIA090819PW4",
+                "Fecha: 07/08/2026",
+                "Total $100.00",
+                "UUID 11111111-2222-3333-4444-AAAAAAAAAAAA",
             )
 
     monkeypatch.setattr(TextractOcrService, "_client", lambda self: FakeClient())
@@ -712,7 +1137,11 @@ def test_prefixed_pdf_is_normalized_for_ocr_but_stored_and_identified_as_origina
             assert content.startswith(b"%PDF-")
             assert len(PdfReader(BytesIO(content), strict=True).pages) == 1
             return _expense_response(
-                "COMERCIAL IAC", "CIA090819PW4", "Fecha: 07/08/2026", "Total $100.00"
+                "COMERCIAL IAC",
+                "CIA090819PW4",
+                "Fecha: 07/08/2026",
+                "Total $100.00",
+                "UUID 11111111-2222-3333-4444-AAAAAAAAAAAA",
             )
 
     monkeypatch.setattr(TextractOcrService, "_client", lambda self: FakeClient())
@@ -768,9 +1197,7 @@ def test_prefixed_corrupt_pdf_keeps_the_existing_alert_and_never_calls_ocr(
     monkeypatch.setattr(TextractOcrService, "extract_expense", unexpected_ocr)
     response = client.post(
         "/api/v1/cfdi/ocr-preview",
-        files={
-            "file": ("invoice.pdf", b"prefix\n%PDF-1.4\ncorrupt\n%%EOF", "application/pdf")
-        },
+        files={"file": ("invoice.pdf", b"prefix\n%PDF-1.4\ncorrupt\n%%EOF", "application/pdf")},
     )
     assert response.status_code == 415, response.text
     assert response.json()["detail"] == "The PDF file does not have a valid signature"
@@ -834,7 +1261,7 @@ def test_attachment_upload_reuses_ocr_preview_token(
     pdf_content = b"%PDF-1.4\ncontent\n%%EOF"
     test_settings.textract_enabled = True
 
-    def fake_extract_expense(self, content, *, content_type, filename):
+    def fake_extract_expense(self, content, *, content_type, filename, search_cfdi_uuid=False):
         return TextractOcrResult(
             raw_text=(
                 "Razón Social: COMERCIAL IAC\n"
