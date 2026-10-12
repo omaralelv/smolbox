@@ -173,7 +173,7 @@ function Detalle({ currentRole }) {
         recibo: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         observaciones: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         editar: ['contabilidad', 'gerencia', 'admin'],
-        particionar: ['contabilidad', 'admin'],
+        particionar: ['contabilidad', 'gerencia', 'admin'],
         eliminar: ['contabilidad', 'gerencia', 'admin']
     };
 
