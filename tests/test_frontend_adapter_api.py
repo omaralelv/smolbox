@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+import pytest
 from conftest import create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -748,11 +749,16 @@ def test_frontend_clicks_are_registered_in_request_audit_log(
     assert any(event["action"] == "ui_click" for event in audit_events.json())
 
 
-def test_frontend_taxi_expense_routes_request_to_authorization(
+@pytest.mark.parametrize("category", ["Pasajes y Taxis", "No Deducibles", "No Deducible"])
+@pytest.mark.parametrize("area", ["Supervisores", "Sistemas"])
+def test_frontend_manual_area_expense_routes_request_to_authorization(
     client: TestClient,
     base_records: dict[str, str],
     session_factory: sessionmaker[Session],
+    category: str,
+    area: str,
 ) -> None:
+    _create_user(client, "admin", "frontend.manual-area.admin@example.com")
     store_user_id = _create_user(client, "store", "frontend.taxi.store@example.com")
     authorizer_user_id = _create_user(
         client,
@@ -768,6 +774,12 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     _assign_user_to_store(client, base_records["store_id"], authorizer_user_id, "authorizer")
     _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
     _create_opening_cutoff(session_factory, base_records["store_id"])
+    assigned_area = client.post(
+        f"/api/v1/authorization-areas/users/{authorizer_user_id}",
+        headers=_auth_headers(client, "frontend.manual-area.admin@example.com"),
+        json={"areaName": area},
+    )
+    assert assigned_area.status_code == 201, assigned_area.text
 
     store_headers = _auth_headers(client, "frontend.taxi.store@example.com")
     created = client.post(
@@ -779,9 +791,9 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
             "gastos": [
                 {
                     "fecha": "07/08/2026",
-                    "categoria": "Pasajes y Taxis",
+                    "categoria": category,
                     "monto": "1500.00",
-                    "authorizationArea": "Supervisores",
+                    "authorizationArea": area,
                     "observaciones": "Traslado operativo",
                 }
             ],
@@ -791,8 +803,9 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     created_body = created.json()
     created_expense = created_body["gastos"][0]
     assert created_expense["requiresAuthorization"] is True
-    assert created_expense["authorizationArea"] == "Supervisores"
+    assert created_expense["authorizationArea"] == area
     assert created_expense["autorizacion"] == ""
+    assert created_expense["cfdiTaxRate"] == 0.0
 
     _attach_valid_cfdi(
         client,
@@ -813,6 +826,7 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     authorizer_queue = client.get("/api/v1/frontend/bandeja/me", headers=authorizer_headers)
     assert authorizer_queue.status_code == 200, authorizer_queue.text
     assert [item["backendId"] for item in authorizer_queue.json()] == [created_body["backendId"]]
+    assert authorizer_queue.json()[0]["gastos"][0]["authorizationArea"] == area
 
     accountant_headers = _auth_headers(client, "frontend.taxi.accountant@example.com")
     accountant_queue = client.get("/api/v1/frontend/bandeja/me", headers=accountant_headers)
@@ -826,10 +840,14 @@ def test_frontend_taxi_expense_routes_request_to_authorization(
     assert accountant_detail.status_code == 403, accountant_detail.text
 
 
-def test_frontend_taxi_expense_requires_authorization_area(
+@pytest.mark.parametrize("category", ["Pasajes y Taxis", "No Deducibles", "No Deducible"])
+@pytest.mark.parametrize("area", [None, "", "   "])
+def test_frontend_manual_area_expense_requires_authorization_area(
     client: TestClient,
     base_records: dict[str, str],
     session_factory: sessionmaker[Session],
+    category: str,
+    area: str | None,
 ) -> None:
     store_user_id = _create_user(
         client,
@@ -849,8 +867,9 @@ def test_frontend_taxi_expense_requires_authorization_area(
             "gastos": [
                 {
                     "fecha": "07/08/2026",
-                    "categoria": "Pasajes y Taxis",
+                    "categoria": category,
                     "monto": "1500.00",
+                    "authorizationArea": area,
                     "observaciones": "Traslado operativo",
                 }
             ],
@@ -858,11 +877,16 @@ def test_frontend_taxi_expense_requires_authorization_area(
     )
     assert created.status_code == 422, created.text
     assert created.json()["detail"]["code"] == "AUTHORIZATION_AREA_REQUIRED"
+    assert created.json()["detail"]["message"] == (
+        f"Selecciona el área que autoriza para {category}."
+    )
 
 
+@pytest.mark.parametrize("category", ["Pasajes y Taxis", "No Deducibles", "No Deducible"])
 def test_frontend_fe006272_skips_authorization_and_routes_to_accounting(
     client: TestClient,
     session_factory: sessionmaker[Session],
+    category: str,
 ) -> None:
     store = client.post(
         "/api/v1/stores/",
@@ -905,7 +929,7 @@ def test_frontend_fe006272_skips_authorization_and_routes_to_accounting(
             "gastos": [
                 {
                     "fecha": "07/08/2026",
-                    "categoria": "Pasajes y Taxis",
+                    "categoria": category,
                     "monto": "1500.00",
                     "authorizationArea": "Supervisores",
                     "observaciones": "Traslado operativo sin autorizacion",

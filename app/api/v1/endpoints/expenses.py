@@ -191,7 +191,9 @@ def create_expense(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "code": "AUTHORIZATION_AREA_REQUIRED",
-                "message": "Selecciona el área que autoriza para Pasajes y Taxis.",
+                "message": (
+                    f"Selecciona el área que autoriza para {expense_data['category']}."
+                ),
             },
         )
 

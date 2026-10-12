@@ -14,6 +14,7 @@ import {
 } from '../../lib/api';
 import { addDraftGasto, loadDraftGastos, loadDraftRequest, saveDraftRequest } from '../../lib/draftSolicitud';
 import { createCaptureAudit } from '../../lib/captureAudit';
+import { categoryRequiresManualAuthorizationArea } from '../../lib/expenseAuthorization';
 
 function AnadirGasto() {
     const navigate = useNavigate();
@@ -301,11 +302,22 @@ function AnadirGasto() {
 
     // Condición para saber si la categoría seleccionada requiere habilitar el select
     const esTransporte = categoria === 'Pasajes y Taxis' || categoria === 'Trasportación';
-    const requiereAreaManual = categoria === 'Pasajes y Taxis';
+    const requiereAreaManual = categoryRequiresManualAuthorizationArea(categoria);
+    const permiteSeleccionarArea = esTransporte || requiereAreaManual;
     const esInsumo = categoria === 'Insumo';
-    const areaAutorizaResuelta = esTransporte ? areaAutoriza : (esInsumo ? 'Insumos' : null);
-    const requiereAutorizacion = esTransporte || esInsumo;
-    const muestraAreaAutoriza = esTransporte || esInsumo;
+    const areaAutorizaResuelta = permiteSeleccionarArea ? areaAutoriza : (esInsumo ? 'Insumos' : null);
+    const requiereAutorizacion = permiteSeleccionarArea || esInsumo;
+    const muestraAreaAutoriza = permiteSeleccionarArea || esInsumo;
+
+    const validarAreaAutoriza = () => {
+        if (!requiereAreaManual || areaAutoriza.trim()) return true;
+        const mensaje = `Selecciona el área que autoriza para ${categoria}.`;
+        auditValidation('validation_failed', mensaje);
+        setEstadoValidacion('error');
+        setMensajeValidacion(mensaje);
+        alert(mensaje);
+        return false;
+    };
 
 
     // 2. LÓGICA DE SIMULACIÓN DE IA
@@ -316,14 +328,7 @@ function AnadirGasto() {
         auditField('folio', folio);
         auditValidation('validation_started');
 
-        if (requiereAreaManual && !areaAutoriza.trim()) {
-            const mensaje = 'Selecciona el área que autoriza para Pasajes y Taxis.';
-            auditValidation('validation_failed', mensaje);
-            setEstadoValidacion('error');
-            setMensajeValidacion(mensaje);
-            alert(mensaje);
-            return;
-        }
+        if (!validarAreaAutoriza()) return;
 
         const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
         if (errorDocumento) {
@@ -460,6 +465,8 @@ function AnadirGasto() {
         auditField('amount', monto);
         auditField('folio', folio);
         auditField('observations', observaciones);
+
+        if (!validarAreaAutoriza()) return;
 
         const errorDocumento = validarDocumentoRequerido(tipoDocumento, { facturaFile, valeFile, reciboFile });
         if (errorDocumento) {
@@ -759,11 +766,12 @@ function AnadirGasto() {
                                 auditField('authorization_area', e.target.value);
                                 setAreaAutoriza(e.target.value);
                             }}
-                            disabled={!esTransporte}
+                            disabled={!permiteSeleccionarArea}
+                            required={requiereAreaManual}
                             style={{
                                 ...styles.select,
                                 opacity: muestraAreaAutoriza ? 1 : 0.4,
-                                cursor: esTransporte ? 'pointer' : 'not-allowed',
+                                cursor: permiteSeleccionarArea ? 'pointer' : 'not-allowed',
                                 backgroundColor: muestraAreaAutoriza ? 'var(--bg)' : '#f3f4f6'
                             }}
                         >

@@ -40,10 +40,9 @@ TAXI_CATEGORY_ALIASES = (
     "TAXI",
 )
 
-MANUAL_AUTHORIZATION_AREA_CATEGORIES = (
-    "PASAJES Y TAXIS",
-    "TAXIS",
-    "TAXI",
+MANUAL_AUTHORIZATION_AREA_CATEGORIES = TAXI_CATEGORY_ALIASES + (
+    "NO DEDUCIBLE",
+    "NO DEDUCIBLES",
 )
 
 LEGACY_AUTHORIZATION_AREA_NAME = "Supervisores"
@@ -240,7 +239,7 @@ def expense_requires_authorization(
     description: str | None = None,
     merchant: str | None = None,
 ) -> bool:
-    if explicit:
+    if explicit or category_requires_manual_authorization_area(category):
         return True
 
     values = [

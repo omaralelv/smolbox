@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -218,9 +219,14 @@ def test_authorizers_only_handle_expenses_for_their_authorization_area(
     ]
 
 
+@pytest.mark.parametrize(
+    "category",
+    ["Equipo de Cómputo Menor", "Pasajes y Taxis", "No Deducibles", "No Deducible"],
+)
 def test_central_authorization_area_does_not_require_store_assignment(
     client: TestClient,
     base_records: dict[str, str],
+    category: str,
 ) -> None:
     _create_user(client, "admin", "areas.central.admin@example.com")
     store_user_id = _create_user(client, "store", "areas.central.store@example.com")
@@ -243,7 +249,7 @@ def test_central_authorization_area_does_not_require_store_assignment(
         base_records,
         amount="1000.00",
         authorization_area_id=systems_area_id,
-        category="Equipo de Cómputo Menor",
+        category=category,
     )
     _attach_valid_cfdi(
         client,
@@ -298,9 +304,11 @@ def test_central_authorization_area_does_not_require_store_assignment(
     assert authorized_systems.status_code == 200, authorized_systems.text
 
 
+@pytest.mark.parametrize("category", ["Alimentos", "No Deducibles", "No Deducible"])
 def test_supervisores_area_still_requires_store_assignment(
     client: TestClient,
     base_records: dict[str, str],
+    category: str,
 ) -> None:
     _create_user(client, "admin", "areas.supervisores.admin@example.com")
     store_user_id = _create_user(client, "store", "areas.supervisores.store@example.com")
@@ -323,7 +331,7 @@ def test_supervisores_area_still_requires_store_assignment(
         base_records,
         amount="500.00",
         authorization_area_id=supervisor_area_id,
-        category="Alimentos",
+        category=category,
     )
     _attach_valid_cfdi(
         client,

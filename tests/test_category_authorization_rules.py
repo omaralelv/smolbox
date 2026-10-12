@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -89,29 +90,36 @@ def test_insumos_plural_always_routes_to_insumos(
     assert body["authorization_area_name"] == "Insumos"
 
 
-def test_pasajes_y_taxis_requires_manual_authorization_area(
+@pytest.mark.parametrize("category", ["Pasajes y Taxis", "No Deducibles", "No Deducible"])
+def test_manual_authorization_category_requires_area(
     client: TestClient,
     base_records: dict[str, str],
+    category: str,
 ) -> None:
     response = client.post(
         "/api/v1/expenses/",
         json={
             "reimbursement_request_id": base_records["request_id"],
-            "merchant": "Taxi Demo",
+            "merchant": "Proveedor Demo",
             "amount": "150.00",
             "currency": "MXN",
             "spent_on": "2026-08-07",
-            "category": "Pasajes y Taxis",
+            "category": category,
         },
     )
 
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "AUTHORIZATION_AREA_REQUIRED"
+    assert response.json()["detail"]["message"] == (
+        f"Selecciona el área que autoriza para {category}."
+    )
 
 
-def test_pasajes_y_taxis_uses_selected_authorization_area(
+@pytest.mark.parametrize("category", ["Pasajes y Taxis", "No Deducibles", "No Deducible"])
+def test_manual_authorization_category_uses_selected_area(
     client: TestClient,
     base_records: dict[str, str],
+    category: str,
 ) -> None:
     systems_area_expense = client.post(
         "/api/v1/expenses/",
@@ -131,11 +139,11 @@ def test_pasajes_y_taxis_uses_selected_authorization_area(
         "/api/v1/expenses/",
         json={
             "reimbursement_request_id": base_records["request_id"],
-            "merchant": "Taxi Demo",
-            "amount": "150.00",
+            "merchant": "Proveedor Demo",
+            "amount": "1.00",
             "currency": "MXN",
             "spent_on": "2026-08-07",
-            "category": "Pasajes y Taxis",
+            "category": category,
             "authorization_area_id": systems_area_id,
         },
     )
