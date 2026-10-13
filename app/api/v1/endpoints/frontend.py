@@ -1522,6 +1522,11 @@ def _request_payload(
         fecha_formateada=display_date.strftime("%d%m%Y"),
         status=_frontend_request_status(request.status),
         backend_status=request.status.value,
+        correction_return_status=(
+            request.correction_return_status.value
+            if request.correction_return_status
+            else None
+        ),
         accounting_queue_status=_frontend_accounting_queue_status(request, current_user),
         gerente=request.store.manager_name,
         cuenta_bancaria=request.store.bank_account,

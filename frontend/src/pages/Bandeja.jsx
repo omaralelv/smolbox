@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendBandeja } from '../lib/api';
+import { obtenerAlertaDevolucionPersistida } from '../lib/reimbursementReturnAlert';
 
 const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
 
@@ -40,22 +41,29 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
     }
     
     const currentBackendStatus = solicitud?.backendStatus || solicitud?.backend_status || '';
+    const alertaPersistida = obtenerAlertaDevolucionPersistida(solicitud, currentRole);
 
     // Regla 1: Evaluador de Devuelto (AMARILLO)
     const esDevueltoBase = Boolean(
-        Object.keys(motivosPorRol).length && 
-        (
-            (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
-            (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+        alertaPersistida.esDevuelto ||
+        (!alertaPersistida.tieneEstadoPersistido &&
+            Object.keys(motivosPorRol).length &&
+            (
+                (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
+                (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+            )
         )
     );
 
     // Regla 2: Evaluador de Resuelto (VERDE)
     const esResueltoBase = Boolean(
-        Object.keys(motivosPorRol).length && 
-        (
-            (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
-            (devueltoPorOriginal === 'tesoreria' && currentRole === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+        alertaPersistida.esResuelto ||
+        (!alertaPersistida.tieneEstadoPersistido &&
+            Object.keys(motivosPorRol).length &&
+            (
+                (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
+                (devueltoPorOriginal === 'tesoreria' && currentRole === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+            )
         )
     );
 

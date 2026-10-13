@@ -1523,6 +1523,19 @@ def test_later_reviews_return_to_previous_step(
     assert returned_to_manager.json()["status"] == "accounting_manager_review"
     assert returned_to_manager.json()["correction_return_status"] == "accounting_manager_review"
 
+    manager_headers = _auth_headers(client, "accounting_manager@example.com")
+    manager_queue_after_return = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=manager_headers,
+    )
+    assert manager_queue_after_return.status_code == 200, manager_queue_after_return.text
+    manager_request_after_return = next(
+        item
+        for item in manager_queue_after_return.json()
+        if item["backendId"] == base_records["request_id"]
+    )
+    assert manager_request_after_return["correctionReturnStatus"] == "accounting_manager_review"
+
     assert _transition(
         client,
         base_records["request_id"],
@@ -1535,6 +1548,20 @@ def test_later_reviews_return_to_previous_step(
         target_status="treasury_review",
         actor_user_id=treasury_user_id,
     ).status_code == 200
+    treasury_headers = _auth_headers(client, "treasury@example.com")
+    treasury_queue_after_resend = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=treasury_headers,
+    )
+    assert treasury_queue_after_resend.status_code == 200, treasury_queue_after_resend.text
+    treasury_request_after_resend = next(
+        item
+        for item in treasury_queue_after_resend.json()
+        if item["backendId"] == base_records["request_id"]
+    )
+    assert treasury_request_after_resend["correctionReturnStatus"] == "accounting_manager_review"
+    assert treasury_request_after_resend["backendStatus"] == "treasury_review"
+
     assert _transition(
         client,
         base_records["request_id"],

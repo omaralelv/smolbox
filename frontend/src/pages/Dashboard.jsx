@@ -118,16 +118,16 @@ function TreasuryBudgetDashboard() {
                 <p style={styles.sectionLabel}>KPI&apos;s</p>
                 <div style={styles.kpiGrid}>
                     <KpiCard
-                        label={`Acumulado ${currentYearData.year}`}
-                        value={formatCurrency(currentYearData.amount)}
+                        label={`Acumulado ${previousYearData.year}`}
+                        value={formatCurrency(previousYearData.amount)}
                     />
                     <KpiCard
                         label="% Variación anual"
                         value={annualVariance === null ? 'N/A' : formatPercent(annualVariance)}
                     />
                     <KpiCard
-                        label={`Acumulado ${previousYearData.year}`}
-                        value={formatCurrency(previousYearData.amount)}
+                        label={`Acumulado ${currentYearData.year}`}
+                        value={formatCurrency(currentYearData.amount)}
                     />
                 </div>
             </section>
@@ -188,7 +188,7 @@ function ManagementProductivityDashboard() {
         <ProductivityDashboard
             title="Análisis de Productividad"
             subjectLabel="Contador"
-            monthlyTitle="TOTAL MENSUAL POR CONTADOR"
+            monthlyTitle="TOTAL MENSUAL POR CONTADOR - "
             emptyMessage="No hay contadores activos para mostrar."
             fetchDashboard={getManagementProductivityDashboard}
         />
@@ -200,7 +200,7 @@ function ManagerProductivityDashboard() {
         <ProductivityDashboard
             title="Productividad de Gerencia"
             subjectLabel="Gerente"
-            monthlyTitle="TOTAL MENSUAL POR GERENTE"
+            monthlyTitle="TOTAL MENSUAL POR GERENTE - "
             emptyMessage="No hay gerentes activos para mostrar."
             fetchDashboard={getManagerProductivityDashboard}
         />
@@ -212,7 +212,7 @@ function TreasuryProductivityDashboard() {
         <ProductivityDashboard
             title="Productividad de Tesorería"
             subjectLabel="Tesorero"
-            monthlyTitle="TOTAL MENSUAL POR TESORERO"
+            monthlyTitle="TOTAL MENSUAL POR TESORERO - "
             emptyMessage="No hay tesoreros activos para mostrar."
             fetchDashboard={getTreasuryProductivityDashboard}
         />
@@ -634,7 +634,7 @@ const ACTION_STYLES = {
         },
         bar: {
             border: '2px solid var(--text-aprobada)',
-            background: 'linear-gradient(180deg, #f1f7ff 0%, #8db8f0 100%)',
+            background: 'linear-gradient(180deg, #f1f7ff 0%, var(--sb-aprobadaBg) 100%)',
         },
     },
 };
