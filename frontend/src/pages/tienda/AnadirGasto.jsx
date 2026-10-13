@@ -1553,7 +1553,8 @@ async function leerDocumentoConOcr(file, ocrActual = null, tipoDocumento = 'fact
 }
 
 async function leerFacturaPdfConOcr(file, ocrActual = null, captureId = null) {
-    return leerDocumentoConOcr(file, ocrActual, 'factura', captureId);
+    const ocrConFolio = normalizarUuidFiscalValido(ocrActual?.suggested_cfdi_uuid) ? ocrActual : null;
+    return leerDocumentoConOcr(file, ocrConFolio, 'factura', captureId);
 }
 
 async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, folioCapturado = null) {
