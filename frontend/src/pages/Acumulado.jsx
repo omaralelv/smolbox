@@ -39,7 +39,11 @@ function Acumulado( {currentRole} ) {
     // Comprobar si ya existe un reembolso previo en el backend o si fue cargado en la sesión
     const reembolsoCargado = Boolean(solicitudActual?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolsoDownloadUrl);
 
-    const currentBackendStatus = solicitudActual?.backendStatus || solicitudSeleccionada?.backendStatus || '';
+    const currentBackendStatus = solicitudActual?.backendStatus
+        || solicitudActual?.backend_status
+        || solicitudSeleccionada?.backendStatus
+        || solicitudSeleccionada?.backend_status
+        || '';
 
     // Validar si la solicitud ya está aprobada por dirección para liberar el botón de confirmar pago
     const puedeConfirmarPago = ['direction_approved', 'approved_for_payment'].includes(currentBackendStatus);
@@ -635,26 +639,31 @@ function Acumulado( {currentRole} ) {
         solicitudActual || solicitudSeleccionada,
         currentRole,
     );
+    const role = String(currentRole || '').toLowerCase().trim();
 
 
     // 1. ¿Está devuelto / en corrección? -> AMARILLO
     const esDevuelto = Boolean(motivoDevolucion && (
         alertaPersistida.esDevuelto
-        // Compatibilidad con solicitudes devueltas antes de persistir el estado en backend
-        || (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal))
-        
-        || (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+        || (!alertaPersistida.tieneEstadoPersistido && (
+            // Compatibilidad con solicitudes devueltas antes de persistir el estado en backend
+            (role === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal))
+            || (role === 'gerencia' && devueltoPor === 'tesoreria')
+        ))
     ));
 
     // 2. ¿Ya fue re-enviado al siguiente rol? -> VERDE
-    //const esResuelto = Boolean(motivoDevolucion) && (
-    const esResuelto = Boolean(Object.keys(motivosPorRol).length) && (
-        // Caso 1: Fue devuelto por Gerencia, pero Contabilidad ya lo corrigió y reenvió a Gerencia
-        (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
-        
-        // Caso 2: Fue devuelto por Tesorería, pero Gerencia ya lo corrigió y reenvió a Tesorería
-        (devueltoPorOriginal === 'tesoreria' && currentRole === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
-    );
+    const esResuelto = Boolean(motivoDevolucion && (
+        alertaPersistida.esResuelto
+        || (!alertaPersistida.tieneEstadoPersistido
+            && Object.keys(motivosPorRol).length
+            && (
+                // Caso 1: Fue devuelto por Gerencia, pero Contabilidad ya lo corrigió y reenvió a Gerencia
+                (devueltoPor === 'gerencia' && role === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus))
+                // Caso 2: Fue devuelto por Tesorería, pero Gerencia ya lo corrigió y reenvió a Tesorería
+                || (devueltoPorOriginal === 'tesoreria' && role === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+            ))
+    ));
 
 
 
@@ -662,13 +671,13 @@ function Acumulado( {currentRole} ) {
     // 3. Selección dinámica del motivo según la perspectiva del usuario
     let motivoAMostrar = '';
 
-    if (currentRole === 'tesoreria') {
+    if (role === 'tesoreria') {
         // Tesorería siempre ve su propio motivo original con el que regresó el acumulado
         motivoAMostrar = motivosPorRol['tesoreria'] || motivosPorRol['gerencia'] || motivoDevolucion;
-    } else if (currentRole === 'contabilidad') {
+    } else if (role === 'contabilidad') {
         // Contabilidad ve el motivo que le puso Gerencia (o el de Tesorería si aplica)
         motivoAMostrar = motivosPorRol['gerencia'] || motivosPorRol['tesoreria'] || motivoDevolucion;
-    } else if (currentRole === 'gerencia') {
+    } else if (role === 'gerencia') {
         // Gerencia ve el motivo de Tesorería si viene devuelta de Tesorería, o el que él puso si lo tiene en verde
         motivoAMostrar = devueltoPor === 'tesoreria'
             ? motivosPorRol['tesoreria'] || motivoDevolucion

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { obtenerAlertaDevolucionPersistida } from '../src/lib/reimbursementReturnAlert.js';
+import {
+    obtenerAlertaDevolucionPersistida,
+    obtenerPrioridadBandeja,
+} from '../src/lib/reimbursementReturnAlert.js';
 
 test('shows a treasury return as returned for management without browser-local metadata', () => {
     assert.deepEqual(
@@ -58,4 +61,32 @@ test('uses existing browser metadata only when the backend has no return status'
             .tieneEstadoPersistido,
         false
     );
+});
+
+test('prioritizes accounting requests as returned, resolved, own, single, then someone else', () => {
+    assert.deepEqual(
+        [
+            obtenerPrioridadBandeja('contabilidad', { esDevuelto: true, esResuelto: false, queueStatus: 'taken_other' }),
+            obtenerPrioridadBandeja('contabilidad', { esDevuelto: false, esResuelto: true, queueStatus: 'taken_other' }),
+            obtenerPrioridadBandeja('contabilidad', { esDevuelto: false, esResuelto: false, queueStatus: 'taken' }),
+            obtenerPrioridadBandeja('contabilidad', { esDevuelto: false, esResuelto: false, queueStatus: 'single' }),
+            obtenerPrioridadBandeja('contabilidad', { esDevuelto: false, esResuelto: false, queueStatus: 'taken_other' }),
+        ],
+        [1, 2, 3, 4, 5]
+    );
+});
+
+test('prioritizes resolved requests below returned for management and treasury', () => {
+    for (const role of ['gerencia', 'tesoreria']) {
+        assert.deepEqual(
+            [
+                obtenerPrioridadBandeja(role, { esDevuelto: true, esResuelto: false, queueStatus: 'taken' }),
+                obtenerPrioridadBandeja(role, { esDevuelto: false, esResuelto: true, queueStatus: 'taken_other' }),
+                obtenerPrioridadBandeja(role, { esDevuelto: false, esResuelto: false, queueStatus: 'taken' }),
+                obtenerPrioridadBandeja(role, { esDevuelto: false, esResuelto: false, queueStatus: 'single' }),
+                obtenerPrioridadBandeja(role, { esDevuelto: false, esResuelto: false, queueStatus: 'taken_other' }),
+            ],
+            [1, 2, 3, 3, 3]
+        );
+    }
 });

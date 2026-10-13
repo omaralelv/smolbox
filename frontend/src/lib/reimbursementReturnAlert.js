@@ -34,3 +34,28 @@ export function obtenerAlertaDevolucionPersistida(solicitud, currentRole) {
         ),
     };
 }
+
+export function obtenerPrioridadBandeja(currentRole, alerta) {
+    const role = String(currentRole || '').toLowerCase().trim();
+
+    if (alerta.esDevuelto) return 1;
+    if (alerta.esResuelto) return 2;
+
+    if (role === 'contabilidad') {
+        if (alerta.queueStatus === 'taken') return 3;
+        if (alerta.queueStatus === 'taken_other') return 5;
+        return 4;
+    }
+
+    if (['gerencia', 'tesoreria'].includes(role)) {
+        return 3;
+    }
+
+    if (['tienda', 'direccion', 'admin'].includes(role)) {
+        return 1;
+    }
+
+    if (alerta.queueStatus === 'taken') return 3;
+    if (alerta.queueStatus === 'taken_other') return 4;
+    return 2;
+}

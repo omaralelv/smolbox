@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendBandeja } from '../lib/api';
-import { obtenerAlertaDevolucionPersistida } from '../lib/reimbursementReturnAlert';
+import {
+    obtenerAlertaDevolucionPersistida,
+    obtenerPrioridadBandeja,
+} from '../lib/reimbursementReturnAlert';
 
 const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
 
@@ -22,6 +25,7 @@ function formatearMonto(monto) {
 }
 
 function obtenerEstadoAlerta(solicitud, currentRole) {
+    const role = String(currentRole || '').toLowerCase().trim();
     const solicitudBackendId = solicitud?.backendId || solicitud?.reimbursementRequestId || solicitud?.id;
     //if (!solicitudBackendId) return { esDevuelto: false, esResuelto: false };
     const queueStatus = solicitud?.accountingQueueStatus || solicitud?.accounting_queue_status || 'single';
@@ -41,7 +45,7 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
     }
     
     const currentBackendStatus = solicitud?.backendStatus || solicitud?.backend_status || '';
-    const alertaPersistida = obtenerAlertaDevolucionPersistida(solicitud, currentRole);
+    const alertaPersistida = obtenerAlertaDevolucionPersistida(solicitud, role);
 
     // Regla 1: Evaluador de Devuelto (AMARILLO)
     const esDevueltoBase = Boolean(
@@ -49,8 +53,8 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
         (!alertaPersistida.tieneEstadoPersistido &&
             Object.keys(motivosPorRol).length &&
             (
-                (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
-                (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+                (role === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
+                (role === 'gerencia' && devueltoPor === 'tesoreria')
             )
         )
     );
@@ -61,8 +65,8 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
         (!alertaPersistida.tieneEstadoPersistido &&
             Object.keys(motivosPorRol).length &&
             (
-                (devueltoPor === 'gerencia' && currentRole === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
-                (devueltoPorOriginal === 'tesoreria' && currentRole === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+                (devueltoPor === 'gerencia' && role === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
+                (devueltoPorOriginal === 'tesoreria' && role === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
             )
         )
     );
@@ -75,25 +79,12 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
 
 
     // 🎯 REGLAS EXCLUSIVAS PARA CONTABILIDAD
-    if (currentRole === 'contabilidad') {
-        // Si la tomó otro contador, anula cualquier color o alerta devuelta para este usuario
-        if (queueStatus === 'taken_other') {
-            return {
-                esDevuelto: false,
-                esResuelto: false,
-                queueStatus: 'taken_other',
-            };
-        }
-
-        // Si la solicitud está devuelta Y fue tomada por el perfil activo (taken),
-        // prevalece el estado de devuelto en amarillo para este contador.
-        if (queueStatus === 'taken' && esDevuelto) {
-            return {
-                esDevuelto: true,
-                esResuelto: false,
-                queueStatus: 'taken',
-            };
-        }
+    if (role === 'contabilidad' && queueStatus === 'taken' && esDevuelto) {
+        return {
+            esDevuelto: true,
+            esResuelto: false,
+            queueStatus,
+        };
     }
 
     return {
@@ -169,34 +160,12 @@ function Bandeja({currentRole}) {
         return new Date(fechaStr).getTime() || 0;
     };
     
-    // Ordenamos situando las alertas (Devuelto/Resuelto) arriba
+    // Ordenar con las alertas primero y aplicar prioridades específicas por rol.
     const solicitudesFiltradas = [...baseFiltrada].sort((a, b) => {
         const alertaA = obtenerEstadoAlerta(a, currentRole);
         const alertaB = obtenerEstadoAlerta(b, currentRole);
-
-        // Asignación de pesos para priorizar el renderizado
-        // 1: Devueltas/Resueltas
-        // 2: Asignadas a mí (taken)
-        // 3: Estado base (single)
-        // 4: Tomadas por alguien más (taken_other)
-        const getPeso = (alerta) => {
-            // Si el rol es tienda (o roles que ven todo libre), todos tienen el mismo peso (grupo único)
-            if (currentRole === 'tienda' || currentRole === 'direccion' || currentRole === 'admin') return 1;
-
-            if (alerta.esDevuelto || alerta.esResuelto) return 1;
-            if (alerta.queueStatus === 'taken') return 2;
-            if (alerta.queueStatus === 'taken_other') return 4;
-
-            return 3;
-        };
-        //const pesoA = (alertaA.esDevuelto || alertaA.esResuelto) ? 1 : 2;
-        //const pesoB = (alertaB.esDevuelto || alertaB.esResuelto) ? 1 : 2;
-
-        //return getPeso(alertaA) - getPeso(alertaB);
-
-
-        const pesoA = getPeso(alertaA);
-        const pesoB = getPeso(alertaB);
+        const pesoA = obtenerPrioridadBandeja(currentRole, alertaA);
+        const pesoB = obtenerPrioridadBandeja(currentRole, alertaB);
 
         // 2. Si pertenecen a grupos/prioridades distintas, ordena por su peso
         if (pesoA !== pesoB) {
@@ -281,6 +250,7 @@ function Bandeja({currentRole}) {
                     </div>
                 ) : (solicitudesFiltradas.map((sol) => {
                     const { esDevuelto, esResuelto, queueStatus } = obtenerEstadoAlerta(sol, currentRole);
+                    const role = String(currentRole || '').toLowerCase().trim();
 
                     // Definición de estilos condicionales para la fila
                     let rowStyle = { ...styles.row };
@@ -318,7 +288,7 @@ function Bandeja({currentRole}) {
                     }
 
                     // 3. REGLA CONTABILIDAD: Taken por otro contador (Grisáceo Opaco)
-                    else if (currentRole === 'contabilidad' && queueStatus === 'taken_other') {
+                    else if (role === 'contabilidad' && queueStatus === 'taken_other') {
                         rowStyle = {
                             ...styles.row,
                             backgroundColor: '#f1e9e9', // Gris suave opaco
@@ -335,7 +305,7 @@ function Bandeja({currentRole}) {
                     }
 
                     // 4. REGLA CONTABILIDAD: Taken por el perfil activo (Rosa Pastel)
-                    else if (currentRole === 'contabilidad' && queueStatus === 'taken') {
+                    else if (role === 'contabilidad' && queueStatus === 'taken') {
                         rowStyle = {
                             ...styles.row,
                             backgroundColor: '#fff5f6', // Rosa pastel delicado
