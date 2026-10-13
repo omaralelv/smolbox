@@ -1,5 +1,13 @@
+from datetime import date
+from decimal import Decimal
+from uuid import UUID
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.expense import Expense, ExpenseStatus
+from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 
 
 def test_admin_can_assign_authorization_area_only_to_authorizers(
@@ -257,6 +265,12 @@ def test_central_authorization_area_does_not_require_store_assignment(
         "1000.00",
         uuid="99999999-9999-4999-8999-999999999999",
     )
+    uploaded_pdf = client.post(
+        f"/api/v1/expenses/{systems_expense['id']}/attachments",
+        data={"attachment_type": "receipt"},
+        files={"file": ("invoice.pdf", b"%PDF-1.4\ncontent\n%%EOF", "application/pdf")},
+    )
+    assert uploaded_pdf.status_code == 201, uploaded_pdf.text
 
     submitted = _transition(
         client,
@@ -275,6 +289,11 @@ def test_central_authorization_area_does_not_require_store_assignment(
     assert [expense["authorizationArea"] for expense in systems_queue.json()[0]["gastos"]] == [
         "Sistemas"
     ]
+    visible_expense = systems_queue.json()[0]["gastos"][0]
+    for field, content_type in (("urlFactura", "application/xml"), ("urlRecibo", "application/pdf")):
+        document = client.get(visible_expense[field], headers=systems_headers)
+        assert document.status_code == 200, document.text
+        assert document.headers["content-type"].startswith(content_type)
 
     api_queue = client.get("/api/v1/work-queue/me", headers=systems_headers)
     assert api_queue.status_code == 200, api_queue.text
@@ -295,6 +314,8 @@ def test_central_authorization_area_does_not_require_store_assignment(
         },
     )
     assert authorization_review.status_code == 200, authorization_review.text
+    document = client.get(visible_expense["urlFactura"], headers=systems_headers)
+    assert document.status_code == 200, document.text
 
     authorized_systems = client.post(
         f"/api/v1/expenses/{systems_expense['id']}/authorize/me",
@@ -358,6 +379,164 @@ def test_supervisores_area_still_requires_store_assignment(
         headers=supervisor_headers,
     )
     assert detail.status_code == 403, detail.text
+    metadata = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me", headers=admin_headers,
+    )
+    document_url = metadata.json()["gastos"][0]["urlFactura"]
+    download = client.get(
+        document_url,
+        headers=supervisor_headers,
+    )
+    assert download.status_code == 403, download.text
+
+    _assign_user_to_store(client, base_records["store_id"], supervisor_id, "authorizer")
+    visible = client.get("/api/v1/frontend/bandeja/me", headers=supervisor_headers)
+    assert len(visible.json()) == 1
+    download = client.get(visible.json()[0]["gastos"][0]["urlFactura"], headers=supervisor_headers)
+    assert download.status_code == 200, download.text
+
+
+@pytest.mark.parametrize("assigned_to_store", [False, True])
+def test_authorizer_only_downloads_documents_for_visible_expenses(
+    client: TestClient,
+    base_records: dict[str, str],
+    assigned_to_store: bool,
+) -> None:
+    _create_user(client, "admin", "documents.admin@example.com")
+    store_user = _create_user(client, "store", "documents.store@example.com")
+    systems_user = _create_user(client, "authorizer", "documents.systems@example.com")
+    hr_user = _create_user(client, "authorizer", "documents.hr@example.com")
+    _assign_user_to_store(client, base_records["store_id"], store_user, "store")
+    if assigned_to_store:
+        _assign_user_to_store(client, base_records["store_id"], systems_user, "authorizer")
+    admin_headers = _auth_headers(client, "documents.admin@example.com")
+    systems_area = _assign_authorization_area(client, systems_user, "Sistemas", admin_headers)
+    hr_area = _assign_authorization_area(client, hr_user, "Recursos Humanos", admin_headers)
+    systems_expense = _create_expense(
+        client, base_records, amount="1000.00", authorization_area_id=systems_area,
+    )
+    hr_expense = _create_expense(
+        client, base_records, amount="500.00", authorization_area_id=hr_area,
+    )
+    for expense, amount, uuid in (
+        (systems_expense, "1000.00", "77777777-7777-4777-8777-777777777777"),
+        (hr_expense, "500.00", "88888888-8888-4888-8888-888888888888"),
+    ):
+        _attach_valid_cfdi(client, expense["id"], amount, uuid=uuid)
+    submitted = _transition(client, base_records["request_id"], "submitted", store_user)
+    assert submitted.status_code == 200, submitted.text
+
+    systems_headers = _auth_headers(client, "documents.systems@example.com")
+    visible = client.get("/api/v1/frontend/bandeja/me", headers=systems_headers)
+    assert visible.status_code == 200, visible.text
+    assert [expense["id"] for expense in visible.json()[0]["gastos"]] == [systems_expense["id"]]
+    own_url = visible.json()[0]["gastos"][0]["urlFactura"]
+    own_document = client.get(own_url, headers=systems_headers)
+    assert own_document.status_code == 200, own_document.text
+    hr_metadata = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me", headers=admin_headers,
+    )
+    hr_document_url = next(
+        expense["urlFactura"] for expense in hr_metadata.json()["gastos"]
+        if expense["id"] == hr_expense["id"]
+    )
+    other_document = client.get(hr_document_url, headers=systems_headers)
+    assert other_document.status_code == 403, other_document.text
+
+    revoked = client.post(
+        f"/api/v1/authorization-areas/users/{systems_user}", headers=admin_headers,
+        json={"authorizationAreaId": systems_area, "is_active": False},
+    )
+    assert revoked.status_code == 201, revoked.text
+    denied = client.get(own_url, headers=systems_headers)
+    assert denied.status_code == 403, denied.text
+
+
+def test_area_authorizer_can_download_shared_partition_evidence(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    _create_user(client, "admin", "partition.docs.admin@example.com")
+    systems_user = _create_user(client, "authorizer", "partition.docs.systems@example.com")
+    hr_user = _create_user(client, "authorizer", "partition.docs.hr@example.com")
+    admin_headers = _auth_headers(client, "partition.docs.admin@example.com")
+    systems_area = _assign_authorization_area(client, systems_user, "Sistemas", admin_headers)
+    hr_area = _assign_authorization_area(client, hr_user, "Recursos Humanos", admin_headers)
+    parent = _create_expense(client, base_records, amount="1000.00", authorization_area_id=hr_area)
+    _attach_valid_cfdi(
+        client, parent["id"], "1000.00", uuid="99999999-9999-4999-8999-999999999999",
+    )
+    with session_factory() as session:
+        request = session.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        request.status = ReimbursementRequestStatus.authorization_review
+        for index, area in enumerate((systems_area, hr_area), start=1):
+            session.add(Expense(
+                period_id=UUID(base_records["period_id"]), reimbursement_request_id=request.id,
+                partition_parent_expense_id=UUID(parent["id"]), partition_index=index,
+                partition_count=2, merchant="Proveedor Demo", amount=Decimal("500.00"),
+                spent_on=date(2026, 8, 7), category="Pasajes y Taxis", requires_authorization=True,
+                authorization_area_id=UUID(area), status=ExpenseStatus.submitted,
+            ))
+        session.commit()
+    headers = _auth_headers(client, "partition.docs.systems@example.com")
+    queue = client.get("/api/v1/frontend/bandeja/me", headers=headers)
+    assert queue.status_code == 200, queue.text
+    visible = queue.json()[0]["gastos"]
+    assert len(visible) == 1
+    assert visible[0]["idOriginal"] == parent["id"]
+    document = client.get(visible[0]["urlFactura"], headers=headers)
+    assert document.status_code == 200, document.text
+
+    with session_factory() as session:
+        request = session.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        for expense in request.expenses:
+            if expense.partition_parent_expense_id is not None:
+                expense.status = ExpenseStatus.removed
+        session.commit()
+    denied = client.get(visible[0]["urlFactura"], headers=headers)
+    assert denied.status_code == 403, denied.text
+
+
+@pytest.mark.parametrize(
+    ("request_status", "expected_status"),
+    [
+        (ReimbursementRequestStatus.draft, 403),
+        (ReimbursementRequestStatus.submitted, 200),
+        (ReimbursementRequestStatus.authorization_review, 200),
+        (ReimbursementRequestStatus.under_accounting_review, 403),
+    ],
+)
+def test_area_document_access_follows_request_visibility(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+    request_status: ReimbursementRequestStatus,
+    expected_status: int,
+) -> None:
+    _create_user(client, "admin", "document.visibility.admin@example.com")
+    authorizer = _create_user(client, "authorizer", "document.visibility.systems@example.com")
+    admin_headers = _auth_headers(client, "document.visibility.admin@example.com")
+    area = _assign_authorization_area(client, authorizer, "Sistemas", admin_headers)
+    expense = _create_expense(client, base_records, amount="1000.00", authorization_area_id=area)
+    _attach_valid_cfdi(
+        client, expense["id"], "1000.00", uuid="99999999-9999-4999-8999-999999999999",
+    )
+    admin_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me", headers=admin_headers,
+    )
+    url = admin_detail.json()["gastos"][0]["urlFactura"]
+    with session_factory() as session:
+        request = session.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        request.status = request_status
+        session.commit()
+    headers = _auth_headers(client, "document.visibility.systems@example.com")
+    detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me", headers=headers,
+    )
+    assert detail.status_code == expected_status, detail.text
+    document = client.get(url, headers=headers)
+    assert document.status_code == expected_status, document.text
 
 
 def _auth_headers(client: TestClient, email: str) -> dict[str, str]:

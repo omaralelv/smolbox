@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.models.authorization_area import AuthorizationArea, UserAuthorizationArea
 from app.models.expense import Expense
-from app.models.reimbursement_request import ReimbursementRequest
+from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.store import StoreUserAssignment
 from app.models.user import User, UserRole
+from app.services.reimbursement_validation import summarize_reimbursement_request
 
 SUPERVISOR_AUTHORIZATION_AREA_NAME = "Supervisores"
 
@@ -207,6 +208,25 @@ def request_has_authorization_area_for_user(
         )
         for expense in request.expenses
     )
+
+
+def request_is_visible_to_authorizer(
+    request: ReimbursementRequest,
+    user: User,
+    db: Session,
+) -> bool:
+    if user.role != UserRole.authorizer or request.status not in {
+        ReimbursementRequestStatus.submitted,
+        ReimbursementRequestStatus.authorization_review,
+    }:
+        return True
+
+    pending_ids = set(summarize_reimbursement_request(request).missing_authorization_expense_ids)
+    if request.status == ReimbursementRequestStatus.submitted or pending_ids:
+        return request_has_authorization_visible_to_user(
+            request, user, db, pending_expense_ids=pending_ids,
+        )
+    return request_has_authorization_area_for_user(request, user, db)
 
 
 def expense_is_visible_to_authorizer(

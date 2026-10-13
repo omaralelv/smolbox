@@ -54,8 +54,7 @@ from app.services.authorization_areas import (
     authorizer_has_global_authorization_area,
     expense_is_visible_to_authorizer,
     get_or_create_authorization_area,
-    request_has_authorization_area_for_user,
-    request_has_authorization_visible_to_user,
+    request_is_visible_to_authorizer,
 )
 from app.services.expense_authorization_rules import (
     category_requires_manual_authorization_area,
@@ -2300,34 +2299,12 @@ def _request_is_visible_for_role(
     current_user: User,
     db: Session,
 ) -> bool:
+    if current_user.role == UserRole.authorizer:
+        return request_is_visible_to_authorizer(request, current_user, db)
+
     summary = summarize_reimbursement_request(request)
     pending_authorization_ids = set(summary.missing_authorization_expense_ids)
     has_pending_authorization = bool(pending_authorization_ids)
-
-    if (
-        current_user.role == UserRole.authorizer
-        and request.status
-        == ReimbursementRequestStatus.submitted
-    ):
-        return request_has_authorization_visible_to_user(
-            request,
-            current_user,
-            db,
-            pending_expense_ids=pending_authorization_ids,
-        )
-
-    if (
-        current_user.role == UserRole.authorizer
-        and request.status == ReimbursementRequestStatus.authorization_review
-    ):
-        if has_pending_authorization:
-            return request_has_authorization_visible_to_user(
-                request,
-                current_user,
-                db,
-                pending_expense_ids=pending_authorization_ids,
-            )
-        return request_has_authorization_area_for_user(request, current_user, db)
 
     if request.status != ReimbursementRequestStatus.submitted:
         return True
