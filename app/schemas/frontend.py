@@ -205,6 +205,7 @@ class FrontendSolicitudRead(BaseModel):
         default=None,
         alias="correctionReturnStatus",
     )
+    correction_reason: str | None = Field(default=None, alias="correctionReason")
     accounting_queue_status: str | None = Field(default=None, alias="accountingQueueStatus")
     gerente: str | None = None
     cuenta_bancaria: str | None = Field(default=None, alias="cuentaBancaria")

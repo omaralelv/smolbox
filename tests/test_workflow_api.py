@@ -1535,6 +1535,12 @@ def test_later_reviews_return_to_previous_step(
         if item["backendId"] == base_records["request_id"]
     )
     assert manager_request_after_return["correctionReturnStatus"] == "accounting_manager_review"
+    manager_detail_after_return = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=manager_headers,
+    )
+    assert manager_detail_after_return.status_code == 200, manager_detail_after_return.text
+    assert manager_detail_after_return.json()["correctionReason"] == "Move to accounting_manager_review"
 
     assert _transition(
         client,

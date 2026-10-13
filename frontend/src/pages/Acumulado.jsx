@@ -13,6 +13,7 @@ import {
 } from '../lib/api';
 import { resumirGastos } from '../lib/expenseSummary';
 import { accountingReadinessBlockers } from '../lib/reimbursementValidation';
+import { obtenerAlertaDevolucionPersistida } from '../lib/reimbursementReturnAlert';
 
 function Acumulado( {currentRole} ) {
 
@@ -52,11 +53,11 @@ function Acumulado( {currentRole} ) {
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [returnReason, setReturnReason] = useState('');
     const [accionPendiente, setAccionPendiente] = useState(null);
-    const [motivoDevolucion] = useState(() => {
-        // Recuperar motivo guardado previamente en localStorage si existe para esta solicitud
-        if (!solicitudBackendId) return solicitudSeleccionada?.motivoDevolucion || '';
-        return localStorage.getItem(`motivo_dev_${solicitudBackendId}`) || solicitudSeleccionada?.motivoDevolucion || '';
-    });
+    const motivoDevolucion = solicitudActual?.correctionReason
+        || solicitudActual?.correction_reason
+        || (solicitudBackendId ? localStorage.getItem(`motivo_dev_${solicitudBackendId}`) : '')
+        || solicitudSeleccionada?.motivoDevolucion
+        || '';
 
 
     // Guardamos un objeto/mapa de motivos: { tesoreria: "motivo de tesorería", gerencia: "motivo de gerencia" }
@@ -630,16 +631,20 @@ function Acumulado( {currentRole} ) {
     // EVALUACIÓN DEL BANNER
     // Recuperamos también el origen inicial
     //const devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || devueltoPor;
+    const alertaPersistida = obtenerAlertaDevolucionPersistida(
+        solicitudActual || solicitudSeleccionada,
+        currentRole,
+    );
 
 
     // 1. ¿Está devuelto / en corrección? -> AMARILLO
-    const esDevuelto = Boolean(motivoDevolucion && 
-        // Caso 1: Gerencia se lo regresó a Contabilidad (o venía desde Tesorería en cadena) y Contabilidad lo ve
-        (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
+    const esDevuelto = Boolean(motivoDevolucion && (
+        alertaPersistida.esDevuelto
+        // Compatibilidad con solicitudes devueltas antes de persistir el estado en backend
+        || (currentRole === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal))
         
-        // Caso 2: Tesorería se lo regresó a Gerencia y Gerencia lo está viendo
-        (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
-    );
+        || (currentRole === 'gerencia' && devueltoPor === 'tesoreria')
+    ));
 
     // 2. ¿Ya fue re-enviado al siguiente rol? -> VERDE
     //const esResuelto = Boolean(motivoDevolucion) && (
@@ -659,20 +664,22 @@ function Acumulado( {currentRole} ) {
 
     if (currentRole === 'tesoreria') {
         // Tesorería siempre ve su propio motivo original con el que regresó el acumulado
-        motivoAMostrar = motivosPorRol['tesoreria'] || motivosPorRol['gerencia'] || '';
+        motivoAMostrar = motivosPorRol['tesoreria'] || motivosPorRol['gerencia'] || motivoDevolucion;
     } else if (currentRole === 'contabilidad') {
         // Contabilidad ve el motivo que le puso Gerencia (o el de Tesorería si aplica)
-        motivoAMostrar = motivosPorRol['gerencia'] || motivosPorRol['tesoreria'] || '';
+        motivoAMostrar = motivosPorRol['gerencia'] || motivosPorRol['tesoreria'] || motivoDevolucion;
     } else if (currentRole === 'gerencia') {
         // Gerencia ve el motivo de Tesorería si viene devuelta de Tesorería, o el que él puso si lo tiene en verde
-        motivoAMostrar = devueltoPor === 'tesoreria' ? motivosPorRol['tesoreria'] : (motivosPorRol['gerencia'] || motivosPorRol['tesoreria']);
+        motivoAMostrar = devueltoPor === 'tesoreria'
+            ? motivosPorRol['tesoreria'] || motivoDevolucion
+            : motivosPorRol['gerencia'] || motivosPorRol['tesoreria'] || motivoDevolucion;
     }
 
 
 
     // 3. Ocultar si ya avanzó de Tesorería a Pago/Dirección o Aprobado
     const ocultarBanner = ['direction_review', 'direction_approved' ,'approved_for_payment', 'paid', 'closed', 'rejected'].includes(currentBackendStatus);
-    const mostrarBanner = motivoDevolucion && !ocultarBanner && (esDevuelto || esResuelto);
+    const mostrarBanner = Boolean(motivoAMostrar && !ocultarBanner && (esDevuelto || esResuelto));
 
 
 

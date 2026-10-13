@@ -1527,6 +1527,7 @@ def _request_payload(
             if request.correction_return_status
             else None
         ),
+        correction_reason=request.correction_reason,
         accounting_queue_status=_frontend_accounting_queue_status(request, current_user),
         gerente=request.store.manager_name,
         cuenta_bancaria=request.store.bank_account,
