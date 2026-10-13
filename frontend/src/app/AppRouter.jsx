@@ -28,6 +28,8 @@ function RequireSession({ children }) {
 }
 
 function AppRouter({ currentRole }) { 
+    const isAuthorizer = String(currentRole || '').toLowerCase().trim() === 'supervisor';
+
     return (
         <Routes>
             
@@ -39,7 +41,11 @@ function AppRouter({ currentRole }) {
             <Route path="/solicitud/nueva" element={<RequireSession><SolicitudForm currentRole={currentRole} /></RequireSession>} />
             <Route path="/gasto/nuevo" element={<RequireSession><AnadirGasto /></RequireSession>} />
             <Route path="/autorizacion" element={<RequireSession><AutorizacionBandeja currentRole={currentRole}/></RequireSession>} />
-            <Route path="/bandeja" element={<RequireSession><Bandeja currentRole={currentRole}/></RequireSession>} />
+            <Route path="/bandeja" element={
+                <RequireSession>
+                    {isAuthorizer ? <Navigate to="/autorizacion" replace /> : <Bandeja currentRole={currentRole} />}
+                </RequireSession>
+            } />
 
             <Route path="/acumulado" element={<RequireSession><Acumulado currentRole={currentRole} /></RequireSession>}/>
             <Route path="/detalle" element={<RequireSession><Detalle currentRole={currentRole} /></RequireSession>}/>

@@ -2,8 +2,9 @@ import { useNavigate } from 'react-router-dom';
 
 import { clearSession } from '../../lib/api';
 
-function Header({ onRoleChange }) {
+function Header({ currentRole, onRoleChange }) {
     const navigate = useNavigate();
+    const homePath = String(currentRole || '').toLowerCase().trim() === 'supervisor' ? '/autorizacion' : '/bandeja';
 
   // Función para refrescar la página actual
     const handleRefresh = () => {
@@ -19,7 +20,7 @@ function Header({ onRoleChange }) {
     return (
     <header style={styles.header}>
       {/* SECCIÓN IZQUIERDA: LOGO Y SUBTÍTULO */}
-        <div style={styles.logoContainer} onClick={() => navigate('/bandeja')}>
+        <div style={styles.logoContainer} onClick={() => navigate(homePath)}>
         {/* Cambia 'tu_logo.png' por el nombre exacto de tu archivo en public */}
         <img src="/Logotipo.png" alt="Smolbox Logo" style={styles.logoImg} />
         </div>
