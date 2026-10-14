@@ -26,6 +26,18 @@ PAYMENT_TEMPLATE_HTML = (
     "<li>Fecha de pago: {{paid_at}}</li>"
     "</ul>"
     "<p>Recuerda que siempre podrás revisar tus solicitudes pagadas a través del portal de Smolbox en el apartado de <strong>Histórico</strong>.</p>"
+    "<br><br>"
+    '<hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;" />'
+    '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+    "<tr>"
+    '<td align="left" style="padding: 0; text-align: left;">'
+    '<img src="https://d3tsr2fqsn79v1.cloudfront.net/Logo%20Smolbox.png" '
+    'alt="Smolbox" width="250" '
+    'style="display: block; width: 250px; max-width: 100%; height: auto; '
+    'margin: 0; border: 0;" />'
+    "</td>"
+    "</tr>"
+    "</table>"
 )
 
 

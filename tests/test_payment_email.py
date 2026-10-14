@@ -258,6 +258,17 @@ def test_template_subject_contains_request_ref_and_amount() -> None:
     assert template["SubjectPart"].startswith("Pago registrado")
 
 
+def test_payment_template_html_includes_responsive_cloudfront_logo() -> None:
+    template = email_notifications.payment_template(_ses_settings())
+    html = template["HtmlPart"]
+
+    assert "https://d3tsr2fqsn79v1.cloudfront.net/Logo%20Smolbox.png" in html
+    assert 'alt="Smolbox"' in html
+    assert 'width="250"' in html
+    assert "max-width: 100%" in html
+    assert html.index("Histórico</strong>.</p>") < html.index("<hr ")
+
+
 @pytest.mark.parametrize(
     ("ses_region", "expected_region"),
     [(None, "us-east-1"), ("us-west-2", "us-west-2")],
