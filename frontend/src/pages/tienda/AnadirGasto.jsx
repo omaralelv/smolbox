@@ -15,6 +15,7 @@ import {
 import { addDraftGasto, loadDraftGastos, loadDraftRequest, saveDraftRequest } from '../../lib/draftSolicitud';
 import { createCaptureAudit } from '../../lib/captureAudit';
 import { categoryRequiresManualAuthorizationArea } from '../../lib/expenseAuthorization';
+import ExpenseConfirmationDialog from '../../components/shared/ExpenseConfirmationDialog';
 
 function AnadirGasto() {
     const navigate = useNavigate();
@@ -261,6 +262,7 @@ function AnadirGasto() {
         try {
             auditValidation('validation_started', 'Lectura de documento XML.');
             const parsed = await parseCfdi(file);
+            setGastoPorConfirmar(null);
             const uuid = normalizarUuidFiscalValido(parsed.uuid);
 
             if (!uuid) {
@@ -278,6 +280,7 @@ function AnadirGasto() {
         } 
         
         catch (error) {
+            setGastoPorConfirmar(null);
             auditValidation('validation_failed', apiErrorMessage(error));
             setFolio('');
             setFolioValidado(false);
@@ -290,6 +293,18 @@ function AnadirGasto() {
     const [estadoValidacion, setEstadoValidacion] = useState(null); // 'listo', 'advertencia', 'error', 'legibilidad'
     const [cargandoValidacion, setCargandoValidacion] = useState(false);
     const [guardandoGasto, setGuardandoGasto] = useState(false);
+    const [preparandoGasto, setPreparandoGasto] = useState(false);
+    const [gastoPorConfirmar, setGastoPorConfirmar] = useState(null);
+    const preparandoGastoRef = useRef(false);
+    const guardandoGastoRef = useRef(false);
+    const formVersion = useRef(0);
+    const addExpenseButtonRef = useRef(null);
+
+    useEffect(() => {
+        // An asynchronous document read can finish while preparing the summary.
+        formVersion.current += 1;
+    }, [fecha, categoria, monto, folio, tipoDocumento, areaAutoriza, observaciones,
+        facturaFile, valeFile, reciboFile, ocrFactura, ocrVale, ocrRecibo]);
 
     // Menú desplegable unificado para no perder coherencia
     const categoriasGasto = ["Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil", 
@@ -458,9 +473,7 @@ function AnadirGasto() {
     };
 
 
-    const handleGuardarGasto = async (e) => {
-        e.preventDefault();
-        if (guardandoGasto) return;
+    const prepararGastoParaConfirmacion = async () => {
         auditField('date', fecha);
         auditField('amount', monto);
         auditField('folio', folio);
@@ -602,7 +615,34 @@ function AnadirGasto() {
             }
         }
 
+        return nuevoGastoItem;
+    };
+
+    const handleGuardarGasto = async (e) => {
+        e.preventDefault();
+        if (preparandoGastoRef.current || guardandoGastoRef.current || cargandoValidacion || gastoPorConfirmar) return;
+        preparandoGastoRef.current = true;
+        setPreparandoGasto(true);
+        const version = formVersion.current;
+        try {
+            const gasto = await prepararGastoParaConfirmacion();
+            if (gasto && version === formVersion.current) setGastoPorConfirmar(gasto);
+        } catch (error) {
+            const mensaje = apiErrorMessage(error);
+            setEstadoValidacion('error');
+            setMensajeValidacion(mensaje);
+            alert(mensaje);
+        } finally {
+            preparandoGastoRef.current = false;
+            setPreparandoGasto(false);
+        }
+    };
+
+    const handleConfirmarGasto = async () => {
+        if (!gastoPorConfirmar || guardandoGastoRef.current) return;
+        guardandoGastoRef.current = true;
         setGuardandoGasto(true);
+        const nuevoGastoItem = gastoPorConfirmar;
 
         try {
             await captureAudit.flush();
@@ -650,10 +690,12 @@ function AnadirGasto() {
             navigate('/solicitud/nueva');
         } catch (error) {
             const mensaje = apiErrorMessage(error);
+            setGastoPorConfirmar(null);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
             alert(mensaje);
         } finally {
+            guardandoGastoRef.current = false;
             setGuardandoGasto(false);
         }
 
@@ -662,6 +704,7 @@ function AnadirGasto() {
 
     return (
         <div style={styles.container} data-audit-capture-id={captureAudit.id}>
+        <fieldset disabled={preparandoGasto || guardandoGasto} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         
         {/* HEADER DE LA PÁGINA CON BOTÓN CANCELAR */}
         <div style={styles.topRow}>
@@ -953,26 +996,39 @@ function AnadirGasto() {
             <button
                 style={{
                     ...styles.validarActionBtn,
-                    opacity: cargandoValidacion || guardandoGasto ? 0.6 : 1,
-                    cursor: cargandoValidacion || guardandoGasto ? 'not-allowed' : 'pointer',
+                    opacity: cargandoValidacion || preparandoGasto || guardandoGasto ? 0.6 : 1,
+                    cursor: cargandoValidacion || preparandoGasto || guardandoGasto ? 'not-allowed' : 'pointer',
                 }}
                 onClick={handleValidarGasto}
-                disabled={cargandoValidacion || guardandoGasto}
+                disabled={cargandoValidacion || preparandoGasto || guardandoGasto}
             >
             Validar Gasto
             </button>            
             <button
+                ref={addExpenseButtonRef}
                 style={{
                     ...styles.añadirActionBtn,
-                    opacity: guardandoGasto ? 0.6 : 1,
-                    cursor: guardandoGasto ? 'not-allowed' : 'pointer',
+                    opacity: cargandoValidacion || preparandoGasto || guardandoGasto ? 0.6 : 1,
+                    cursor: cargandoValidacion || preparandoGasto || guardandoGasto ? 'not-allowed' : 'pointer',
                 }}
                 onClick={handleGuardarGasto}
-                disabled={guardandoGasto}
+                disabled={cargandoValidacion || preparandoGasto || guardandoGasto}
             >
-            {guardandoGasto ? 'Guardando...' : 'Añadir'}
+            {guardandoGasto ? 'Guardando...' : preparandoGasto ? 'Validando...' : 'Añadir'}
             </button>
         </div>
+
+        </fieldset>
+        {gastoPorConfirmar && (
+            <ExpenseConfirmationDialog
+                expense={gastoPorConfirmar}
+                formattedDate={formatoFecha(normalizarFechaCapturada(gastoPorConfirmar.fecha)) || gastoPorConfirmar.fecha}
+                busy={guardandoGasto}
+                returnFocusRef={addExpenseButtonRef}
+                onCancel={() => { if (!guardandoGastoRef.current) setGastoPorConfirmar(null); }}
+                onConfirm={handleConfirmarGasto}
+            />
+        )}
 
         </div>
     );

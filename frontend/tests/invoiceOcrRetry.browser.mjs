@@ -93,6 +93,11 @@ try {
             await folio.fill(uuid);
             await page.getByRole('button', { name: 'Confirmar', exact: true }).click();
             await page.getByRole('button', { name: 'Añadir', exact: true }).click();
+            const confirmation = page.getByRole('dialog', { name: 'RESUMEN DEL GASTO' });
+            await confirmation.waitFor();
+            assert.equal(creations.length, 0, 'manual UUID is not saved before confirmation');
+            await confirmation.getByRole('checkbox').check();
+            await confirmation.getByRole('button', { name: 'Confirmar y A\u00f1adir', exact: true }).click();
             await page.waitForURL('**/solicitud/nueva');
             assert.equal(creations.length, 1);
             assert.equal(creations[0].gastos[0].cfdiUuid, uuid, 'manual UUID is saved without rerunning OCR');

@@ -84,6 +84,11 @@ try {
         assert.equal(creations.length, 0);
         await area.selectOption('Sistemas');
         await page.getByRole('button', { name: 'Añadir', exact: true }).click();
+        const confirmation = page.getByRole('dialog', { name: 'RESUMEN DEL GASTO' });
+        await confirmation.waitFor();
+        assert.equal(creations.length, 0, 'reviewing the summary does not save an expense');
+        await confirmation.getByRole('checkbox').check();
+        await confirmation.getByRole('button', { name: 'Confirmar y A\u00f1adir', exact: true }).click();
         await page.waitForURL('**/solicitud/nueva');
         assert.equal(creations.length, 1);
         assert.equal(creations[0].gastos[0].categoria, category);

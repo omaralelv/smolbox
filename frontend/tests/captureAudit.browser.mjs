@@ -140,6 +140,11 @@ try {
     failOcr = false;
     await fillCapture();
     await page.getByRole('button', { name: 'Añadir', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: 'RESUMEN DEL GASTO' });
+    await confirmation.waitFor();
+    assert.equal(creations.length, 0, 'opening the confirmation does not create an expense');
+    await confirmation.getByRole('checkbox').check();
+    await confirmation.getByRole('button', { name: 'Confirmar y A\u00f1adir', exact: true }).click();
     await page.waitForURL('**/solicitud/nueva');
     assert.equal(creations.length, 1);
     assert.ok(events.some((row) => row.reimbursement_request_id && row.expense_id));
