@@ -42,6 +42,7 @@ from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
     ReimbursementPeriodBoundaryUnavailable,
     actualizar_fecha_fin_reembolso,
+    outside_period_message,
     validate_expense_date_for_reimbursement,
 )
 from app.services.reimbursement_validation import (
@@ -165,7 +166,9 @@ def create_expense(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "code": "EXPENSE_OUTSIDE_PERIOD",
-                    "message": "El gasto está fuera de periodo.",
+                    "message": outside_period_message(
+                        reimbursement_request.previous_reimbursement_ends_on
+                    ),
                 },
             ) from exc
         except ReimbursementPeriodBoundaryUnavailable as exc:
@@ -1053,7 +1056,9 @@ def _apply_expense_updates(expense: Expense, updates: dict[str, object], db: Ses
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "code": "EXPENSE_OUTSIDE_PERIOD",
-                    "message": "El gasto está fuera de periodo.",
+                    "message": outside_period_message(
+                        expense.reimbursement_request.previous_reimbursement_ends_on
+                    ),
                 },
             ) from exc
         except ReimbursementPeriodBoundaryUnavailable as exc:

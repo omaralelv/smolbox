@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from conftest import create_expense
+from conftest import _expected_outside_period_message, create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -1905,7 +1905,7 @@ def test_frontend_add_rejects_expense_before_previous_close(
     assert response.status_code == 422
     assert response.json()["detail"] == {
         "code": "EXPENSE_OUTSIDE_PERIOD",
-        "message": "El gasto está fuera de periodo.",
+        "message": _expected_outside_period_message(client, base_records),
     }
     assert "2026" not in response.text
 

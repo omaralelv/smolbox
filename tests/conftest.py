@@ -110,6 +110,21 @@ def base_records(
     }
 
 
+def _expected_outside_period_message(
+    client: TestClient,
+    base_records: dict[str, str],
+) -> str:
+    response = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}"
+    )
+    assert response.status_code == 200, response.text
+    starts_on = response.json()["previous_reimbursement_ends_on"]
+    return (
+        "El gasto está fuera de periodo.\n"
+        f"El periodo actualmente comienza en {starts_on}."
+    )
+
+
 def create_expense(
     client: TestClient,
     base_records: dict[str, str],

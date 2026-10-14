@@ -1,7 +1,7 @@
 from datetime import date
 from uuid import UUID
 
-from conftest import create_expense
+from conftest import _expected_outside_period_message, create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -43,7 +43,9 @@ def test_allows_multiple_requests_per_store_period_and_rejects_expense_outside_p
     )
     assert outside_period.status_code == 422
     assert outside_period.json()["detail"]["code"] == "EXPENSE_OUTSIDE_PERIOD"
-    assert outside_period.json()["detail"]["message"] == "El gasto está fuera de periodo."
+    assert outside_period.json()["detail"]["message"] == _expected_outside_period_message(
+        client, base_records
+    )
     assert "2026" not in outside_period.text
 
     valid = create_expense(client, base_records)
@@ -76,7 +78,7 @@ def test_expense_edit_cannot_move_date_before_previous_close(
     assert response.status_code == 422
     assert response.json()["detail"] == {
         "code": "EXPENSE_OUTSIDE_PERIOD",
-        "message": "El gasto está fuera de periodo.",
+        "message": _expected_outside_period_message(client, base_records),
     }
 
 

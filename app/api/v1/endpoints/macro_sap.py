@@ -25,6 +25,7 @@ from app.services.reimbursement_periods import (
     ReimbursementPeriodBoundaryUnavailable,
     obtener_inicio_periodo_reembolso,
     obtener_ultima_fecha_gasto_reembolso,
+    outside_period_message,
     validate_expense_date_for_reimbursement,
 )
 from app.services.spending_summary import obtener_resumen_gasto_tienda
@@ -264,7 +265,7 @@ def generar_polizas(
             status_code=422,
             detail={
                 "code": "EXPENSE_OUTSIDE_PERIOD",
-                "message": "El gasto está fuera de periodo.",
+                "message": outside_period_message(fin_ant),
             },
         ) from exc
     except ReimbursementPeriodBoundaryUnavailable as exc:

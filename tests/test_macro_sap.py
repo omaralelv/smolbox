@@ -279,7 +279,10 @@ def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == {
         "code": "EXPENSE_OUTSIDE_PERIOD",
-        "message": "El gasto está fuera de periodo.",
+        "message": (
+            "El gasto está fuera de periodo.\n"
+            "El periodo actualmente comienza en 2026-09-26."
+        ),
     }
 
 

@@ -71,6 +71,7 @@ from app.services.reimbursement_periods import (
     ReimbursementPeriodBoundaryUnavailable,
     actualizar_fecha_fin_reembolso,
     obtener_contexto_periodo_reembolso,
+    outside_period_message,
     validate_expense_date_for_reimbursement,
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
@@ -790,7 +791,9 @@ async def import_reimbursement_request_expenses(
             ExpenseImportErrorRead(
                 row_number=row.row_number,
                 field="spent_on",
-                message="El gasto está fuera de periodo.",
+                message=outside_period_message(
+                    reimbursement_request.previous_reimbursement_ends_on
+                ),
             )
             for row in parsed_rows
             if reimbursement_request.previous_reimbursement_ends_on is not None

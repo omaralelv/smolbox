@@ -6,6 +6,7 @@ from zipfile import ZipFile
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from conftest import _expected_outside_period_message
 from app.models.reimbursement_request import ReimbursementRequest
 
 
@@ -154,7 +155,9 @@ def test_rejects_import_with_invalid_rows_without_partial_writes(
     assert imported.status_code == 422
     assert imported.json()["detail"]["code"] == "IMPORT_VALIDATION_FAILED"
     assert imported.json()["detail"]["errors"][0]["field"] == "spent_on"
-    assert imported.json()["detail"]["errors"][0]["message"] == "El gasto está fuera de periodo."
+    assert imported.json()["detail"]["errors"][0]["message"] == (
+        _expected_outside_period_message(client, base_records)
+    )
     assert "2026" not in imported.text
 
     expenses = client.get(

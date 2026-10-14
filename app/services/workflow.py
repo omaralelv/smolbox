@@ -192,11 +192,17 @@ def transition_reimbursement_request(
         )
 
     if target_status == ReimbursementRequestStatus.submitted:
-        if any(
-            issue.code == "expense_outside_period" and issue.severity == "error"
-            for issue in summary.issues
-        ):
-            raise WorkflowTransitionError("El gasto está fuera de periodo.")
+        outside_period_issue = next(
+            (
+                issue
+                for issue in summary.issues
+                if issue.code == "expense_outside_period"
+                and issue.severity == "error"
+            ),
+            None,
+        )
+        if outside_period_issue is not None:
+            raise WorkflowTransitionError(outside_period_issue.message)
         if any(
             issue.code == "reimbursement_period_incomplete"
             and issue.severity == "error"

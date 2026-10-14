@@ -12,6 +12,7 @@ from app.schemas.reimbursement_request import (
 )
 from app.services.cfdi_validator import normalize_cfdi_uuid
 from app.services.reimbursement_periods import (
+    outside_period_message,
     ExpenseOutsideReimbursementPeriod,
     ReimbursementPeriodBoundaryUnavailable,
     validate_expense_date_for_reimbursement,
@@ -211,7 +212,7 @@ def summarize_reimbursement_request(
             ReimbursementValidationIssue(
                 code="expense_outside_period",
                 message=(
-                    "El gasto está fuera de periodo."
+                    outside_period_message(previous_reimbursement_ends_on)
                     if has_late_expense
                     else (
                         "One or more expenses are outside "

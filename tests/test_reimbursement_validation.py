@@ -494,7 +494,10 @@ def test_expense_before_previous_close_blocks_submission_with_generic_message() 
     assert summary.out_of_period_expense_ids == []
     issue = next(issue for issue in summary.issues if issue.code == "expense_outside_period")
     assert issue.severity == "error"
-    assert issue.message == "El gasto está fuera de periodo."
+    assert issue.message == (
+        "El gasto está fuera de periodo.\n"
+        "El periodo actualmente comienza en 2026-09-26."
+    )
     assert "2026" not in issue.message
 
 
