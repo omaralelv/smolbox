@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from conftest import authenticated_audit_headers, create_expense
@@ -285,3 +285,77 @@ def test_partition_payload_has_real_creation_time_and_comments_keep_their_expens
     assert {row["message"]: row["expense_id"] for row in notes if row["action"] == "expense_observation_added"} == {
         "Original comment": expense["id"], "Partition comment": child["backendId"],
     }
+
+
+def test_comment_retries_are_idempotent_but_identical_intentional_comments_are_kept(client, base_records):
+    expense = create_expense(client, base_records)
+    _, headers = _actor(client, base_records, "store")
+    payload = {"note": "Comentario repetido a propósito", "eventId": str(uuid4())}
+    path = f"/api/v1/expenses/{expense['id']}/observation/me"
+    for _ in range(3):
+        response = client.post(path, headers=headers, json=payload)
+        assert response.status_code == 200, response.text
+    conflict = client.post(path, headers=headers, json={**payload, "note": "No debe sobrescribirse"})
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "OBSERVATION_EVENT_CONFLICT"
+    another = client.post(path, headers=headers, json={**payload, "eventId": str(uuid4())})
+    assert another.status_code == 200, another.text
+    rows = client.get(_path(base_records), headers=headers, params={"observations_only": True}).json()
+    assert len(rows) == 2
+    assert len({row["id"] for row in rows}) == 2
+    assert all(row["message"] == payload["note"] for row in rows)
+    assert client.post(path, headers=headers, json={"note": "   ", "eventId": str(uuid4())}).status_code == 422
+
+
+def test_comment_event_cannot_be_reused_for_another_expense(client, base_records):
+    first = create_expense(client, base_records)
+    second = create_expense(client, base_records)
+    _, headers = _actor(client, base_records, "store")
+    payload = {"note": "Vinculado al gasto correcto", "eventId": str(uuid4())}
+    assert client.post(f"/api/v1/expenses/{first['id']}/observation/me", headers=headers, json=payload).status_code == 200
+    assert client.post(f"/api/v1/expenses/{second['id']}/observation/me", headers=headers, json=payload).status_code == 409
+    rows = client.get(_path(base_records), headers=headers, params={"observations_only": True}).json()
+    assert len(rows) == 1 and rows[0]["expense_id"] == first["id"]
+
+
+def test_saved_comment_retry_acknowledges_previous_write_without_opening_a_closed_stage(client, base_records, session_factory):
+    expense = create_expense(client, base_records)
+    _, headers = _actor(client, base_records, "store")
+    payload = {"note": "Ya se guardó antes de cambiar la etapa", "eventId": str(uuid4())}
+    path = f"/api/v1/expenses/{expense['id']}/observation/me"
+    assert client.post(path, headers=headers, json=payload).status_code == 200
+    with session_factory() as db:
+        db.get(ReimbursementRequest, UUID(base_records["request_id"])).status = ReimbursementRequestStatus.paid
+        db.commit()
+    assert client.post(path, headers=headers, json=payload).status_code == 200
+    assert client.post(path, headers=headers, json={**payload, "eventId": str(uuid4())}).status_code == 409
+    rows = client.get(_path(base_records), headers=headers, params={"observations_only": True}).json()
+    assert len(rows) == 1
+
+
+def test_concurrent_comment_retries_save_one_event(client, base_records, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from app.api.v1.endpoints import expenses
+
+    expense = create_expense(client, base_records)
+    _, headers = _actor(client, base_records, "store")
+    barrier = Barrier(2)
+    already_saved = expenses._observation_already_saved
+
+    def simultaneous_read(db, audit_id, item, actor, note):
+        exists = already_saved(db, audit_id, item, actor, note)
+        if not exists:
+            barrier.wait(timeout=10)
+        return exists
+
+    monkeypatch.setattr(expenses, "_observation_already_saved", simultaneous_read)
+    payload = {"note": "Un solo envío concurrente", "eventId": str(uuid4())}
+    path = f"/api/v1/expenses/{expense['id']}/observation/me"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(client.post, path, headers=headers, json=payload) for _ in range(2)]
+        responses = [future.result(timeout=20) for future in futures]
+    assert [response.status_code for response in responses] == [200, 200]
+    rows = client.get(_path(base_records), headers=headers, params={"observations_only": True}).json()
+    assert len(rows) == 1 and rows[0]["message"] == payload["note"]

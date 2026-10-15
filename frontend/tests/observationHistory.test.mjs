@@ -86,6 +86,25 @@ test('the backend controls comment permissions, with a fallback only for unsaved
     assert.equal(puedeAgregarObservacion(null), false);
 });
 
+test('archived partition comments remain visible without mixing active siblings or private notes', () => {
+    const records = [
+        { ...event('own'), expense_id: 'current' },
+        { ...event('active-sibling'), expense_id: 'sibling', expense_parent_id: 'parent' },
+        { ...event('old'), expense_id: 'old-child', expense_parent_id: 'parent', expense_archived: true,
+            expense_partition_index: 2, expense_partition_count: 3 },
+        { ...event('private-old', 'Private', { actor_role: 'accountant' }), expense_id: 'old-child',
+            expense_parent_id: 'parent', expense_archived: true },
+        { ...event('unrelated'), expense_id: 'unrelated', expense_parent_id: 'another', expense_archived: true },
+    ];
+    const history = historialDesdeEventos(records);
+    const child = { backendId: 'current', idOriginal: 'parent' };
+    assert.deepEqual(historialParaGasto(history, child, 'tienda').map((note) => note.id), ['old', 'own']);
+    assert.equal(historialParaGasto(history, child, 'tienda')[0].origen, 'Partición anterior 2/3');
+    assert.equal(historialParaGasto(history, child, 'contabilidad').length, 3);
+    assert.deepEqual(historialParaGasto(history, { backendId: 'parent' }, 'tienda').map((note) => note.id), ['old']);
+    assert.equal(combinarHistorialObservaciones([], historialDesdeEventos([...records, ...records])).length, 5);
+});
+
 test('a failed refresh after a successful save cannot be reported as a failed write', () => {
     assert.ok(mensajeErrorHistorial(true).startsWith('La observaci\u00f3n se guard\u00f3'));
     assert.ok(mensajeErrorHistorial(true).includes('no es necesario enviarla otra vez'));

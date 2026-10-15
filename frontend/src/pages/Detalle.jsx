@@ -6,6 +6,7 @@ import {
     apiErrorMessage,
     cancelExpensePartition,
     getRequestObservationEvents,
+    getFrontendSolicitud,
     partitionExpense,
     removeExpense,
     updateExpenseForReview,
@@ -103,6 +104,8 @@ function Detalle({ currentRole }) {
     const [guardandoObservacion, setGuardandoObservacion] = useState(false);
     const guardandoObservacionRef = useRef(false);
     const [errorHistorial, setErrorHistorial] = useState('');
+    const [errorDetalle, setErrorDetalle] = useState('');
+    const [cargandoDetalle, setCargandoDetalle] = useState(Boolean(solicitudBackendId));
     const [historial, setHistorial] = useState(() => (solicitudBackendId
         ? (location.state?.desglose || []).map(observacionInicialDesdeGasto).filter(Boolean) : HISTORIAL_MOCK));
 
@@ -156,6 +159,26 @@ function Detalle({ currentRole }) {
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
 
+    useEffect(() => {
+        if (!solicitudBackendId) return undefined;
+        let active = true;
+        getFrontendSolicitud(solicitudBackendId).then((request) => {
+            if (!active) return;
+            setGastosDesglosados(request.gastos || []);
+            setErrorDetalle('');
+        }).catch(() => {
+            if (active) setErrorDetalle('No se pudieron actualizar los gastos. Regresa a la solicitud e intenta de nuevo.');
+        }).finally(() => {
+            if (active) setCargandoDetalle(false);
+        });
+        return () => { active = false; };
+    }, [solicitudBackendId]);
+
+    // Keep an open drawer attached to the current payload after a partition edit or reload.
+    const gastoActual = gastoSeleccionado && gastosDesglosados.find((gasto) => (
+        String(gasto.backendId || gasto.id) === String(gastoSeleccionado.backendId || gastoSeleccionado.id)
+    ));
+
     //console.log("🔍 GASTOS DESGLOSADOS:", gastosDesglosados);
     //console.log("🔍 OBS INICIALES DETECTADAS:", (gastosDesglosados || []).map(observacionInicialDesdeGasto));
 
@@ -201,11 +224,11 @@ function Detalle({ currentRole }) {
 
 
 
-    const refrescarHistorialBackend = async (observacionGuardada = false) => {
+    const refrescarHistorialBackend = async (observacionGuardada = false, gastosActuales = gastosDesglosados) => {
         if (!solicitudBackendId) return;
         try {
             const eventos = await getRequestObservationEvents(solicitudBackendId);
-            const obsIniciales = (gastosDesglosados || []).map(observacionInicialDesdeGasto).filter(Boolean);
+            const obsIniciales = (gastosActuales || []).map(observacionInicialDesdeGasto).filter(Boolean);
             setHistorial(combinarHistorialObservaciones(obsIniciales, historialDesdeEventos(eventos)));
             setErrorHistorial('');
         } catch {
@@ -228,7 +251,7 @@ function Detalle({ currentRole }) {
     const handleEnviarObservacion = async (e) => {
         e.preventDefault();
         const textoObservacion = comentario.trim();
-        if (!textoObservacion || guardandoObservacionRef.current || !puedeAgregarObservacion(gastoSeleccionado, { localDraft: !solicitudBackendId })) return;
+        if (!textoObservacion || errorDetalle || guardandoObservacionRef.current || !puedeAgregarObservacion(gastoActual, { localDraft: !solicitudBackendId })) return;
 
         // REGLA 2: Asignación automática de visibilidad según el rol
         let visibilidadAsignada = VISIBILIDAD.INTERNO;
@@ -543,7 +566,7 @@ function Detalle({ currentRole }) {
                 setGuardandoParticion(true);
                 const solicitudActualizada = await cancelExpensePartition(solicitudBackendId, parentId);
                 setGastosDesglosados(solicitudActualizada.gastos || []);
-                await refrescarHistorialBackend();
+                await refrescarHistorialBackend(false, solicitudActualizada.gastos || []);
                 setConfirmarAnularModal(false);
                 cancelarParticion();
                 alert('Partición anulada correctamente.');
@@ -629,7 +652,7 @@ function Detalle({ currentRole }) {
                     `Gasto particionado en ${totalPart} partes.`
                 );
                 setGastosDesglosados(solicitudActualizada.gastos || []);
-                await refrescarHistorialBackend();
+                await refrescarHistorialBackend(false, solicitudActualizada.gastos || []);
                 alert('Gasto particionado correctamente.');
                 cancelarParticion();
                 return;
@@ -744,10 +767,13 @@ function Detalle({ currentRole }) {
 
 
 
+    if (cargandoDetalle) return <div role="status">Cargando gastos...</div>;
+
     return (
         <div style={styles.mainLayout} data-audit-request-id={solicitudBackendId || undefined}>
             {/* VISTA PRINCIPAL (IZQUIERDA) */}
             <div style={styles.container}>
+                {errorDetalle && <p role="alert">{errorDetalle}</p>}
                 {/* ENCABEZADO */}
                 <div style={styles.headerRow}>
                     <h2 style={styles.title}>{solicitudFolio} / {categoria}</h2>
@@ -936,17 +962,17 @@ function Detalle({ currentRole }) {
             <Drawer 
                 documentoActivo={documentoActivo}
                 observacionesAbiertas={observacionesAbiertas}
-                gasto={gastoSeleccionado}
+                gasto={gastoActual || gastoSeleccionado}
                 onCloseDocumento={() => setDocumentoActivo(null)}
                 onCloseObservaciones={() => setObservacionesAbiertas(false)}
                 comentario={comentario}
                 setComentario={setComentario}
 
                 // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
-                historial={historialParaGasto(historial, gastoSeleccionado, rol)}
+                historial={historialParaGasto(historial, gastoActual || gastoSeleccionado, rol)}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
-                puedeAgregarObservacion={puedeAgregarObservacion(gastoSeleccionado, { localDraft: !solicitudBackendId })}
+                puedeAgregarObservacion={!errorDetalle && puedeAgregarObservacion(gastoActual, { localDraft: !solicitudBackendId })}
                 guardandoObservacion={guardandoObservacion}
                 errorObservaciones={errorHistorial}
                 onReintentarObservaciones={() => refrescarHistorialBackend()}

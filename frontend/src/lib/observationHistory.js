@@ -49,6 +49,10 @@ export function historialDesdeEventos(events = []) {
         const initial = payload.is_initial_observation === true;
         return {
             id: event.id, gastoId: expenseId, autor: author, rol: role, texto: text,
+            gastoOriginalId: event.expense_parent_id || null,
+            particionIndex: event.expense_partition_index || null,
+            totalParticiones: event.expense_partition_count || null,
+            particionArchivada: event.expense_archived === true,
             fecha: fechaLegible(date),
             fechaTimestamp: Number.isFinite(timestamp) && timestamp > 0
                 ? (timestamp > 10_000_000_000 ? timestamp : timestamp * 1000)
@@ -80,10 +84,15 @@ export function historialParaGasto(history, expense, role) {
     const expenseId = expense.backendId ?? expense.backend_id ?? expense.id;
     const parentId = parentExpenseId(expense);
     const relatedIds = [expenseId, parentId].filter((id) => id !== null && id !== undefined).map(String);
-    return history.filter((note) => relatedIds.includes(String(note.gastoId)) && PUEDE_LEER_OBSERVACION(role, note.visibilidad))
+    const rootId = String(parentId || expenseId);
+    const archivedPartition = (note) => note.particionArchivada && String(note.gastoOriginalId) === rootId;
+    return history.filter((note) => (relatedIds.includes(String(note.gastoId)) || archivedPartition(note))
+            && PUEDE_LEER_OBSERVACION(role, note.visibilidad))
         .map((note) => ({
             ...note,
-            origen: parentId ? (String(note.gastoId) === String(parentId) ? 'Gasto original' : 'Esta partici\u00f3n') : null,
+            origen: archivedPartition(note)
+                ? `Partici\u00f3n anterior ${note.particionIndex || '?'}/${note.totalParticiones || '?'}`
+                : parentId ? (String(note.gastoId) === String(parentId) ? 'Gasto original' : 'Esta partici\u00f3n') : null,
         }));
 }
 

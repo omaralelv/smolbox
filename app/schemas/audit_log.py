@@ -34,3 +34,7 @@ class FrontendAuditLogRead(AuditLogRead):
     request_folio: str | None = None
     actor_name: str | None = None
     actor_role: str | None = None
+    expense_parent_id: UUID | None = None
+    expense_partition_index: int | None = None
+    expense_partition_count: int | None = None
+    expense_archived: bool = False

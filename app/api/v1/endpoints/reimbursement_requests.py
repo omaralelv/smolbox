@@ -735,14 +735,23 @@ def list_reimbursement_request_audit_events(
     statement = statement.order_by(
         AuditLog.created_at.desc(), AuditLog.id.desc(),
     ).limit(limit).offset(offset)
+    expenses_by_id = {expense.id: expense for expense in reimbursement_request.expenses}
     return [
         FrontendAuditLogRead(
             **AuditLogRead.model_validate(event).model_dump(),
             actor_role=(event.event_payload or {}).get("actor_role") or (actor.role.value if actor else None),
             actor_name=actor.full_name if actor else None,
             request_folio=reimbursement_request.folio,
+            expense_parent_id=expense.partition_parent_expense_id if expense else None,
+            expense_partition_index=expense.partition_index if expense else None,
+            expense_partition_count=expense.partition_count if expense else None,
+            expense_archived=bool(expense and (
+                expense.removed_at is not None
+                or expense.status in {ExpenseStatus.removed, ExpenseStatus.rejected}
+            )),
         )
         for event, actor in db.execute(statement)
+        for expense in [expenses_by_id.get(event.expense_id)]
     ]
 
 

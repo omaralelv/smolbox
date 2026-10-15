@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.expense import ExpenseStatus
 
@@ -115,6 +115,17 @@ class ExpenseObservation(BaseModel):
 
 class AuthenticatedExpenseObservation(BaseModel):
     note: str = Field(min_length=1, max_length=1000)
+    event_id: UUID | None = Field(
+        default=None, validation_alias=AliasChoices("eventId", "event_id"),
+    )
+
+    @field_validator("note")
+    @classmethod
+    def require_comment_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("La observación no puede estar vacía.")
+        return value
 
 
 class ExpenseReviewUpdate(ExpenseUpdate):

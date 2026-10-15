@@ -6,6 +6,7 @@ import {
     isCognitoLoginEnabled,
     refreshCognitoSession,
 } from './cognito';
+import { createObservationSender } from './observationSubmission.js';
 
 const API_BASE_URL = (
     import.meta.env.DEV
@@ -530,12 +531,12 @@ export async function updateExpenseForReview(expenseId, payload) {
     });
 }
 
-export async function addExpenseObservation(expenseId, note) {
+export const addExpenseObservation = createObservationSender((expenseId, body) => {
     return request(`/expenses/${expenseId}/observation/me`, {
         method: 'POST',
-        body: { note },
+        body,
     });
-}
+}, currentToken);
 
 export async function authorizeExpense(expenseId, note = 'Gasto autorizado desde frontend.') {
     return request(`/expenses/${expenseId}/authorize/me`, {

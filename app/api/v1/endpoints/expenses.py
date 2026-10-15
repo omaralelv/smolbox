@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import get_current_user
@@ -350,6 +351,7 @@ def add_expense_observation_as_current_user(
         actor=current_user,
         note=observation_in.note,
         require_store_assignment=True,
+        event_id=observation_in.event_id,
         db=db,
     )
 
@@ -614,12 +616,9 @@ def _add_observation_with_actor(
     note: str,
     require_store_assignment: bool,
     db: Session,
+    event_id: UUID | None = None,
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
-    _ensure_request_accepts_observations(reimbursement_request)
-    _ensure_actor_can(actor, observation_roles_for_status(
-        reimbursement_request.status, authenticated=require_store_assignment,
-    ))
     _ensure_store_assignment_if_required(
         db,
         actor,
@@ -627,8 +626,18 @@ def _add_observation_with_actor(
         require_store_assignment,
         expense=expense,
     )
-    _ensure_expense_not_excluded(expense)
+    audit_id = (
+        uuid5(NAMESPACE_URL, f"smolbox:expense-observation:{actor.id}:{event_id}")
+        if event_id else None
+    )
+    if audit_id is not None and _observation_already_saved(db, audit_id, expense, actor, note):
+        return expense
 
+    _ensure_request_accepts_observations(reimbursement_request)
+    _ensure_actor_can(actor, observation_roles_for_status(
+        reimbursement_request.status, authenticated=require_store_assignment,
+    ))
+    _ensure_expense_not_excluded(expense)
     expense.review_note = note
     _add_expense_button_selected_audit_event(
         db,
@@ -640,6 +649,7 @@ def _add_observation_with_actor(
     )
     db.add(
         AuditLog(
+            **({"id": audit_id} if audit_id is not None else {}),
             reimbursement_request_id=expense.reimbursement_request_id,
             expense_id=expense.id,
             actor_user_id=actor.id,
@@ -650,12 +660,38 @@ def _add_observation_with_actor(
                 "actor_role": actor.role.value,
                 "request_status": reimbursement_request.status.value,
                 "authenticated": require_store_assignment,
+                "event_id": str(event_id) if event_id else None,
             },
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Concurrent retries must acknowledge the first write, not add another comment.
+        db.rollback()
+        if audit_id is None or not _observation_already_saved(db, audit_id, expense, actor, note):
+            raise
     db.refresh(expense)
     return expense
+
+
+def _observation_already_saved(
+    db: Session, audit_id: UUID, expense: Expense, actor: User, note: str,
+) -> bool:
+    existing = db.get(AuditLog, audit_id)
+    if existing is None:
+        return False
+    if (
+        existing.action != "expense_observation_added"
+        or existing.expense_id != expense.id
+        or existing.actor_user_id != actor.id
+        or existing.message != note
+    ):
+        raise HTTPException(status_code=409, detail={
+            "code": "OBSERVATION_EVENT_CONFLICT",
+            "message": "Este envío de observación ya se utilizó con otros datos.",
+        })
+    return True
 
 
 def _ensure_request_accepts_observations(reimbursement_request: ReimbursementRequest) -> None:

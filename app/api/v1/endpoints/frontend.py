@@ -1051,11 +1051,11 @@ def partition_frontend_expense(
             },
         )
 
-    active_children = _active_partition_children(expense)
+    active_children = sorted(_active_partition_children(expense), key=lambda child: child.partition_index or 0)
     previous_partitions = [_partition_audit_item(child) for child in active_children]
 
     now = datetime.now(UTC)
-    for child in active_children:
+    for child in active_children[len(partition_in.particiones):]:
         child.status = ExpenseStatus.removed
         child.removed_at = now
         child.removed_by_user_id = current_user.id
@@ -1067,18 +1067,12 @@ def partition_frontend_expense(
         amount = _money(partition.monto)
         tax_rate = _rate_or_none(partition.impuesto) or Decimal("0.00")
         tax_amount, tax_subtotal = _tax_amounts_from_rate(amount, tax_rate)
-        child = Expense(
+        child = active_children[index - 1] if index <= len(active_children) else Expense(
             reimbursement_request=request,
             period_id=expense.period_id,
             partition_parent_expense_id=expense.id,
-            partition_index=index,
-            partition_count=partition_count,
-            merchant=f"Partición {index}/{partition_count} - {partition.categoria}",
-            amount=amount,
             currency=expense.currency,
             spent_on=expense.spent_on,
-            category=partition.categoria.strip(),
-            description=f"Partición {index}/{partition_count} del gasto {expense.merchant}.",
             supplier_tax_id=expense.supplier_tax_id,
             requires_authorization=expense.requires_authorization,
             authorization_area_id=expense.authorization_area_id,
@@ -1088,13 +1082,20 @@ def partition_frontend_expense(
             status=expense.status,
             cfdi_issuer_rfc=expense.cfdi_issuer_rfc,
             cfdi_receiver_rfc=expense.cfdi_receiver_rfc,
-            cfdi_subtotal=tax_subtotal,
-            cfdi_total=amount,
             cfdi_currency=expense.cfdi_currency or expense.currency,
-            cfdi_tax_amount=tax_amount,
-            cfdi_tax_rate=tax_rate,
-            sap_tax_index_override=determinar_indice_iva_manual(tax_rate),
         )
+        # An edit keeps each existing child's identity and its complete comment history.
+        child.partition_index = index
+        child.partition_count = partition_count
+        child.merchant = f"Partición {index}/{partition_count} - {partition.categoria}"
+        child.amount = amount
+        child.category = partition.categoria.strip()
+        child.description = f"Partición {index}/{partition_count} del gasto {expense.merchant}."
+        child.cfdi_subtotal = tax_subtotal
+        child.cfdi_total = amount
+        child.cfdi_tax_amount = tax_amount
+        child.cfdi_tax_rate = tax_rate
+        child.sap_tax_index_override = determinar_indice_iva_manual(tax_rate)
         db.add(child)
         db.flush()
         created_children.append(child)

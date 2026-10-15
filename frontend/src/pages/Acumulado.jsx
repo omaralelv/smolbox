@@ -136,6 +136,7 @@ function Acumulado( {currentRole} ) {
     // Si la solicitud trae gastos cargados los usa; si no, muestra el desglose por defecto
     const gastosBrutos = solicitudSeleccionada?.gastos?.length > 0 
         ? solicitudSeleccionada.gastos.map((g, index) => ({
+            ...g,
             id: g.id || index + 1,
             backendId: g.backendId || g.backend_id || g.id,
             nombre: g.nombre || `Gasto ${index + 1}`,
