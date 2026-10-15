@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { combinarHistorialObservaciones, historialDesdeEventos, observacionInicialDesdeGasto } from '../src/lib/observationHistory.js';
+import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGasto, mensajeErrorHistorial, observacionInicialDesdeGasto, puedeAgregarObservacion } from '../src/lib/observationHistory.js';
 
 const initial = observacionInicialDesdeGasto({ backendId: 'expense-1', observaciones: 'Nota inicial', fecha: '2026-08-07' });
 function event(id, message = 'Comentario posterior', payload = {}) {
@@ -49,4 +49,45 @@ test('retains all 225 observations after merging overlapping pages', () => {
     const records = Array.from({ length: 225 }, (_, index) => event(String(index)));
     const history = combinarHistorialObservaciones([initial], historialDesdeEventos([...records, ...records.slice(0, 5)]));
     assert.equal(history.length, 226);
+});
+
+test('automatic partition descriptions are system records dated by creation, not invoice date', () => {
+    const description = observacionInicialDesdeGasto({ backendId: 'child', idOriginal: 'parent', esHijoParticion: true,
+        observaciones: 'Partici\u00f3n 1/2 del gasto Gasto - Agua.', fecha: '2026-09-03', createdAt: '2026-10-15T18:13:00Z' });
+    assert.equal(description.autor, 'SISTEMA');
+    assert.equal(description.rol, 'sistema');
+    assert.equal(description.tipo, 'sistema');
+    assert.equal(description.fechaTimestamp, Date.parse('2026-10-15T18:13:00Z'));
+    assert.equal(initial.fecha, 'Fecha no disponible');
+    assert.equal(initial.fechaTimestamp, 0);
+    assert.equal(initial.autor, 'OBSERVACI\u00d3N INICIAL', 'do not invent an author when historical metadata is missing');
+});
+
+test('partition history identifies inherited notes without mixing siblings or leaking private notes', () => {
+    const history = historialDesdeEventos([
+        { ...event('parent'), expense_id: 'parent' },
+        { ...event('child'), expense_id: 'child' },
+        { ...event('sibling'), expense_id: 'sibling' },
+        { ...event('private', 'Internal note', { actor_role: 'accountant' }), expense_id: 'parent' },
+    ]);
+    const expense = { backendId: 'child', idOriginal: 'parent' };
+    assert.deepEqual(historialParaGasto(history, expense, 'tienda').map((note) => [note.id, note.origen]), [
+        ['child', 'Esta partici\u00f3n'], ['parent', 'Gasto original'],
+    ]);
+    assert.equal(historialParaGasto(history, expense, 'tesoreria').length, 3);
+    assert.deepEqual(historialParaGasto(history, null, 'admin'), []);
+});
+
+test('the backend controls comment permissions, with a fallback only for unsaved local drafts', () => {
+    assert.equal(puedeAgregarObservacion({ backendId: 'expense', canAddObservation: true }), true);
+    assert.equal(puedeAgregarObservacion({ backendId: 'expense', canAddObservation: false }, { localDraft: true }), false);
+    assert.equal(puedeAgregarObservacion({ backendId: 'expense' }, { localDraft: true }), false);
+    assert.equal(puedeAgregarObservacion({ id: 1 }, { localDraft: true }), true);
+    assert.equal(puedeAgregarObservacion(null), false);
+});
+
+test('a failed refresh after a successful save cannot be reported as a failed write', () => {
+    assert.ok(mensajeErrorHistorial(true).startsWith('La observaci\u00f3n se guard\u00f3'));
+    assert.ok(mensajeErrorHistorial(true).includes('no es necesario enviarla otra vez'));
+    assert.equal(mensajeErrorHistorial(false), 'No se pudieron actualizar las observaciones. Se conserva el historial cargado.');
 });

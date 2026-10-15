@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
-import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
-import { combinarHistorialObservaciones, historialDesdeEventos, observacionInicialDesdeGasto } from '../../lib/observationHistory';
+import { VISIBILIDAD } from '../../components/shared/roles';
+import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGasto, mensajeErrorHistorial, observacionInicialDesdeGasto, puedeAgregarObservacion } from '../../lib/observationHistory';
 
 import {
     addExpenseObservation,
@@ -151,6 +151,8 @@ function SolicitudForm({ currentRole }) {
     
         // Estado del chat de observaciones
         const [comentario, setComentario] = useState('');
+        const [guardandoObservacion, setGuardandoObservacion] = useState(false);
+        const guardandoObservacionRef = useRef(false);
         const [errorHistorial, setErrorHistorial] = useState('');
         const [historial, setHistorial] = useState(() => historialBorradorDesdeGastos(loadDraftGastos()));
     
@@ -293,6 +295,8 @@ function SolicitudForm({ currentRole }) {
                     clearDraftGastos();
                     setGastos([]);
                     setHistorial([]);
+                    setGastoSeleccionado(null);
+                    setObservacionesAbiertas(false);
                     return;
                 }
 
@@ -300,6 +304,9 @@ function SolicitudForm({ currentRole }) {
                 saveDraftRequest(solicitud);
                 replaceDraftGastos(gastosBackend);
                 setGastos(gastosBackend);
+                setGastoSeleccionado((actual) => actual
+                    ? gastosBackend.find((gasto) => idsIguales(gastoHistorialId(gasto), gastoHistorialId(actual))) || null
+                    : null);
                 setHistorial((actual) => combinarHistorialObservaciones(historialBorradorDesdeGastos(gastosBackend), actual));
             })
             .catch((error) => {
@@ -353,7 +360,7 @@ function SolicitudForm({ currentRole }) {
     }, [observationRequestId, gastos]);
     
     
-    const refrescarHistorialBackend = async (requestId = observationRequestId) => {
+    const refrescarHistorialBackend = async (requestId = observationRequestId, observacionGuardada = false) => {
         if (!requestId) return;
         try {
             const eventos = await getRequestObservationEvents(requestId);
@@ -361,7 +368,7 @@ function SolicitudForm({ currentRole }) {
             setHistorial(combinarHistorialObservaciones(obsIniciales, historialDesdeEventos(eventos)));
             setErrorHistorial('');
         } catch {
-            setErrorHistorial('No se pudieron actualizar las observaciones. Se conserva el historial cargado.');
+            setErrorHistorial(mensajeErrorHistorial(observacionGuardada));
         }
     };
 
@@ -413,7 +420,7 @@ function SolicitudForm({ currentRole }) {
     const handleEnviarObservacion = async (e) => {
         e.preventDefault();
         const textoObservacion = comentario.trim();
-        if (!textoObservacion || !gastoSeleccionado) return;
+        if (!textoObservacion || guardandoObservacionRef.current || !puedeAgregarObservacion(gastoSeleccionado, { localDraft: !observationRequestId })) return;
 
         const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
         const draftBackendId = loadDraftRequest()?.backendId || null;
@@ -426,12 +433,13 @@ function SolicitudForm({ currentRole }) {
         const currentGastoId = gastoHistorialId(gastoSeleccionado); // 👈 Asigna el ID del gasto activo
         const nueva = crearObservacionLocal(currentGastoId, rol, textoObservacion);
 
-        console.log("➡️ 1. Intentando añadir nueva observación:", nueva);
-
+        guardandoObservacionRef.current = true;
+        setGuardandoObservacion(true);
+        setErrorHistorial('');
         try {
             if (requestIdParaObservacion) {
                 await addExpenseObservation(expenseId, textoObservacion);
-                await refrescarHistorialBackend(requestIdParaObservacion);
+                await refrescarHistorialBackend(requestIdParaObservacion, true);
             } else {
                 // 2. ACTUALIZAMOS EL OBJETO GASTO EN 'gastos'
                 // Concatenamos las observaciones para que al enviar la solicitud no se pierdan
@@ -444,6 +452,9 @@ function SolicitudForm({ currentRole }) {
             setComentario('');
         } catch (error) {
             alert(apiErrorMessage(error));
+        } finally {
+            guardandoObservacionRef.current = false;
+            setGuardandoObservacion(false);
         }
     };
     
@@ -607,12 +618,11 @@ function SolicitudForm({ currentRole }) {
                 setComentario={setComentario}
 
                 // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
-                historial={historial.filter(obs => 
-                    idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
-                    PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
-                )}
+                historial={historialParaGasto(historial, gastoSeleccionado, rol)}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                puedeAgregarObservacion={puedeAgregarObservacion(gastoSeleccionado, { localDraft: !observationRequestId })}
+                guardandoObservacion={guardandoObservacion}
                 errorObservaciones={errorHistorial}
                 onReintentarObservaciones={() => refrescarHistorialBackend()}
                 auditRequestId={auditRequestId}

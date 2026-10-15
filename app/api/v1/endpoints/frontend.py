@@ -67,6 +67,7 @@ from app.services.expense_capture_audit import (
     get_capture,
     link_capture_to_expense,
 )
+from app.services.expense_observations import can_add_expense_observation
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
 from app.services.observation_history import public_audit_event_condition
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
@@ -1535,7 +1536,7 @@ def _request_payload(
         cuenta_bancaria=request.store.bank_account,
         estado_region=request.store.state_region,
         gastos=[
-            _expense_payload(expense)
+            _expense_payload(expense, current_user, db)
             for expense in sorted(
                 _frontend_visible_expenses(
                     request.expenses,
@@ -1807,7 +1808,7 @@ def _include_expense_in_frontend_payload(expense: Expense) -> bool:
     return _expense_is_active(expense)
 
 
-def _expense_payload(expense: Expense) -> FrontendGastoRead:
+def _expense_payload(expense: Expense, current_user: User, db: Session) -> FrontendGastoRead:
     category = expense.category or "Gasto General"
     evidence_expense = _expense_evidence_source(expense)
     folio = (
@@ -1836,6 +1837,11 @@ def _expense_payload(expense: Expense) -> FrontendGastoRead:
         folio=folio,
         folio_fiscal=expense.cfdi_uuid or evidence_expense.cfdi_uuid,
         observaciones=expense.description or "",
+        created_at=(
+            expense.created_at.replace(tzinfo=expense.created_at.tzinfo or UTC)
+            if expense.created_at else None
+        ),
+        can_add_observation=can_add_expense_observation(db, current_user, expense),
         cfdi_subtotal=_float_or_none(expense.cfdi_subtotal),
         cfdi_total=_float_or_none(expense.cfdi_total),
         cfdi_tax_amount=_float_or_none(expense.cfdi_tax_amount),

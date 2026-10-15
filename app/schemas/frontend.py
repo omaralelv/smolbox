@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -161,6 +161,8 @@ class FrontendGastoRead(BaseModel):
     folio: str
     folio_fiscal: str | None = Field(default=None, alias="folioFiscal")
     observaciones: str | None = ""
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+    can_add_observation: bool = Field(default=False, alias="canAddObservation")
     cfdi_subtotal: float | None = Field(default=None, alias="cfdiSubtotal")
     cfdi_total: float | None = Field(default=None, alias="cfdiTotal")
     cfdi_tax_amount: float | None = Field(default=None, alias="cfdiTaxAmount")

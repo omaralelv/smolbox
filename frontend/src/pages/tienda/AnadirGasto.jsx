@@ -664,6 +664,8 @@ function AnadirGasto() {
                 ...nuevoGastoItem,
                 id: gastoBackend.id || nuevoGastoItem.id,
                 backendId: gastoBackend.backendId,
+                canAddObservation: gastoBackend.canAddObservation ?? false,
+                createdAt: gastoBackend.createdAt || null,
                 folio: gastoBackend.folio || nuevoGastoItem.folio,
                 cfdiSubtotal: numeroOculto(gastoBackend.cfdiSubtotal ?? gastoBackend.cfdi_subtotal),
                 cfdiTotal: numeroOculto(gastoBackend.cfdiTotal ?? gastoBackend.cfdi_total),

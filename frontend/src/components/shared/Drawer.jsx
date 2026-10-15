@@ -17,6 +17,8 @@ export default function Drawer({
     auditExpenseId,
     errorObservaciones,
     onReintentarObservaciones,
+    puedeAgregarObservacion = false,
+    guardandoObservacion = false,
 }) {
     const [documentoAmpliado, setDocumentoAmpliado] = useState(false);
 
@@ -138,6 +140,9 @@ export default function Drawer({
                                     }}
                                 >
                                     <span style={styles.autorLabel}>{obs.autor} - {obs.fecha}</span>
+                                    {obs.origen && <span style={styles.autorLabel}>{obs.origen}</span>}
+                                    {obs.tipo === 'sistema' && <span style={styles.autorLabel}>Registro automático</span>}
+                                    {obs.tipo === 'movimiento' && <span style={styles.autorLabel}>Movimiento</span>}
 
                                     {obs.visibilidad && (
                                             <span style={{
@@ -162,17 +167,18 @@ export default function Drawer({
                     </div>
 
                     {/* Input para agregar comentario */}
-                    <form style={styles.footer} onSubmit={onEnviarObservacion}>
+                    {puedeAgregarObservacion && <form style={styles.footer} onSubmit={onEnviarObservacion} aria-busy={guardandoObservacion}>
                         <textarea
                             placeholder="Nueva observación..."
                             value={comentario}
                             onChange={(e) => setComentario(e.target.value)}
                             style={styles.textarea}
+                            disabled={guardandoObservacion}
                         />
-                        <button type="submit" style={styles.sendBtn}>
+                        <button type="submit" style={styles.sendBtn} disabled={guardandoObservacion} aria-label="Enviar observación" title="Enviar observación">
                             ➤
                         </button>
-                    </form>
+                    </form>}
                 </div>
             )}
 

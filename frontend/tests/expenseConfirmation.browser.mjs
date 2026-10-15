@@ -75,7 +75,8 @@ async function openForm({ documentType = 'factura', xml = false, existing = fals
                     backendId: requestId, id: 'T001-PRUEBA', folio: 'T001-PRUEBA', tienda: 'T001',
                     status: 'Borrador', backendStatus: 'draft',
                     gastos: [{ backendId: expenseId, id: expenseId, tipo: expense.categoria, monto: Number(expense.monto),
-                        fecha: expense.fecha, folio: expense.folio, facturas: 1 }],
+                        fecha: expense.fecha, folio: expense.folio, facturas: 1,
+                        canAddObservation: true, createdAt: '2026-10-15T18:13:00Z' }],
                 };
                 data = savedRequest;
                 status = 201;
@@ -285,6 +286,9 @@ try {
         assert.equal(form.attempts[0].expense.folio, scenario.documentType ? null : fiscalUuid);
         assert.equal(form.ocrCalls(), scenario.xml ? 0 : 1, 'direct saving reuses the document read');
         assert.equal(form.dialogs.at(-1), successMessage);
+        const localExpense = await form.page.evaluate(() => JSON.parse(localStorage.getItem('listaGastosSmolbox'))[0]);
+        assert.equal(localExpense.canAddObservation, true, 'a newly saved draft keeps the server permission');
+        assert.equal(localExpense.createdAt, '2026-10-15T18:13:00Z');
         assert.equal(form.events.some((event) => event.action === 'click' && event.label === confirmName), false);
         assert.deepEqual(form.failures, []);
         await form.context.close();

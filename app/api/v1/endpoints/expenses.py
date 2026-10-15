@@ -36,6 +36,10 @@ from app.services.expense_authorization_rules import (
     category_requires_manual_authorization_area,
     resolve_expense_authorization,
 )
+from app.services.expense_observations import (
+    OBSERVATION_LOCKED_STATUSES,
+    observation_roles_for_status,
+)
 from app.services.frontend_actions import ACTION_LABELS
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_periods import (
@@ -59,64 +63,6 @@ from app.services.tax_rules import (
 from app.services.workflow import transition_reimbursement_request
 
 router = APIRouter()
-
-OBSERVATION_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
-    ReimbursementRequestStatus.submitted: {
-        UserRole.authorizer,
-        UserRole.accountant,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.authorization_review: {UserRole.authorizer, UserRole.admin},
-    ReimbursementRequestStatus.authorized: {
-        UserRole.authorizer,
-        UserRole.accountant,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.under_accounting_review: {UserRole.accountant, UserRole.admin},
-    ReimbursementRequestStatus.accounting_reviewed: {
-        UserRole.accountant,
-        UserRole.accounting_manager,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.accounting_approved: {
-        UserRole.accountant,
-        UserRole.accounting_manager,
-        UserRole.treasury,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.accounting_manager_review: {
-        UserRole.accounting_manager,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.accounting_manager_approved: {
-        UserRole.accounting_manager,
-        UserRole.treasury,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.treasury_review: {UserRole.treasury, UserRole.admin},
-    ReimbursementRequestStatus.direction_review: {
-        UserRole.treasury,
-        UserRole.director,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.direction_approved: {
-        UserRole.accounting_manager,
-        UserRole.treasury,
-        UserRole.director,
-        UserRole.admin,
-    },
-    ReimbursementRequestStatus.approved_for_payment: {
-        UserRole.accounting_manager,
-        UserRole.treasury,
-        UserRole.director,
-        UserRole.admin,
-    },
-}
-
-OBSERVATION_LOCKED_STATUSES = {
-    ReimbursementRequestStatus.paid,
-    ReimbursementRequestStatus.closed,
-}
 
 REVIEW_EDIT_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
     ReimbursementRequestStatus.under_accounting_review: {UserRole.accountant, UserRole.admin},
@@ -671,7 +617,9 @@ def _add_observation_with_actor(
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
     _ensure_request_accepts_observations(reimbursement_request)
-    _ensure_actor_can(actor, OBSERVATION_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
+    _ensure_actor_can(actor, observation_roles_for_status(
+        reimbursement_request.status, authenticated=require_store_assignment,
+    ))
     _ensure_store_assignment_if_required(
         db,
         actor,

@@ -1,4 +1,4 @@
-import { VISIBILIDAD } from '../components/shared/roles.js';
+import { PUEDE_LEER_OBSERVACION, VISIBILIDAD } from '../components/shared/roles.js';
 
 const ACTIONS = new Set([
     'expense_observation_added', 'expense_removed_from_request', 'expense_review_updated',
@@ -21,11 +21,15 @@ export function observacionInicialDesdeGasto(expense) {
     const text = String(expense.observaciones || expense.observacion || '').trim();
     if (!text) return null;
     const expenseId = expense.backendId ?? expense.backend_id ?? expense.id;
-    const date = expense.created_at || expense.createdAt || expense.fecha;
+    // The invoice date is not the timestamp of an observation or partition.
+    const date = expense.created_at || expense.createdAt;
+    const systemDescription = Boolean(expense.esHijoParticion || expense.es_hijo_particion || parentExpenseId(expense));
     return {
-        id: `init-obs-${expenseId}`, gastoId: expenseId, autor: 'TIENDA', rol: 'tienda',
-        texto: text, fecha: fechaLegible(date), fechaTimestamp: Date.parse(date || '') || 0,
+        id: `init-obs-${expenseId}`, gastoId: expenseId,
+        autor: systemDescription ? 'SISTEMA' : 'OBSERVACI\u00d3N INICIAL', rol: 'sistema',
+        texto: text, fecha: date ? fechaLegible(date) : 'Fecha no disponible', fechaTimestamp: Date.parse(date || '') || 0,
         visibilidad: VISIBILIDAD.PUBLIC,
+        tipo: systemDescription ? 'sistema' : 'inicial',
     };
 }
 
@@ -52,6 +56,7 @@ export function historialDesdeEventos(events = []) {
             visibilidad: initial || PUBLIC_ACTIONS.has(event.action) || ['tienda', 'supervisor'].includes(role)
                 ? VISIBILIDAD.PUBLIC : VISIBILIDAD.INTERNO,
             esInicial: initial, source: payload.source,
+            tipo: initial ? 'inicial' : event.action === 'expense_observation_added' ? 'comentario' : 'movimiento',
         };
     }).filter(Boolean).sort(compareObservations);
 }
@@ -64,6 +69,35 @@ export function combinarHistorialObservaciones(initial = [], events = []) {
     // Repeated text can be intentional; only repeated event identifiers are duplicates.
     const unique = new Map([...remaining, ...events].map((note) => [String(note.id), note]));
     return [...unique.values()].sort(compareObservations);
+}
+
+function parentExpenseId(expense) {
+    return expense?.idOriginal ?? expense?.id_original ?? expense?.partition_parent_expense_id ?? null;
+}
+
+export function historialParaGasto(history, expense, role) {
+    if (!expense) return [];
+    const expenseId = expense.backendId ?? expense.backend_id ?? expense.id;
+    const parentId = parentExpenseId(expense);
+    const relatedIds = [expenseId, parentId].filter((id) => id !== null && id !== undefined).map(String);
+    return history.filter((note) => relatedIds.includes(String(note.gastoId)) && PUEDE_LEER_OBSERVACION(role, note.visibilidad))
+        .map((note) => ({
+            ...note,
+            origen: parentId ? (String(note.gastoId) === String(parentId) ? 'Gasto original' : 'Esta partici\u00f3n') : null,
+        }));
+}
+
+export function puedeAgregarObservacion(expense, { localDraft = false } = {}) {
+    if (!expense) return false;
+    const permission = expense.canAddObservation ?? expense.can_add_observation;
+    if (typeof permission === 'boolean') return permission;
+    return localDraft && !expense.backendId && !expense.backend_id;
+}
+
+export function mensajeErrorHistorial(observacionGuardada = false) {
+    return observacionGuardada
+        ? 'La observaci\u00f3n se guard\u00f3, pero no se pudo actualizar el historial. Reintenta la consulta; no es necesario enviarla otra vez.'
+        : 'No se pudieron actualizar las observaciones. Se conserva el historial cargado.';
 }
 
 function compareObservations(left, right) {

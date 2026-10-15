@@ -5,8 +5,10 @@ import pytest
 from conftest import authenticated_audit_headers, create_expense
 
 from app.models.audit_log import AuditActorType, AuditLog
-from app.models.expense import Expense
+from app.models.expense import Expense, ExpenseStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.user import User
+from app.services.expense_observations import can_add_expense_observation
 
 
 def _actor(client, base_records, role, *, assigned=True):
@@ -163,3 +165,123 @@ def test_imported_initial_note_is_not_added_twice(client, base_records):
     assert history.status_code == 200
     assert len(history.json()) == 1
     assert history.json()[0]["event_payload"]["is_initial_observation"] is True
+
+
+@pytest.mark.parametrize("request_status", ["draft", "correction_required"])
+def test_store_can_comment_own_editable_request_without_changing_financial_data(client, base_records, session_factory, request_status):
+    expense = create_expense(client, base_records)
+    user_id, headers = _actor(client, base_records, "store")
+    with session_factory() as db:
+        request = db.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        request.status = ReimbursementRequestStatus(request_status)
+        item = db.get(Expense, UUID(expense["id"]))
+        item.description = "Original initial note"
+        original_amount, original_date, original_tax = item.amount, item.spent_on, item.cfdi_tax_rate
+        original_total = request.reported_total
+        db.commit()
+    detail = client.get(f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["gastos"][0]["canAddObservation"] is True
+    assert datetime.fromisoformat(detail.json()["gastos"][0]["createdAt"]).tzinfo is not None
+    for note in ["Store comment one", "Store comment two"]:
+        response = client.post(f"/api/v1/expenses/{expense['id']}/observation/me", headers=headers, json={"note": note})
+        assert response.status_code == 200, response.text
+    history = client.get(_path(base_records), headers=headers, params={"observations_only": True}).json()
+    assert {row["message"] for row in history} == {"Store comment one", "Store comment two"}
+    assert all(row["actor_user_id"] == user_id and row["event_payload"]["actor_role"] == "store" for row in history)
+    with session_factory() as db:
+        item = db.get(Expense, UUID(expense["id"]))
+        request = db.get(ReimbursementRequest, UUID(base_records["request_id"]))
+        assert item.description == "Original initial note"
+        assert (item.amount, item.spent_on, item.cfdi_tax_rate) == (original_amount, original_date, original_tax)
+        assert request.reported_total == original_total
+        assert request.status.value == request_status
+
+
+def test_observation_permissions_preserve_all_other_role_and_stage_rules(client, base_records, session_factory):
+    expense = create_expense(client, base_records)
+    actors = {role: _actor(client, base_records, role) for role in ["store", "authorizer", "accountant", "accounting_manager", "treasury", "director", "admin"]}
+    expected = {
+        "draft": {"store"}, "correction_required": {"store"},
+        "submitted": {"authorizer", "accountant", "admin"},
+        "authorization_review": {"authorizer", "admin"},
+        "authorized": {"authorizer", "accountant", "admin"},
+        "under_accounting_review": {"accountant", "admin"},
+        "accounting_reviewed": {"accountant", "accounting_manager", "admin"},
+        "accounting_approved": {"accountant", "accounting_manager", "treasury", "admin"},
+        "accounting_manager_review": {"accounting_manager", "admin"},
+        "accounting_manager_approved": {"accounting_manager", "treasury", "admin"},
+        "treasury_review": {"treasury", "admin"},
+        "direction_review": {"treasury", "director", "admin"},
+        "direction_approved": {"accounting_manager", "treasury", "director", "admin"},
+        "approved_for_payment": {"accounting_manager", "treasury", "director", "admin"},
+    }
+    for request_status in ReimbursementRequestStatus:
+        with session_factory() as db:
+            db.get(ReimbursementRequest, UUID(base_records["request_id"])).status = request_status
+            db.commit()
+        for role, (user_id, headers) in actors.items():
+            allowed = role in expected.get(request_status.value, set())
+            with session_factory() as db:
+                item = db.get(Expense, UUID(expense["id"]))
+                previous_note = item.review_note
+                assert can_add_expense_observation(db, db.get(User, UUID(user_id)), item) is allowed, (role, request_status)
+            note = f"{role} at {request_status.value}"
+            response = client.post(f"/api/v1/expenses/{expense['id']}/observation/me", headers=headers, json={"note": note})
+            assert response.status_code == (200 if allowed else 409), (role, request_status, response.text)
+            with session_factory() as db:
+                assert db.get(Expense, UUID(expense["id"])).review_note == (note if allowed else previous_note)
+                assert db.get(ReimbursementRequest, UUID(base_records["request_id"])).status == request_status
+
+
+def test_store_cannot_comment_other_store_or_use_legacy_actor_id_route(client, base_records):
+    expense = create_expense(client, base_records)
+    user_id, headers = _actor(client, base_records, "store", assigned=False)
+    denied = client.post(f"/api/v1/expenses/{expense['id']}/observation/me", headers=headers, json={"note": "Not my store"})
+    assert denied.status_code == 403, denied.text
+    denied_legacy = client.post(f"/api/v1/expenses/{expense['id']}/observation", json={"note": "No session", "actor_user_id": user_id})
+    assert denied_legacy.status_code == 409
+    assert denied_legacy.json()["detail"]["code"] == "ROLE_NOT_ALLOWED"
+    assert client.post(f"/api/v1/expenses/{expense['id']}/observation/me", json={"note": "Anonymous"}).status_code == 401
+
+
+@pytest.mark.parametrize("expense_status", ["removed", "rejected"])
+def test_store_cannot_comment_excluded_expense(client, base_records, session_factory, expense_status):
+    expense = create_expense(client, base_records)
+    _, headers = _actor(client, base_records, "store")
+    with session_factory() as db:
+        db.get(Expense, UUID(expense["id"])).status = ExpenseStatus(expense_status)
+        db.commit()
+    detail = client.get(f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["gastos"][0]["canAddObservation"] is False
+    response = client.post(f"/api/v1/expenses/{expense['id']}/observation/me", headers=headers, json={"note": "Excluded"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "EXPENSE_EXCLUDED"
+
+
+def test_partition_payload_has_real_creation_time_and_comments_keep_their_expense(client, base_records, session_factory):
+    expense = create_expense(client, base_records, amount="100.00")
+    admin = authenticated_audit_headers(client)
+    _, store = _actor(client, base_records, "store")
+    with session_factory() as db:
+        db.get(ReimbursementRequest, UUID(base_records["request_id"])).status = ReimbursementRequestStatus.under_accounting_review
+        db.commit()
+    split = client.post(f"/api/v1/frontend/solicitudes/{base_records['request_id']}/gastos/{expense['id']}/particiones/me", headers=admin, json={
+        "particiones": [{"categoria": "Agua", "monto": "30.00", "impuesto": "0"}, {"categoria": "Papelería", "monto": "70.00", "impuesto": "16"}],
+    })
+    assert split.status_code == 200, split.text
+    child = next(item for item in split.json()["gastos"] if item["esHijoParticion"])
+    assert child["idOriginal"] == expense["id"]
+    assert datetime.fromisoformat(child["createdAt"]).date() == datetime.now(UTC).date()
+    assert child["canAddObservation"] is True
+    with session_factory() as db:
+        db.get(ReimbursementRequest, UUID(base_records["request_id"])).status = ReimbursementRequestStatus.correction_required
+        db.commit()
+    for expense_id, note in [(expense["id"], "Original comment"), (child["backendId"], "Partition comment")]:
+        response = client.post(f"/api/v1/expenses/{expense_id}/observation/me", headers=store, json={"note": note})
+        assert response.status_code == 200, response.text
+    notes = client.get(_path(base_records), headers=admin, params={"observations_only": True}).json()
+    assert {row["message"]: row["expense_id"] for row in notes if row["action"] == "expense_observation_added"} == {
+        "Original comment": expense["id"], "Partition comment": child["backendId"],
+    }

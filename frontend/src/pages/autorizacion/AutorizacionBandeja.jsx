@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo} from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
-import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
-import { combinarHistorialObservaciones, historialDesdeEventos, observacionInicialDesdeGasto } from '../../lib/observationHistory';
+import { VISIBILIDAD } from '../../components/shared/roles';
+import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGasto, mensajeErrorHistorial, observacionInicialDesdeGasto, puedeAgregarObservacion } from '../../lib/observationHistory';
 
 import {
     addExpenseObservation,
@@ -68,6 +68,8 @@ function AutorizacionBandeja( { currentRole } ) {
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
+    const [guardandoObservacion, setGuardandoObservacion] = useState(false);
+    const guardandoObservacionRef = useRef(false);
     const [errorHistorial, setErrorHistorial] = useState('');
     const [historial, setHistorial] = useState(() => (solicitudInicialBackendId ? [] : HISTORIAL_MOCK));
     const [confirmacionAutorizacion, setConfirmacionAutorizacion] = useState(null);
@@ -308,7 +310,7 @@ function AutorizacionBandeja( { currentRole } ) {
         }, [solicitudBackendId, gastosDesglosados]);
 
 
-    const refrescarHistorialBackend = async () => {
+    const refrescarHistorialBackend = async (observacionGuardada = false) => {
         if (!solicitudBackendId) return;
         try {
             const eventos = await getRequestObservationEvents(solicitudBackendId);
@@ -316,7 +318,7 @@ function AutorizacionBandeja( { currentRole } ) {
             setHistorial(combinarHistorialObservaciones(obsIniciales, historialDesdeEventos(eventos)));
             setErrorHistorial('');
         } catch {
-            setErrorHistorial('No se pudieron actualizar las observaciones. Se conserva el historial cargado.');
+            setErrorHistorial(mensajeErrorHistorial(observacionGuardada));
         }
     };
 
@@ -335,7 +337,7 @@ function AutorizacionBandeja( { currentRole } ) {
         const handleEnviarObservacion = async (e) => {
             e.preventDefault();
             const textoObservacion = comentario.trim();
-            if (!textoObservacion || !gastoSeleccionado) return;
+            if (!textoObservacion || guardandoObservacionRef.current || !puedeAgregarObservacion(gastoSeleccionado, { localDraft: !solicitudBackendId })) return;
     
             // REGLA 2: Asignación automática de visibilidad según el rol
             let visibilidadAsignada = VISIBILIDAD.INTERNO;
@@ -359,16 +361,22 @@ function AutorizacionBandeja( { currentRole } ) {
                 visibilidad: visibilidadAsignada
             };
     
+            guardandoObservacionRef.current = true;
+            setGuardandoObservacion(true);
+            setErrorHistorial('');
             try {
                 if (solicitudBackendId) {
                     await addExpenseObservation(expenseId, textoObservacion);
-                    await refrescarHistorialBackend();
+                    await refrescarHistorialBackend(true);
                 } else {
                     setHistorial([...historial, nueva]);
                 }
                 setComentario('');
             } catch (error) {
                 alert(apiErrorMessage(error));
+            } finally {
+                guardandoObservacionRef.current = false;
+                setGuardandoObservacion(false);
             }
         };
 
@@ -562,12 +570,11 @@ function AutorizacionBandeja( { currentRole } ) {
                 setComentario={setComentario}
 
                 // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
-                historial={historial.filter(obs => 
-                    idsIguales(obs.gastoId, gastoHistorialId(gastoSeleccionado)) &&
-                    PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
-                )}
+                historial={historialParaGasto(historial, gastoSeleccionado, rol)}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                puedeAgregarObservacion={puedeAgregarObservacion(gastoSeleccionado, { localDraft: !solicitudBackendId })}
+                guardandoObservacion={guardandoObservacion}
                 errorObservaciones={errorHistorial}
                 onReintentarObservaciones={() => refrescarHistorialBackend()}
                 auditRequestId={gastoSeleccionado?.solicitudBackendId}

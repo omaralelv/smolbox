@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import {
@@ -12,9 +12,9 @@ import {
 } from '../lib/api';
 
 import Drawer from '../components/shared/Drawer';
-import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../components/shared/roles';
+import { VISIBILIDAD } from '../components/shared/roles';
 import { formatoFechaGasto } from '../lib/expenseDate';
-import { combinarHistorialObservaciones, historialDesdeEventos, observacionInicialDesdeGasto } from '../lib/observationHistory';
+import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGasto, mensajeErrorHistorial, observacionInicialDesdeGasto, puedeAgregarObservacion } from '../lib/observationHistory';
 
 
 
@@ -100,6 +100,8 @@ function Detalle({ currentRole }) {
 
     // Estado del chat de observaciones
     const [comentario, setComentario] = useState('');
+    const [guardandoObservacion, setGuardandoObservacion] = useState(false);
+    const guardandoObservacionRef = useRef(false);
     const [errorHistorial, setErrorHistorial] = useState('');
     const [historial, setHistorial] = useState(() => (solicitudBackendId
         ? (location.state?.desglose || []).map(observacionInicialDesdeGasto).filter(Boolean) : HISTORIAL_MOCK));
@@ -199,7 +201,7 @@ function Detalle({ currentRole }) {
 
 
 
-    const refrescarHistorialBackend = async () => {
+    const refrescarHistorialBackend = async (observacionGuardada = false) => {
         if (!solicitudBackendId) return;
         try {
             const eventos = await getRequestObservationEvents(solicitudBackendId);
@@ -207,7 +209,7 @@ function Detalle({ currentRole }) {
             setHistorial(combinarHistorialObservaciones(obsIniciales, historialDesdeEventos(eventos)));
             setErrorHistorial('');
         } catch {
-            setErrorHistorial('No se pudieron actualizar las observaciones. Se conserva el historial cargado.');
+            setErrorHistorial(mensajeErrorHistorial(observacionGuardada));
         }
     };
 
@@ -226,7 +228,7 @@ function Detalle({ currentRole }) {
     const handleEnviarObservacion = async (e) => {
         e.preventDefault();
         const textoObservacion = comentario.trim();
-        if (!textoObservacion || !gastoSeleccionado) return;
+        if (!textoObservacion || guardandoObservacionRef.current || !puedeAgregarObservacion(gastoSeleccionado, { localDraft: !solicitudBackendId })) return;
 
         // REGLA 2: Asignación automática de visibilidad según el rol
         let visibilidadAsignada = VISIBILIDAD.INTERNO;
@@ -250,16 +252,22 @@ function Detalle({ currentRole }) {
             visibilidad: visibilidadAsignada
         };
 
+        guardandoObservacionRef.current = true;
+        setGuardandoObservacion(true);
+        setErrorHistorial('');
         try {
             if (solicitudBackendId) {
                 await addExpenseObservation(expenseId, textoObservacion);
-                await refrescarHistorialBackend();
+                await refrescarHistorialBackend(true);
             } else {
                 setHistorial([...historial, nueva]);
             }
             setComentario('');
         } catch (error) {
             alert(apiErrorMessage(error));
+        } finally {
+            guardandoObservacionRef.current = false;
+            setGuardandoObservacion(false);
         }
     };
 
@@ -935,12 +943,11 @@ function Detalle({ currentRole }) {
                 setComentario={setComentario}
 
                 // REGLA 2: Filtramos el historial según los permisos del ROL ACTUAL
-                historial={historial.filter(obs => 
-                    gastoIdsRelacionados(gastoSeleccionado).some(id => idsIguales(obs.gastoId, id)) &&
-                    PUEDE_LEER_OBSERVACION(rol, obs.visibilidad)
-                )}
+                historial={historialParaGasto(historial, gastoSeleccionado, rol)}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                puedeAgregarObservacion={puedeAgregarObservacion(gastoSeleccionado, { localDraft: !solicitudBackendId })}
+                guardandoObservacion={guardandoObservacion}
                 errorObservaciones={errorHistorial}
                 onReintentarObservaciones={() => refrescarHistorialBackend()}
                 auditRequestId={solicitudBackendId}
@@ -1603,18 +1610,6 @@ function normalizarGastoEliminado(gastoOriginal, gastoActualizado, motivo) {
 
 function gastoHistorialId(gasto) {
     return gasto?.backendId ?? gasto?.backend_id ?? gasto?.id ?? null;
-}
-
-function idsIguales(uno, dos) {
-    if (uno === null || uno === undefined || dos === null || dos === undefined) return false;
-    return String(uno) === String(dos);
-}
-
-function gastoIdsRelacionados(gasto) {
-    return [
-        gastoHistorialId(gasto),
-        idGastoOriginal(gasto),
-    ].filter((id) => id !== null && id !== undefined);
 }
 
 function normalizarGastoActualizado(gastoOriginal, gastoActualizado) {
