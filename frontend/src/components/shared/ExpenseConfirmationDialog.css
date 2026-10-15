@@ -12,19 +12,20 @@
     color: var(--text-h);
     color-scheme: light;
     font: 16px/1.6 var(--sans);
-    letter-spacing: 0;
+    letter-spacing: 1px;
     text-align: left;
+    box-shadow: var(--shadow);
 }
 
 .expense-confirmation::backdrop {
-    background: rgb(0 0 0 / 45%);
+    background: rgba(0, 0, 0, 0.662);
 }
 
 .expense-confirmation h2 {
     width: fit-content;
     max-width: 100%;
     margin: 0 auto 28px;
-    padding: 0 24px 16px;
+    padding: 0 25px 25px;
     border-bottom: 2px solid currentColor;
     font-size: 28px;
     font-weight: 700;
@@ -37,7 +38,7 @@
     display: grid;
     gap: 16px;
     margin: 0 0 24px;
-    font-size: 22px;
+    font-size: 23px;
     font-weight: 700;
     line-height: 1.5;
 }
@@ -58,7 +59,7 @@
 .expense-confirmation mark {
     padding: 2px 5px;
     border-radius: 4px;
-    background: #ffe493;
+    background: #ffe69a;
     color: #111111;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
@@ -77,7 +78,7 @@
     width: 24px;
     height: 24px;
     margin: 1px 0 0;
-    accent-color: #bf5151;
+    accent-color: #ffaaaa;
 }
 
 .expense-confirmation__actions {
@@ -88,11 +89,11 @@
 }
 
 .expense-confirmation__actions button {
-    min-width: 190px;
-    min-height: 46px;
-    padding: 10px 18px;
+    min-width: 150px;
+    min-height: 42px;
+    padding: 7px 18px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 20px;
     background: var(--bg);
     color: var(--text-h);
     font: 700 16px/1.4 var(--sans);
@@ -101,17 +102,21 @@
 }
 
 .expense-confirmation__actions .expense-confirmation__confirm {
-    background: var(--sb-sendBtnBg);
-    color: #542626;
+    background: var(--gradient);
+    color: var(--text-CBtn);
+    border: '1px solid var(--sb-btnBorder)';
+    padding: '7px 18px';
+    cursor: 'pointer';
+    box-shadow: var(--shadow);
 }
 
 .expense-confirmation__actions button:disabled {
-    opacity: 0.55;
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
 .expense-confirmation :focus-visible {
-    outline: 2px solid #8d3434;
+    outline: 2px solid #ffaaaa;
     outline-offset: 3px;
 }
 
@@ -136,7 +141,7 @@
     }
 
     .expense-confirmation__check {
-        margin: 24px 0;
+        margin: 30px 0;
     }
 
     .expense-confirmation__actions button {

@@ -970,9 +970,9 @@ function AnadirGasto() {
 
             {/* COLUMNA DERECHA: PANEL DE VALIDACIÓN AUTOMÁTICA */}
             <div style={styles.validationColumn}>
-            <h3 style={styles.validationTitle}>Validación Automática</h3>
+            <h3 style={styles.validationTitle}>VALIDACIÓN</h3>
             
-            {cargandoValidacion && <p style={{textAlign: 'center', color: 'var(--text-revision)'}}>Procesando documentos con IA...</p>}
+            {cargandoValidacion && <p style={{textAlign: 'center', color: 'var(--text-revision)'}}>Procesando documentos ...</p>}
 
             {mensajeValidacion && (
                 <div style={{
