@@ -160,12 +160,22 @@ function Bandeja({currentRole}) {
         return new Date(fechaStr).getTime() || 0;
     };
     
+    const esGerencia = String(currentRole || '').toLowerCase().trim() === 'gerencia';
+    const obtenerPrioridad = (solicitud, alerta) => {
+        if (!esGerencia) return obtenerPrioridadBandeja(currentRole, alerta);
+        if (alerta.esDevuelto) return 1;
+        if (alerta.esResuelto) return 2;
+
+        const backendStatus = String(solicitud?.backendStatus || solicitud?.backend_status || '').toLowerCase();
+        return backendStatus === 'direction_approved' ? 3 : 4;
+    };
+
     // Ordenar con las alertas primero y aplicar prioridades específicas por rol.
     const solicitudesFiltradas = [...baseFiltrada].sort((a, b) => {
         const alertaA = obtenerEstadoAlerta(a, currentRole);
         const alertaB = obtenerEstadoAlerta(b, currentRole);
-        const pesoA = obtenerPrioridadBandeja(currentRole, alertaA);
-        const pesoB = obtenerPrioridadBandeja(currentRole, alertaB);
+        const pesoA = obtenerPrioridad(a, alertaA);
+        const pesoB = obtenerPrioridad(b, alertaB);
 
         // 2. Si pertenecen a grupos/prioridades distintas, ordena por su peso
         if (pesoA !== pesoB) {

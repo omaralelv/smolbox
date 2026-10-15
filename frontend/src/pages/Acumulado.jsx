@@ -37,7 +37,12 @@ function Acumulado( {currentRole} ) {
     // Rastrear si ya se descargó la póliza/reembolso
     const [polizaGenerada, setPolizaGenerada] = useState(false);
     // Comprobar si ya existe un reembolso previo en el backend o si fue cargado en la sesión
-    const reembolsoCargado = Boolean(solicitudActual?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolsoDownloadUrl);
+    const reembolsoCargado = Boolean(
+        solicitudActual?.reembolsoDownloadUrl
+        || solicitudActual?.reembolso_download_url
+        || solicitudSeleccionada?.reembolsoDownloadUrl
+        || solicitudSeleccionada?.reembolso_download_url
+    );
 
     const currentBackendStatus = solicitudActual?.backendStatus
         || solicitudActual?.backend_status
@@ -459,6 +464,27 @@ function Acumulado( {currentRole} ) {
 
     // 3. MATRIZ DE CONFIGURACIÓN DE BOTONES POR ROL
     const renderBotonesPorRol = () => {
+        const role = String(currentRole || '').toLowerCase().trim();
+        const status = String(
+            solicitudActual?.status
+            || solicitudActual?.estatus
+            || solicitudSeleccionada?.status
+            || solicitudSeleccionada?.estatus
+            || ''
+        ).toLowerCase().trim();
+        const esHistorica = ['paid', 'closed', 'rejected'].includes(String(currentBackendStatus).toLowerCase().trim())
+            || ['pagada', 'rechazada'].includes(status);
+
+        if (
+            esHistorica
+            && ['contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'].includes(role)
+        ) {
+            return (
+                <button style={styles.btnOutline} onClick={descargarReembolso}>
+                    Descargar Reembolso
+                </button>
+            );
+        }
 
         switch (currentRole){
             case 'tienda':
@@ -488,7 +514,11 @@ function Acumulado( {currentRole} ) {
                             onClick={puedeCargarReembolso ? abrirCargaReembolso : undefined}
                             disabled={!puedeCargarReembolso}
                         >
-                            {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
+                            {subiendoReembolso
+                                ? 'Cargando...'
+                                : reembolsoCargado
+                                    ? 'Reembolso Cargado'
+                                    : 'Cargar Reembolso'}
                         </button>
 
                         <button
@@ -511,7 +541,7 @@ function Acumulado( {currentRole} ) {
                             onClick={() => abrirModalDevolucion('return_to_accounting')}
                         >Regresar Acumulado</button>
 
-                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
                         <button
                             style={styles.btnFilledCoral}
                             onClick={() => ejecutarAcciones(
@@ -540,7 +570,7 @@ function Acumulado( {currentRole} ) {
                             style={styles.btnOutline}
                             onClick={() => abrirModalDevolucion('return_to_manager')}
                         >Regresar acumulado</button>
-                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
                         <button
                             style={styles.btnBlue}
                             onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
@@ -554,7 +584,7 @@ function Acumulado( {currentRole} ) {
             case 'direccion':
                 return (
                     <>
-                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
                     </>
                 );
 
@@ -584,7 +614,7 @@ function Acumulado( {currentRole} ) {
                         >
                             {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
                         </button>
-                        <button style={styles.btnOutline} onClick={descargarReembolso}>Ver Reembolso</button>
+                        <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
                         <button
                             style={puedeEnviarGerencia ? styles.btnFilledCoral : styles.btnFilledCoralDisabled}
                             onClick={() => ejecutarAcciones(
