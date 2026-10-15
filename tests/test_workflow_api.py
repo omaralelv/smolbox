@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from conftest import create_expense
+from conftest import authenticated_audit_headers, create_expense
 from fastapi.testclient import TestClient
 
 
@@ -212,7 +212,8 @@ def test_request_moves_through_submission_and_accounting_review(
     assert accounting_reviewed.json()["status"] == "accounting_reviewed"
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200
     actions = {event["action"] for event in audit_events.json()}
@@ -464,7 +465,8 @@ def test_authorization_rejects_only_the_expense_and_request_can_continue(
     assert authorized.json()["status"] == "authorized"
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200
     assert "expense_authorization_rejected" in {
@@ -651,7 +653,8 @@ def test_accounting_can_remove_expense_with_reason(
     assert second_expense["id"] in summary.json()["removed_expense_ids"]
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200
     removal_event = next(
@@ -851,7 +854,8 @@ def test_authenticated_transition_uses_token_user_and_blocks_wrong_role(
     assert authorized_review.status_code == 200, authorized_review.text
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200
     transition_events = [

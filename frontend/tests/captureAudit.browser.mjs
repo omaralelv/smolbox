@@ -83,6 +83,7 @@ await context.route('**/api/v1/**', async (route) => {
         status = 201;
     } else if (/\/expenses\/[^/]+\/attachments$/.test(path)) { data = { id: randomUUID() }; status = 201; }
     else if (path.endsWith('/frontend/audit-events/me')) data = events.slice(Number(url.searchParams.get('offset') || 0), 200);
+    else if (/\/reimbursement-requests\/[^/]+\/audit-events$/.test(path)) data = [];
     else if (path.endsWith('/frontend/bandeja/me') || path.endsWith('/frontend/historico/me')) data = [];
     else { failures.push(`Unexpected API ${request.method()} ${path}`); status = 404; }
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });

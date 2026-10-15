@@ -146,3 +146,16 @@ def create_expense(
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def authenticated_audit_headers(client: TestClient) -> dict[str, str]:
+    email = "audit-reader@example.com"
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "secret-password"})
+    if login.status_code != 200:
+        created = client.post("/api/v1/users/", json={
+            "email": email, "password": "secret-password", "full_name": "Audit reader", "role": "admin",
+        })
+        assert created.status_code == 201, created.text
+        login = client.post("/api/v1/auth/login", json={"email": email, "password": "secret-password"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}

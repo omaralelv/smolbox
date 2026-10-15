@@ -4,6 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from conftest import authenticated_audit_headers
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -314,7 +315,7 @@ def test_test_data_can_drive_end_user_backend_flow(
     closed = _transition(client, request_id, users["treasury"]["id"], "closed")
     assert closed["status"] == "closed"
 
-    audit_events = client.get(f"/api/v1/reimbursement-requests/{request_id}/audit-events")
+    audit_events = client.get(f"/api/v1/reimbursement-requests/{request_id}/audit-events", headers=authenticated_audit_headers(client))
     assert audit_events.status_code == 200, audit_events.text
     audit_actions = {event["action"] for event in audit_events.json()}
     assert audit_actions >= {

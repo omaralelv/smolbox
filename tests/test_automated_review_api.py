@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from conftest import create_expense
+from conftest import authenticated_audit_headers, create_expense
 from fastapi.testclient import TestClient
 
 
@@ -58,7 +58,8 @@ def test_automated_review_returns_machine_and_human_steps(
     assert "payment_confirmation" in human_steps
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200
     assert "automated_review_completed" in {event["action"] for event in audit_events.json()}

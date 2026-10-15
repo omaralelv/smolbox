@@ -15,6 +15,8 @@ export default function Drawer({
     currentRole,
     auditRequestId,
     auditExpenseId,
+    errorObservaciones,
+    onReintentarObservaciones,
 }) {
     const [documentoAmpliado, setDocumentoAmpliado] = useState(false);
 
@@ -114,6 +116,16 @@ export default function Drawer({
                     </div>
 
                     {/* Historial de comentarios */}
+                    {errorObservaciones && (
+                        <div role="alert" style={{ padding: '12px', color: '#8d3434', background: '#fff0ef', fontSize: '13px' }}>
+                            <p style={{ margin: '0 0 8px' }}>{errorObservaciones}</p>
+                            <button
+                                type="button"
+                                style={{ background: '#fff', color: '#8d3434', border: '1px solid #f1aaaa', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer' }}
+                                onClick={onReintentarObservaciones}
+                            >Reintentar</button>
+                        </div>
+                    )}
                     <div style={styles.chatBody}>
                         {historial && historial.map((obs) => {
                             const esMio = String(obs.rol || '').toLowerCase().trim() === rolNormalizado;

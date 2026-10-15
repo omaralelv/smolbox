@@ -1,4 +1,4 @@
-from conftest import create_expense
+from conftest import authenticated_audit_headers, create_expense
 from fastapi.testclient import TestClient
 
 
@@ -315,7 +315,8 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert body["cfdi_total"] == "1500.00"
     assert body["sap_tax_index_override"] == "W6"
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     review_event = next(
@@ -360,7 +361,8 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert taxable_body["category"] == "Papelería"
     assert taxable_body["cfdi_tax_rate"] == "16.00"
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     taxable_event = next(
@@ -433,7 +435,8 @@ def test_accounting_review_can_edit_category_and_tax_rate(
     assert manual_zero_body["sap_tax_index_override"] == "W0"
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     tax_only_event = next(

@@ -3,10 +3,10 @@ from io import BytesIO
 from uuid import UUID
 from zipfile import ZipFile
 
+from conftest import _expected_outside_period_message, authenticated_audit_headers
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from conftest import _expected_outside_period_message
 from app.models.reimbursement_request import ReimbursementRequest
 
 
@@ -95,7 +95,7 @@ def test_imports_expenses_from_csv(
     assert summary.json()["expense_count"] == 2
     assert summary.json()["calculated_total"] == "1500.00"
 
-    audit = client.get(f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events")
+    audit = client.get(f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events", headers=authenticated_audit_headers(client))
     assert audit.status_code == 200
     assert "expenses_imported" in {event["action"] for event in audit.json()}
 

@@ -3,10 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import Drawer from '../../components/shared/Drawer';
 import { VISIBILIDAD, PUEDE_LEER_OBSERVACION } from '../../components/shared/roles';
+import { combinarHistorialObservaciones, historialDesdeEventos, observacionInicialDesdeGasto } from '../../lib/observationHistory';
 
 import {
     addExpenseObservation,
-    getRequestAuditEvents,
+    getRequestObservationEvents,
     apiErrorMessage,
     createFrontendSolicitud,
     currentToken,
@@ -42,33 +43,6 @@ const DATOS_INICIALES = {
     plaza: '',
 };
 
-
-// Función helper para convertir la observación inicial de un gasto en formato de evento
-function observacionInicialDesdeGasto(gasto) {
-    // Busca el texto en las propiedades típicas donde la tienda guarda la nota al crear el gasto
-    const textoInicial = gasto.observaciones || gasto.observacion;
-
-    if (!textoInicial || !textoInicial.trim()) return null;
-
-    const gastoId = gastoHistorialId(gasto);
-    const fechaRaw = gasto.created_at || gasto.createdAt || gasto.fecha || new Date();
-    let timestamp = Date.parse(fechaRaw);
-    if (Number.isNaN(timestamp) || !timestamp) {
-        timestamp = Date.now();
-    }
-
-
-    return {
-        id: `init-obs-${gastoId}`,
-        gastoId: gastoId,
-        autor: 'TIENDA',
-        rol: 'tienda',
-        texto: textoInicial.trim(),
-        fecha: fechaLegible(fechaRaw),
-        fechaTimestamp: timestamp,
-        visibilidad: VISIBILIDAD.PUBLIC, // Visibilidad pública para que todos la vean
-    };
-}
 
 function historialBorradorDesdeGastos(gastos = []) {
     return gastos
@@ -168,6 +142,7 @@ function SolicitudForm({ currentRole }) {
     const [gastos, setGastos] = useState(() => loadDraftGastos());
 
     const solicitudBackendId = location.state?.solicitudBackendId || null;
+    const observationRequestId = solicitudBackendId || loadDraftRequest()?.backendId || null;
 
     // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
         const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
@@ -176,15 +151,12 @@ function SolicitudForm({ currentRole }) {
     
         // Estado del chat de observaciones
         const [comentario, setComentario] = useState('');
+        const [errorHistorial, setErrorHistorial] = useState('');
         const [historial, setHistorial] = useState(() => historialBorradorDesdeGastos(loadDraftGastos()));
     
         // 2. NORMALIZAR EL ROL
         const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
     
-        // Mock por si ingresas directo sin state
-        const [gastosDesglosados] = useState([]);
-
-
     useEffect(() => {
         if (!currentToken()) {
             navigate('/login');
@@ -328,7 +300,7 @@ function SolicitudForm({ currentRole }) {
                 saveDraftRequest(solicitud);
                 replaceDraftGastos(gastosBackend);
                 setGastos(gastosBackend);
-                setHistorial(historialBorradorDesdeGastos(gastosBackend));
+                setHistorial((actual) => combinarHistorialObservaciones(historialBorradorDesdeGastos(gastosBackend), actual));
             })
             .catch((error) => {
                 console.error('No se pudo restaurar el borrador guardado', error);
@@ -341,29 +313,18 @@ function SolicitudForm({ currentRole }) {
 
 
     useEffect(() => {
-        if (!solicitudBackendId) {
-            // 1. Extraemos las notas iniciales de la lista de gastos
-            // Revisa 'gastos' (borrador local) y 'gastosDesglosados'
-            // Si es un borrador (modo creación sin backendId)
-            // Unimos las iniciales con las agregadas en esta sesión evitando duplicados por ID
-                ////setHistorial((prevHistorial) => {
-                   // const map = new Map();
-                    // Agregar iniciales
-                   // obsIniciales.forEach(item => map.set(item.id, item));
-                    // Conservar las agregadas manualmente desde la interfaz
-                   // prevHistorial.forEach(item => map.set(item.id, item));
-                   // return Array.from(map.values());
+        if (!observationRequestId) {
             return undefined;
         }
 
         let activo = true;
 
         // 1. Extraemos las notas iniciales de la lista de gastos
-        const obsIniciales = (gastosDesglosados || [])
+        const obsIniciales = (gastos || [])
             .map(observacionInicialDesdeGasto)
             .filter(Boolean);
 
-        getRequestAuditEvents(solicitudBackendId)
+        getRequestObservationEvents(observationRequestId)
             .then((eventos) => {
 
                 if (activo) {
@@ -374,29 +335,34 @@ function SolicitudForm({ currentRole }) {
                     const historialCompleto = combinarHistorialObservaciones(obsIniciales, obsEventos);
 
                     setHistorial(historialCompleto);
+                    setErrorHistorial('');
                     //setHistorial(historialDesdeEventos(eventos));
                 }
             })
             .catch((error) => {
+                if (activo) {
+                    setHistorial((actual) => combinarHistorialObservaciones(obsIniciales, actual));
+                    setErrorHistorial('No se pudieron actualizar las observaciones. Se conserva el historial cargado.');
+                }
                 console.error('No se pudieron cargar las observaciones', error);
             });
 
         return () => {
             activo = false;
         };
-    }, [solicitudBackendId, gastosDesglosados]);
+    }, [observationRequestId, gastos]);
     
     
-    const refrescarHistorialBackend = async (requestId = solicitudBackendId) => {
+    const refrescarHistorialBackend = async (requestId = observationRequestId) => {
         if (!requestId) return;
-
-        const eventos = await getRequestAuditEvents(requestId);
-        const obsIniciales = (gastosDesglosados || [])
-            .map(observacionInicialDesdeGasto)
-            .filter(Boolean);
-        const obsEventos = historialDesdeEventos(eventos || []);
-
-        setHistorial(combinarHistorialObservaciones(obsIniciales, obsEventos));
+        try {
+            const eventos = await getRequestObservationEvents(requestId);
+            const obsIniciales = (gastos || []).map(observacionInicialDesdeGasto).filter(Boolean);
+            setHistorial(combinarHistorialObservaciones(obsIniciales, historialDesdeEventos(eventos)));
+            setErrorHistorial('');
+        } catch {
+            setErrorHistorial('No se pudieron actualizar las observaciones. Se conserva el historial cargado.');
+        }
     };
 
 
@@ -647,6 +613,8 @@ function SolicitudForm({ currentRole }) {
                 )}
                 onEnviarObservacion={handleEnviarObservacion}
                 currentRole={rol}
+                errorObservaciones={errorHistorial}
+                onReintentarObservaciones={() => refrescarHistorialBackend()}
                 auditRequestId={auditRequestId}
                 auditExpenseId={gastoSeleccionado?.backendId}
             />
@@ -1032,127 +1000,4 @@ function gastoActivoEnBorrador(gasto) {
 
 function gastoEnviableEnSolicitud(gasto) {
     return gastoActivoEnBorrador(gasto) && Number(gasto.monto || 0) > 0;
-}
-
-function combinarHistorialObservaciones(obsIniciales = [], obsEventos = []) {
-    const gastosConEventos = new Set(
-        obsEventos
-            .map((obs) => obs.gastoId)
-            .filter((id) => id !== null && id !== undefined)
-            .map((id) => String(id))
-    );
-    const inicialesSinEvento = obsIniciales.filter((obs) => {
-        if (obs.gastoId === null || obs.gastoId === undefined) return true;
-        return !gastosConEventos.has(String(obs.gastoId));
-    });
-
-    return [...inicialesSinEvento, ...obsEventos].sort(
-        (a, b) => a.fechaTimestamp - b.fechaTimestamp
-    );
-}
-
-function historialDesdeEventos(eventos = []) {
-    return eventos
-        .map(observacionDesdeEvento)
-        .filter(Boolean)
-        .sort((a, b) => a.fechaTimestamp - b.fechaTimestamp);
-}
-
-function observacionDesdeEvento(evento) {
-    const action = evento.action;
-    const expenseId = evento.expense_id || evento.expenseId;
-    const textoBase = evento.message || '';
-
-    if (!expenseId || !textoBase) return null;
-    if (![
-        'expense_observation_added',
-        'expense_removed_from_request',
-        'expense_review_updated',
-        'expense_authorization_rejected',
-    ].includes(action)) {
-        return null;
-    }
-
-    const rol = rolDesdeEvento(evento);
-    const autor = autorDesdeRol(rol);
-    const texto = textoDesdeEvento(action, textoBase, autor);
-    const fechaTimestamp = timestampDesdeEvento(evento);
-
-    return {
-        id: evento.id,
-        gastoId: expenseId,
-        autor,
-        rol,
-        texto,
-        fecha: fechaLegible(evento.created_at || evento.createdAt),
-        fechaTimestamp: Number.isNaN(fechaTimestamp) ? 0 : fechaTimestamp,
-        visibilidad: visibilidadDesdeEvento(action, rol),
-    };
-}
-
-function timestampDesdeEvento(evento) {
-    const payload = evento.event_payload || evento.payload || {};
-    const timestampPayload = Number(payload.fecha_timestamp || payload.fechaTimestamp || 0);
-    if (Number.isFinite(timestampPayload) && timestampPayload > 0) {
-        return timestampPayload > 10_000_000_000 ? timestampPayload : timestampPayload * 1000;
-    }
-
-    const fechaTimestamp = Date.parse(evento.created_at || evento.createdAt || '');
-    return Number.isNaN(fechaTimestamp) ? 0 : fechaTimestamp;
-}
-
-function rolDesdeEvento(evento) {
-    const payload = evento.event_payload || evento.payload || {};
-    const rolBackend = String(payload.actor_role || '').toLowerCase().trim();
-    const roles = {
-        store: 'tienda',
-        authorizer: 'supervisor',
-        accountant: 'contabilidad',
-        accounting_manager: 'gerencia',
-        treasury: 'tesoreria',
-        director: 'direccion',
-        admin: 'admin',
-    };
-    return roles[rolBackend] || rolBackend || 'sistema';
-}
-
-function autorDesdeRol(rol) {
-    const autores = {
-        tienda: 'TIENDA',
-        supervisor: 'SUPERVISOR',
-        contabilidad: 'CONTABILIDAD',
-        gerencia: 'GERENCIA',
-        tesoreria: 'TESORERIA',
-        direccion: 'DIRECCION',
-        admin: 'ADMIN',
-        sistema: 'SISTEMA',
-    };
-    return autores[rol] || String(rol || 'sistema').toUpperCase();
-}
-
-function textoDesdeEvento(action, textoBase, autor) {
-    if (action === 'expense_removed_from_request') {
-        return `Gasto eliminado por ${autor}. Motivo: "${textoBase}"`;
-    }
-    if (action === 'expense_authorization_rejected') {
-        return `Gasto no autorizado. Motivo: "${textoBase}"`;
-    }
-    return textoBase;
-}
-
-function visibilidadDesdeEvento(action, rol) {
-    if (['expense_removed_from_request', 'expense_authorization_rejected'].includes(action)) {
-        return VISIBILIDAD.PUBLIC;
-    }
-    if (['tienda', 'supervisor'].includes(rol)) {
-        return VISIBILIDAD.PUBLIC;
-    }
-    return VISIBILIDAD.INTERNO;
-}
-
-function fechaLegible(fecha) {
-    if (!fecha) return new Date().toLocaleString();
-    const parsed = new Date(fecha);
-    if (Number.isNaN(parsed.getTime())) return String(fecha);
-    return parsed.toLocaleString();
 }

@@ -68,6 +68,7 @@ from app.services.expense_capture_audit import (
     link_capture_to_expense,
 )
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
+from app.services.observation_history import public_audit_event_condition
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
@@ -1315,6 +1316,7 @@ def list_frontend_audit_events(
         )
     )
     if current_user.role in {UserRole.store, UserRole.authorizer}:
+        statement = statement.where(public_audit_event_condition())
         store_ids = [store.id for store in _stores_for_user(current_user, db)]
         statement = statement.where(or_(
             ReimbursementRequest.store_id.in_(store_ids),
@@ -2074,6 +2076,8 @@ def _add_frontend_observation_events(
     db: Session,
 ) -> None:
     seen: set[tuple[str, int | float | None]] = set()
+    initial_note = (expense.description or "").strip()
+    initial_recorded = False
 
     for observation in expense_in.observaciones_historial:
         note = observation.texto.strip()
@@ -2086,6 +2090,8 @@ def _add_frontend_observation_events(
         seen.add(key)
 
         created_at = _frontend_observation_created_at(observation)
+        is_initial = bool(initial_note and note == initial_note and not initial_recorded)
+        initial_recorded = initial_recorded or is_initial
         audit_log = AuditLog(
             reimbursement_request_id=request.id,
             expense_id=expense.id,
@@ -2101,6 +2107,7 @@ def _add_frontend_observation_events(
                 "frontend_author": observation.autor,
                 "frontend_visibility": observation.visibilidad,
                 "fecha_timestamp": observation.fecha_timestamp,
+                "is_initial_observation": is_initial,
             },
         )
         if created_at is not None:
@@ -2109,6 +2116,22 @@ def _add_frontend_observation_events(
         db.add(
             audit_log
         )
+
+    if initial_note and not initial_recorded:
+        db.add(AuditLog(
+            reimbursement_request_id=request.id,
+            expense_id=expense.id,
+            actor_user_id=actor.id,
+            actor_type=AuditActorType.user,
+            action="expense_observation_added",
+            message=initial_note,
+            event_payload={
+                "actor_role": actor.role.value,
+                "request_status": request.status.value,
+                "source": "expense_initial_observation",
+                "is_initial_observation": True,
+            },
+        ))
 
 
 def _frontend_observation_created_at(

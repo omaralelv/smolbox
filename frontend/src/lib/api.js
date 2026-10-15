@@ -248,6 +248,12 @@ export async function getRequestAuditEvents(requestId) {
     return request(`/reimbursement-requests/${requestId}/audit-events`);
 }
 
+export async function getRequestObservationEvents(requestId) {
+    return listAllPages((offset) => request(
+        `/reimbursement-requests/${encodeURIComponent(requestId)}/audit-events?observations_only=true&limit=200&offset=${offset}`
+    ));
+}
+
 export async function recordFrontendClick(requestIdOrFolio, payload) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/clicks/me`, {
         method: 'POST',

@@ -19,7 +19,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -36,7 +36,7 @@ from app.models.reimbursement_request import ReimbursementRequest, Reimbursement
 from app.models.store import Store
 from app.models.user import User, UserRole
 from app.schemas.attachment import AttachmentRead
-from app.schemas.audit_log import AuditLogRead
+from app.schemas.audit_log import AuditLogRead, FrontendAuditLogRead
 from app.schemas.expense_import import ExpenseImportErrorRead, ExpenseImportResult
 from app.schemas.payment import PaymentCreate, PaymentRead
 from app.schemas.reimbursement_request import (
@@ -65,6 +65,7 @@ from app.services.expense_authorization_rules import resolve_expense_authorizati
 from app.services.expense_import import ExpenseImportUnsupported, parse_expense_import
 from app.services.file_validation import InvalidAttachment, detect_attachment_content_type
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
+from app.services.observation_history import OBSERVATION_ACTIONS, public_audit_event_condition
 from app.services.permissions import user_can_transition_store_request
 from app.services.reimbursement_periods import (
     ExpenseOutsideReimbursementPeriod,
@@ -687,27 +688,62 @@ def record_reimbursement_request_payment_as_current_user(
     return payment
 
 
-@router.get("/{request_id}/audit-events", response_model=list[AuditLogRead])
+@router.get("/{request_id}/audit-events", response_model=list[FrontendAuditLogRead])
 def list_reimbursement_request_audit_events(
     request_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> list[AuditLog]:
-    if db.get(ReimbursementRequest, request_id) is None:
+    observations_only: bool = False,
+) -> list[FrontendAuditLogRead]:
+    reimbursement_request = db.get(ReimbursementRequest, request_id)
+    if reimbursement_request is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Reimbursement request not found",
         )
 
-    statement = (
-        select(AuditLog)
-        .where(AuditLog.reimbursement_request_id == request_id)
-        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-        .limit(limit)
-        .offset(offset)
+    _ensure_request_visible_to_user(reimbursement_request, current_user, db)
+    statement = select(AuditLog, User).outerjoin(User, AuditLog.actor_user_id == User.id).where(
+        AuditLog.reimbursement_request_id == request_id,
     )
-    return list(db.scalars(statement))
+    if observations_only:
+        statement = statement.where(
+            AuditLog.action.in_(OBSERVATION_ACTIONS),
+            AuditLog.expense_id.is_not(None),
+            AuditLog.message.is_not(None),
+            AuditLog.message != "",
+        )
+    if current_user.role in {UserRole.store, UserRole.authorizer}:
+        statement = statement.where(public_audit_event_condition())
+    if current_user.role == UserRole.authorizer:
+        visible_ids = {
+            expense.id for expense in reimbursement_request.expenses
+            if expense_is_visible_to_authorizer(
+                db, current_user, expense, store_id=reimbursement_request.store_id,
+            )
+        }
+        visible_ids.update(
+            expense.partition_parent_expense_id
+            for expense in reimbursement_request.expenses
+            if expense.id in visible_ids and expense.partition_parent_expense_id is not None
+        )
+        statement = statement.where(or_(
+            AuditLog.expense_id.is_(None), AuditLog.expense_id.in_(visible_ids),
+        ))
+    statement = statement.order_by(
+        AuditLog.created_at.desc(), AuditLog.id.desc(),
+    ).limit(limit).offset(offset)
+    return [
+        FrontendAuditLogRead(
+            **AuditLogRead.model_validate(event).model_dump(),
+            actor_role=(event.event_payload or {}).get("actor_role") or (actor.role.value if actor else None),
+            actor_name=actor.full_name if actor else None,
+            request_folio=reimbursement_request.folio,
+        )
+        for event, actor in db.execute(statement)
+    ]
 
 
 @router.post(

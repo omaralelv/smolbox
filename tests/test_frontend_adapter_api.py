@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from conftest import _expected_outside_period_message, create_expense
+from conftest import _expected_outside_period_message, authenticated_audit_headers, create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -593,7 +593,8 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
     deleted_expense = next(gasto for gasto in created_body["gastos"] if gasto["monto"] == 100.0)
     deleted_expense_id = deleted_expense["backendId"]
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"
+        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     created_messages = [
@@ -642,7 +643,8 @@ def test_frontend_delete_draft_expense_removes_it_before_submission(
         assert request.reimbursement_ends_on == date(2026, 8, 7)
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"
+        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     removed_event = next(
@@ -743,7 +745,8 @@ def test_frontend_clicks_are_registered_in_request_audit_log(
     assert click_body["event_payload"]["page_path"] == "/detalle"
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events"
+        f"/api/v1/reimbursement-requests/{created_body['backendId']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     assert any(event["action"] == "ui_click" for event in audit_events.json())
@@ -1031,7 +1034,8 @@ def test_frontend_accounting_actions_follow_sap_policy_order(
     )
     assert review.status_code == 200, review.text
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     button_event = next(
@@ -1431,7 +1435,8 @@ def test_frontend_accounting_can_partition_expense(
     assert all(child["folioFiscal"] == "88888888-8888-4888-8888-888888888888" for child in children)
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     created_event = next(
@@ -1457,7 +1462,8 @@ def test_frontend_accounting_can_partition_expense(
     assert updated.status_code == 200, updated.text
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     updated_event = next(
@@ -1550,7 +1556,8 @@ def test_frontend_accounting_can_cancel_expense_partition(
     assert {child["monto"] for child in active_children} == {900.0, 600.0}
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     cancelled_event = next(
@@ -1703,7 +1710,8 @@ def test_frontend_review_tax_change_uses_default_previous_tax_rate(
     assert updated.status_code == 200, updated.text
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     review_event = next(
@@ -1827,7 +1835,8 @@ def test_accounting_queue_status_is_single_until_accountant_opens_request(
     assert "start_accounting_review" in second_accountant_detail.json()["availableActions"]
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     assert "accounting_request_taken" in {event["action"] for event in audit_events.json()}
@@ -1864,7 +1873,8 @@ def test_admin_opening_submitted_request_does_not_mark_accounting_queue_taken(
     assert detail.json()["accountingQueueStatus"] == "single"
 
     audit_events = client.get(
-        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events"
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
+        headers=authenticated_audit_headers(client),
     )
     assert audit_events.status_code == 200, audit_events.text
     assert "accounting_request_taken" not in {

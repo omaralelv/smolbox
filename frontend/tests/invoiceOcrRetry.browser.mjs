@@ -57,7 +57,7 @@ try {
                 };
                 status = 201;
             } else if (/\/expenses\/[^/]+\/attachments$/.test(path)) status = 201;
-            else if (path.endsWith('/frontend/bandeja/me') || path.endsWith('/frontend/historico/me')) data = [];
+            else if (path.endsWith('/frontend/bandeja/me') || path.endsWith('/frontend/historico/me') || path.endsWith('/audit-events')) data = [];
             else { failures.push(`Unexpected API ${request.method()} ${path}`); status = 404; }
             await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
         });
