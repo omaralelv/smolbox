@@ -281,7 +281,7 @@ def test_generar_polizas_rechaza_gastos_anteriores_al_cierre_previo() -> None:
         "code": "EXPENSE_OUTSIDE_PERIOD",
         "message": (
             "El gasto está fuera de periodo.\n"
-            "El periodo actualmente comienza en 2026-09-26."
+            "El periodo actualmente comienza el 2026-09-26."
         ),
     }
 

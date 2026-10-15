@@ -6,6 +6,11 @@ import {
     obtenerAlertaDevolucionPersistida,
     obtenerPrioridadBandeja,
 } from '../lib/reimbursementReturnAlert';
+import {
+    normalizarFechaSolicitud,
+    obtenerFechaSolicitud,
+    puedeFiltrarSolicitudes,
+} from '../lib/requestFilters';
 
 const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
 
@@ -99,6 +104,7 @@ function obtenerEstadoAlerta(solicitud, currentRole) {
 function Bandeja({currentRole}) {
     const navigate = useNavigate();
     const [filtroTienda, setFiltroTienda] = useState('todas');
+    const [filtroFecha, setFiltroFecha] = useState('');
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem(BANDEJA_CACHE_KEY);
         const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
@@ -140,13 +146,17 @@ function Bandeja({currentRole}) {
 
     const obtenerTienda = (solicitud) => solicitud.tienda || 'T-001';
 
+    const solicitudesDelDia = filtroFecha
+        ? solicitudes.filter((solicitud) => normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === filtroFecha)
+        : solicitudes;
+
     const tiendasDisponibles = Array.from(
-        new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
+        new Set(solicitudesDelDia.map((solicitud) => obtenerTienda(solicitud)))
     ).sort();
 
     const baseFiltrada = filtroTienda === 'todas'
-        ? solicitudes
-        : solicitudes.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
+        ? solicitudesDelDia
+        : solicitudesDelDia.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
 
 
 
@@ -218,23 +228,62 @@ function Bandeja({currentRole}) {
 
     return (
     <div style={styles.container}>
-            <div style={styles.filtersRow}>
-                <label style={styles.filterLabel}>
-                    Tienda
-                    <select
-                        value={filtroTienda}
-                        onChange={(event) => setFiltroTienda(event.target.value)}
-                        style={styles.filterSelect}
-                    >
-                        <option value="todas">Todas</option>
-                        {tiendasDisponibles.map((tienda) => (
-                            <option key={tienda} value={tienda}>
-                                {tienda}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </div>
+            {puedeFiltrarSolicitudes(currentRole) && (
+                <div style={styles.filtersRow}>
+                    {(filtroFecha || filtroTienda !== 'todas') && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFiltroFecha('');
+                                setFiltroTienda('todas');
+                            }}
+                            style={styles.clearDateFilter}
+                        >
+                            Quitar Filtros
+                        </button>
+                    )}
+                    <label style={styles.filterLabel}>
+                        Fecha Envío
+                        <input
+                            type="date"
+                            value={filtroFecha}
+                            onClick={(event) => event.target.showPicker && event.target.showPicker()}
+                            onChange={(event) => {
+                                const nuevaFecha = event.target.value;
+                                setFiltroFecha(nuevaFecha);
+                                if (
+                                    nuevaFecha
+                                    &&
+                                    filtroTienda !== 'todas'
+                                    && !solicitudes.some((solicitud) => (
+                                        normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === nuevaFecha
+                                        && obtenerTienda(solicitud) === filtroTienda
+                                    ))
+                                ) {
+                                    setFiltroTienda('todas');
+                                }
+                            }}
+                            style={styles.selectCal}
+
+                        />
+                    </label>
+                    <label style={styles.filterLabel}>
+                        Tienda
+                        <select
+                            value={filtroTienda}
+                            onChange={(event) => setFiltroTienda(event.target.value)}
+                            style={styles.filterSelect}
+                        >
+                            <option value="todas">Todas</option>
+                            {tiendasDisponibles.map((tienda) => (
+                                <option key={tienda} value={tienda}>
+                                    {tienda}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+            )}
 
         {/* ENCABEZADOS DE LA TABLA */}
         <div style={styles.tableHeader}>
@@ -256,7 +305,7 @@ function Bandeja({currentRole}) {
             <div style={styles.listContainer}>
                 {solicitudesFiltradas.length === 0 ? (
                     <div style={styles.emptyState}>
-                        No hay solicitudes para la tienda seleccionada.
+                        No hay solicitudes para los filtros seleccionados.
                     </div>
                 ) : (solicitudesFiltradas.map((sol) => {
                     const { esDevuelto, esResuelto, queueStatus } = obtenerEstadoAlerta(sol, currentRole);
@@ -406,6 +455,8 @@ const styles = {
         display: 'flex',
         justifyContent: 'flex-end',
         alignItems: 'center',
+        gap: '16px',
+        flexWrap: 'wrap',
         marginBottom: '16px',
     },
     filterLabel: {
@@ -425,6 +476,37 @@ const styles = {
         padding: '7px 10px',
         minWidth: '120px',
     },
+
+    selectCal: {
+        minWidth: '100px',
+        height: '35px',
+        border: '1px solid var(--border, #f3c6cc)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#333',
+        padding: '0 12px',
+        fontSize: '14px',
+
+        // Forzar el tema claro para el calendario desplegable nativo
+        colorScheme: 'light',
+
+        // Cambiar el color de acento/selección (puedes usar el rosa corporativo o el tono que gustes)
+        accentColor: 'var(--sb-sendBtnBg)',
+
+        cursor: 'pointer',
+    },
+
+    clearDateFilter: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        backgroundColor: 'var(--sb-sendBtnBg)',
+        color: '#ffffff',
+        padding: '7px 10px',
+        fontSize: '12px',
+        fontWeight: '700',
+        cursor: 'pointer',
+    },
+
     tableHeader: {
         display: 'flex',
         alignItems: 'center',

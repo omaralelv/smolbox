@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendHistorico } from '../lib/api';
+import {
+    normalizarFechaSolicitud,
+    obtenerFechaSolicitud,
+    puedeFiltrarSolicitudes,
+} from '../lib/requestFilters';
 
 const HISTORICO_CACHE_KEY = 'historicoSolicitudes';
 const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
@@ -23,6 +28,7 @@ function formatearMonto(monto) {
 function Historico({currentRole}) {
     const navigate = useNavigate();
     const [filtroTienda, setFiltroTienda] = useState('todas');
+    const [filtroFecha, setFiltroFecha] = useState('');
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem(HISTORICO_CACHE_KEY) || localStorage.getItem(BANDEJA_CACHE_KEY);
         const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
@@ -65,13 +71,17 @@ function Historico({currentRole}) {
     // Lógica para el filtro por tienda idéntica a Bandeja.jsx
     const obtenerTienda = (solicitud) => solicitud.tienda || 'T-001';
 
+    const solicitudesDelDia = filtroFecha
+        ? solicitudes.filter((solicitud) => normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === filtroFecha)
+        : solicitudes;
+
     const tiendasDisponibles = Array.from(
-        new Set(solicitudes.map((solicitud) => obtenerTienda(solicitud)))
+        new Set(solicitudesDelDia.map((solicitud) => obtenerTienda(solicitud)))
     ).sort();
 
 
     // Filtrado seguro de históricas + filtro por tienda seleccionada
-    const solicitudesHistoricas = solicitudes.filter(esSolicitudHistorica);
+    const solicitudesHistoricas = solicitudesDelDia.filter(esSolicitudHistorica);
 
     const solicitudesFiltradas = filtroTienda === 'todas'
         ? solicitudesHistoricas
@@ -98,23 +108,61 @@ function Historico({currentRole}) {
         <div style={styles.container}>
 
             {/* FILTRO DE TIENDA */}
-            <div style={styles.filtersRow}>
-                <label style={styles.filterLabel}>
-                    Tienda
-                    <select
-                        value={filtroTienda}
-                        onChange={(event) => setFiltroTienda(event.target.value)}
-                        style={styles.filterSelect}
-                    >
-                        <option value="todas">Todas</option>
-                        {tiendasDisponibles.map((tienda) => (
-                            <option key={tienda} value={tienda}>
-                                {tienda}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-            </div>
+            {puedeFiltrarSolicitudes(currentRole) && (
+                <div style={styles.filtersRow}>
+                    {(filtroFecha || filtroTienda !== 'todas') && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFiltroFecha('');
+                                setFiltroTienda('todas');
+                            }}
+                            style={styles.clearDateFilter}
+                        >
+                            Quitar filtros
+                        </button>
+                    )}
+                    <label style={styles.filterLabel}>
+                        Fecha Envío
+                        <input
+                            type="date"
+                            value={filtroFecha}
+                            onClick={(event) => event.target.showPicker && event.target.showPicker()}
+                            onChange={(event) => {
+                                const nuevaFecha = event.target.value;
+                                setFiltroFecha(nuevaFecha);
+                                if (
+                                    nuevaFecha
+                                    &&
+                                    filtroTienda !== 'todas'
+                                    && !solicitudes.some((solicitud) => (
+                                        normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === nuevaFecha
+                                        && obtenerTienda(solicitud) === filtroTienda
+                                    ))
+                                ) {
+                                    setFiltroTienda('todas');
+                                }
+                            }}
+                            style={styles.selectCal}
+                        />
+                    </label>
+                    <label style={styles.filterLabel}>
+                        Tienda
+                        <select
+                            value={filtroTienda}
+                            onChange={(event) => setFiltroTienda(event.target.value)}
+                            style={styles.filterSelect}
+                        >
+                            <option value="todas">Todas</option>
+                            {tiendasDisponibles.map((tienda) => (
+                                <option key={tienda} value={tienda}>
+                                    {tienda}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+            )}
 
             {/* ENCABEZADOS DE LA TABLA */}
             <div style={styles.tableHeader}>
@@ -206,6 +254,8 @@ const styles = {
         display: 'flex',
         justifyContent: 'flex-end',
         alignItems: 'center',
+        gap: '16px',
+        flexWrap: 'wrap',
         marginBottom: '16px',
     },
     filterLabel: {
@@ -224,6 +274,36 @@ const styles = {
         fontSize: '13px',
         padding: '7px 10px',
         minWidth: '120px',
+    },
+
+
+    selectCal: {
+        minWidth: '100px',
+        height: '35px',
+        border: '1px solid var(--border, #f3c6cc)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#333',
+        padding: '0 12px',
+        fontSize: '14px',
+
+        // Forzar el tema claro para el calendario desplegable nativo
+        colorScheme: 'light',
+
+        // Cambiar el color de acento/selección (puedes usar el rosa corporativo o el tono que gustes)
+        accentColor: 'var(--sb-sendBtnBg)',
+
+        cursor: 'pointer',
+    },
+
+    clearDateFilter: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        backgroundColor: '#ffffff',
+        color: '#555',
+        padding: '7px 10px',
+        fontSize: '13px',
+        cursor: 'pointer',
     },
 
     tableHeader: {

@@ -121,7 +121,7 @@ def _expected_outside_period_message(
     starts_on = response.json()["previous_reimbursement_ends_on"]
     return (
         "El gasto está fuera de periodo.\n"
-        f"El periodo actualmente comienza en {starts_on}."
+        f"El periodo actualmente comienza el {starts_on}."
     )
 
 

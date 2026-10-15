@@ -125,7 +125,7 @@ def outside_period_message(starts_on: date | None) -> str:
     message = "El gasto está fuera de periodo."
     if starts_on is None:
         return message
-    return f"{message}\nEl periodo actualmente comienza en {starts_on.isoformat()}."
+    return f"{message}\nEl periodo actualmente comienza el {starts_on.isoformat()}."
 
 
 def validate_expense_date_for_reimbursement(
