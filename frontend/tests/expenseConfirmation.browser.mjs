@@ -6,12 +6,12 @@ import process from 'node:process';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const baseURL = process.env.FRONTEND_TEST_URL || 'http://127.0.0.1:5173';
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_EXECUTABLE });
-const fiscalUuid = '99999999-9999-4999-8999-999999999999';
+const fiscalUuid = 'AABBCCDD-1234-4ABC-8DEF-001122334455';
 const successMessage = '\u00a1Gasto guardado exitosamente en la solicitud!';
 const confirmName = 'Confirmar y A\u00f1adir';
 const addName = 'A\u00f1adir';
 
-async function openForm({ documentType = 'factura', xml = false, existing = false, pauseSave = false, failOnce = false } = {}) {
+async function openForm({ documentType = 'factura', xml = false, existing = false, pauseSave = false, failOnce = false, ocr = {}, cfdi = {} } = {}) {
     const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
     const requestId = randomUUID();
     const expenseId = randomUUID();
@@ -21,6 +21,7 @@ async function openForm({ documentType = 'factura', xml = false, existing = fals
     const events = [];
     const attachments = [];
     let ocrCalls = 0;
+    let uuidAvailable = true;
     let savedRequest = null;
     let releaseSave;
     const saveGate = new Promise((resolve) => { releaseSave = resolve; });
@@ -50,12 +51,14 @@ async function openForm({ documentType = 'factura', xml = false, existing = fals
                 extracted_total: '250.00', extracted_date: '2026-08-07',
                 suggested_cfdi_uuid: documentType === 'factura' ? fiscalUuid : null,
                 verification_token: 'test-ocr', checksum_sha256: 'test-checksum',
+                ...ocr,
             };
         } else if (path.endsWith('/cfdi/parse')) data = {
             uuid: fiscalUuid, total: '123.45', subtotal: '106.42', tax_amount: '17.03',
             tax_rate: '16', currency: 'MXN', issued_at: '2026-08-13T12:00:00',
+            ...cfdi,
         };
-        else if (/\/cfdi\/uuid\/[^/]+\/availability$/.test(path)) data = { is_available: true };
+        else if (/\/cfdi\/uuid\/[^/]+\/availability$/.test(path)) data = { is_available: uuidAvailable };
         else if (request.method() === 'POST' && (
             path.endsWith('/frontend/solicitudes/me') || path.endsWith(`/solicitudes/${requestId}/gastos/me`)
         )) {
@@ -120,7 +123,10 @@ async function openForm({ documentType = 'factura', xml = false, existing = fals
         await page.getByRole('button', { name: 'Validar Gasto', exact: true }).click();
         await page.waitForFunction(() => [...document.querySelectorAll('button')]
             .find((button) => button.textContent.trim() === 'Validar Gasto')?.disabled === false);
-        if (documentType === 'factura' && !xml) await page.getByRole('button', { name: 'Confirmar', exact: true }).click();
+        if (documentType === 'factura' && !xml) {
+            if (!await folio.inputValue()) await folio.fill(fiscalUuid);
+            await page.getByRole('button', { name: 'Confirmar', exact: true }).click();
+        }
         assert.deepEqual(dialogs, [], 'existing validation warnings remain non-blocking');
     }
 
@@ -128,6 +134,7 @@ async function openForm({ documentType = 'factura', xml = false, existing = fals
         context, page, date, amount, folio, add, summary, confirm, checkbox, fillAndValidate,
         failures, dialogs, attempts, events, attachments, saveStarted, releaseSave,
         ocrCalls: () => ocrCalls,
+        setUuidAvailable: (value) => { uuidAvailable = value; },
     };
 }
 
@@ -139,12 +146,14 @@ async function checkSummaryLayout(page) {
             width: window.innerWidth, height: window.innerHeight,
             overflow: dialog.scrollWidth > dialog.clientWidth,
             valuesFit: [...dialog.querySelectorAll('dd')].every((value) => value.scrollWidth <= value.clientWidth),
+            values: [...dialog.querySelectorAll('dd')].map((value) => ({ width: value.clientWidth, scrollWidth: value.scrollWidth })),
         };
     });
     assert.ok(layout.left >= 0 && layout.right <= layout.width, 'dialog fits horizontally');
     assert.ok(layout.top >= 0 && layout.bottom <= layout.height, 'dialog fits vertically');
     assert.equal(layout.overflow, false, 'dialog has no horizontal overflow');
-    assert.equal(layout.valuesFit, true, 'full UUID and amounts fit without clipping');
+    if (!layout.valuesFit) await page.screenshot({ path: `/tmp/smolbox-expense-confirmation-overflow-${layout.width}.png`, fullPage: true });
+    assert.equal(layout.valuesFit, true, `full UUID and amounts fit without clipping: ${JSON.stringify(layout)}`);
 }
 
 try {
@@ -221,7 +230,7 @@ try {
     assert.deepEqual(invoice.failures, []);
     await invoice.context.close();
 
-    for (const scenario of [{ documentType: 'vale' }, { documentType: 'recibo', existing: true }, { xml: true }]) {
+    for (const scenario of [{ documentType: 'vale' }, { documentType: 'recibo', existing: true }, { xml: true, cfdi: { issued_at: '2026-08-07T12:00:00' } }]) {
         const form = await openForm(scenario);
         await form.fillAndValidate();
         await form.add.click();
@@ -245,6 +254,104 @@ try {
         await form.context.close();
     }
 
+    const matchedOcr = { extracted_total: '123.45', extracted_date: '2026-08-13' };
+    for (const scenario of [
+        { ocr: matchedOcr, pauseSave: true },
+        { xml: true },
+        { documentType: 'vale', ocr: matchedOcr },
+        { documentType: 'recibo', ocr: matchedOcr, existing: true },
+    ]) {
+        const form = await openForm(scenario);
+        await form.fillAndValidate();
+        await form.date.fill('13/8/2026');
+        await form.amount.fill('123.450');
+        if (!scenario.documentType) {
+            await form.folio.fill(` ${fiscalUuid.toLowerCase()} `);
+            await form.page.getByRole('button', { name: 'Confirmar', exact: true }).click();
+        }
+        await form.add.evaluate((button) => { button.click(); button.click(); });
+        await form.saveStarted;
+        assert.equal(await form.summary.count(), 0, 'matching fields save without the additional confirmation');
+        if (scenario.pauseSave) {
+            assert.equal(await form.page.getByRole('button', { name: 'Guardando...', exact: true }).isDisabled(), true);
+            assert.equal(await form.amount.isDisabled(), true, 'direct saving also freezes the prepared data');
+            form.releaseSave();
+        }
+        await form.page.waitForURL('**/solicitud/nueva');
+        assert.equal(form.attempts.length, 1, 'direct saving is protected against double clicks');
+        assert.equal(form.attachments.length, 1);
+        assert.equal(form.attempts[0].expense.monto, '123.45');
+        assert.equal(form.attempts[0].expense.fecha, '13/8/2026');
+        assert.equal(form.attempts[0].expense.folio, scenario.documentType ? null : fiscalUuid);
+        assert.equal(form.ocrCalls(), scenario.xml ? 0 : 1, 'direct saving reuses the document read');
+        assert.equal(form.dialogs.at(-1), successMessage);
+        assert.equal(form.events.some((event) => event.action === 'click' && event.label === confirmName), false);
+        assert.deepEqual(form.failures, []);
+        await form.context.close();
+    }
+
+    for (const scenario of [
+        { name: 'amount edited after validation', edit: 'amount' },
+        { name: 'date edited after validation', edit: 'date' },
+        { name: 'fiscal UUID edited after validation', edit: 'folio' },
+        { name: 'missing amount', ocr: { extracted_total: null } },
+        { name: 'missing date', ocr: { extracted_date: null } },
+        { name: 'missing UUID with manual entry', ocr: { suggested_cfdi_uuid: null } },
+        { name: 'invalid OCR UUID with manual entry', ocr: { suggested_cfdi_uuid: '12345' } },
+        { name: 'XML amount edited after validation', xml: true, edit: 'amount' },
+        { name: 'XML fiscal UUID edited after validation', xml: true, edit: 'folio' },
+        { name: 'missing XML date', xml: true, cfdi: { issued_at: null } },
+        { name: 'vale missing date', documentType: 'vale', ocr: { extracted_date: null } },
+        { name: 'recibo missing amount', documentType: 'recibo', ocr: { extracted_total: null } },
+    ]) {
+        const form = await openForm({ ...scenario, ocr: { ...matchedOcr, ...scenario.ocr } });
+        await form.fillAndValidate();
+        if (scenario.edit === 'amount') await form.amount.fill('123.46');
+        if (scenario.edit === 'date') await form.date.fill('14/08/2026');
+        if (scenario.edit === 'folio') {
+            await form.folio.fill('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA');
+            await form.page.getByRole('button', { name: 'Confirmar', exact: true }).click();
+        }
+        await form.add.click();
+        await form.summary.waitFor();
+        assert.equal(form.attempts.length, 0, scenario.name);
+        assert.equal(await form.confirm.isDisabled(), true, scenario.name);
+        await form.checkbox.check();
+        await form.confirm.click();
+        await form.page.waitForURL('**/solicitud/nueva');
+        assert.equal(form.attempts.length, 1, scenario.name);
+        assert.equal(form.attempts[0].expense.monto, scenario.edit === 'amount' ? '123.46' : '123.45');
+        if (scenario.edit === 'folio') assert.equal(form.attempts[0].expense.folio, 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA');
+        assert.deepEqual(form.failures, [], scenario.name);
+        await form.context.close();
+    }
+
+    const blocked = await openForm({ ocr: matchedOcr });
+    await blocked.fillAndValidate();
+    await blocked.date.fill('31/02/2026');
+    const invalidDateDialog = blocked.page.waitForEvent('dialog');
+    await blocked.add.click();
+    assert.ok((await invalidDateDialog).message().includes('Corrobora que la fecha ingresada'));
+    assert.equal(blocked.attempts.length, 0);
+    assert.equal(await blocked.summary.count(), 0, 'an invalid date remains a blocking error');
+    await blocked.date.fill('13/08/2026');
+    blocked.setUuidAvailable(false);
+    const duplicateDialog = blocked.page.waitForEvent('dialog');
+    await blocked.add.click();
+    assert.ok((await duplicateDialog).message().includes('ya est\u00e1 registrado en otro gasto'));
+    assert.equal(blocked.attempts.length, 0);
+    assert.equal(await blocked.summary.count(), 0, 'duplicate UUIDs cannot be overridden by confirmation');
+    await blocked.page.locator('input[type=file]').first().setInputFiles({
+        name: 'different.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\ndifferent\n%%EOF'),
+    });
+    const unreadFileDialog = blocked.page.waitForEvent('dialog');
+    await blocked.add.click();
+    assert.equal((await unreadFileDialog).message(), 'Primero presiona "Validar Gasto" para leer la factura PDF con OCR.');
+    assert.equal(blocked.attempts.length, 0, 'another file cannot reuse a previous matching OCR result');
+    assert.equal(await blocked.summary.count(), 0);
+    assert.deepEqual(blocked.failures, []);
+    await blocked.context.close();
+
     const failed = await openForm({ documentType: 'vale', failOnce: true });
     await failed.fillAndValidate();
     await failed.add.click();
@@ -267,7 +374,22 @@ try {
     assert.equal(failed.dialogs.at(-1), successMessage);
     assert.deepEqual(failed.failures, []);
     await failed.context.close();
-    console.log('Browser checks passed: validation, summary, cancel/edit, acknowledgement, keyboard, responsive layout, double click, PDF/XML/vale/recibo, existing draft, audit and save errors.');
+
+    const failedDirect = await openForm({ documentType: 'vale', ocr: matchedOcr, failOnce: true });
+    await failedDirect.fillAndValidate();
+    await failedDirect.add.click();
+    await failedDirect.page.getByText('Error de prueba al guardar.', { exact: true }).waitFor();
+    assert.equal(await failedDirect.summary.count(), 0);
+    assert.equal(await failedDirect.amount.inputValue(), '123.45');
+    assert.equal(failedDirect.attachments.length, 0);
+    await failedDirect.add.click();
+    await failedDirect.page.waitForURL('**/solicitud/nueva');
+    assert.equal(failedDirect.attempts.length, 2);
+    assert.equal(failedDirect.attachments.length, 1);
+    assert.equal(failedDirect.dialogs.at(-1), successMessage);
+    assert.deepEqual(failedDirect.failures, []);
+    await failedDirect.context.close();
+    console.log('Browser checks passed: conditional confirmation for PDF/XML/vale/recibo, individual mismatches, missing fields, current data/file comparison, direct and confirmed saves, double clicks, errors, audit, keyboard and responsive layout.');
 } finally {
     await browser.close();
 }

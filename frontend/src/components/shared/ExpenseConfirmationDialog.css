@@ -53,6 +53,7 @@
 .expense-confirmation__summary dd {
     min-width: 0;
     margin: 0;
+    padding: 0 5px;
     overflow-wrap: anywhere;
 }
 

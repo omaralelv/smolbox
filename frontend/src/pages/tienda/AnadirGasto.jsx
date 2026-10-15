@@ -15,6 +15,7 @@ import {
 import { addDraftGasto, loadDraftGastos, loadDraftRequest, saveDraftRequest } from '../../lib/draftSolicitud';
 import { createCaptureAudit } from '../../lib/captureAudit';
 import { categoryRequiresManualAuthorizationArea } from '../../lib/expenseAuthorization';
+import { requiresExpenseConfirmation } from '../../lib/expenseConfirmation';
 import ExpenseConfirmationDialog from '../../components/shared/ExpenseConfirmationDialog';
 
 function AnadirGasto() {
@@ -615,7 +616,18 @@ function AnadirGasto() {
             }
         }
 
-        return nuevoGastoItem;
+        return {
+            gasto: nuevoGastoItem,
+            requiereConfirmacion: advertencias.length > 0 || requiresExpenseConfirmation({
+                documentType: tipoDocumento,
+                amount: monto,
+                date: normalizarFechaCapturada(fecha),
+                fiscalUuid: normalizarUuidFiscalValido(folio),
+                documentAmount: facturaEsXml ? cfdiParsed.total : ocrParsed?.extracted_total,
+                documentDate: normalizarFechaCfdi(facturaEsXml ? cfdiParsed.issued_at : ocrParsed?.extracted_date),
+                documentFiscalUuid: normalizarUuidFiscalValido(facturaEsXml ? cfdiParsed.uuid : ocrParsed?.suggested_cfdi_uuid),
+            }),
+        };
     };
 
     const handleGuardarGasto = async (e) => {
@@ -625,8 +637,10 @@ function AnadirGasto() {
         setPreparandoGasto(true);
         const version = formVersion.current;
         try {
-            const gasto = await prepararGastoParaConfirmacion();
-            if (gasto && version === formVersion.current) setGastoPorConfirmar(gasto);
+            const resultado = await prepararGastoParaConfirmacion();
+            if (!resultado || version !== formVersion.current) return;
+            if (resultado.requiereConfirmacion) setGastoPorConfirmar(resultado.gasto);
+            else await guardarGastoPreparado(resultado.gasto);
         } catch (error) {
             const mensaje = apiErrorMessage(error);
             setEstadoValidacion('error');
@@ -638,11 +652,10 @@ function AnadirGasto() {
         }
     };
 
-    const handleConfirmarGasto = async () => {
-        if (!gastoPorConfirmar || guardandoGastoRef.current) return;
+    const guardarGastoPreparado = async (nuevoGastoItem) => {
+        if (!nuevoGastoItem || guardandoGastoRef.current) return;
         guardandoGastoRef.current = true;
         setGuardandoGasto(true);
-        const nuevoGastoItem = gastoPorConfirmar;
 
         try {
             await captureAudit.flush();
@@ -700,6 +713,8 @@ function AnadirGasto() {
         }
 
     };
+
+    const handleConfirmarGasto = () => guardarGastoPreparado(gastoPorConfirmar);
 
 
     return (
