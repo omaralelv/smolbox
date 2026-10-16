@@ -72,6 +72,29 @@ function Detalle({ currentRole }) {
     const solicitudBackendId = location.state?.solicitudBackendId || null;
 
 
+    // ESTADOS PARA EVALUAR SI LA SOLICITUD ES HISTORICA O NO
+    const [solicitudActual, setSolicitudActual] = useState(location.state?.solicitud || null);
+    
+    const currentBackendStatus = solicitudActual?.backendStatus
+        || solicitudActual?.backend_status
+        || location.state?.solicitud?.backendStatus
+        || location.state?.solicitud?.backend_status
+        || '';
+
+    const statusSolicitud = String(
+        solicitudActual?.status
+        || solicitudActual?.estatus
+        || location.state?.solicitud?.status
+        || location.state?.solicitud?.estatus
+        || ''
+    ).toLowerCase().trim();
+
+    // Bandera global que detecta si la solicitud ya está en histórico (pagada, rechazada o cerrada)
+    const esHistorica = ['paid', 'closed', 'rejected'].includes(String(currentBackendStatus).toLowerCase().trim())
+        || ['pagada', 'rechazada'].includes(statusSolicitud);
+        
+
+
     // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
     const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
     const [observacionesAbiertas, setObservacionesAbiertas] = useState(false);
@@ -154,7 +177,14 @@ function Detalle({ currentRole }) {
         eliminar: ['contabilidad', 'admin']
     };
 
-    const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
+    //const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
+
+    const puedeVer = (herramienta) => {
+        if (esHistorica && ['editar', 'particionar', 'eliminar'].includes(herramienta)) {
+            return false;
+        }
+        return visibilidadIconos[herramienta]?.includes(rol);
+    };
 
     useEffect(() => {
         if (!solicitudBackendId) return undefined;
@@ -162,6 +192,7 @@ function Detalle({ currentRole }) {
         getFrontendSolicitud(solicitudBackendId).then((request) => {
             if (!active) return;
             setGastosDesglosados(request.gastos || []);
+            setSolicitudActual(request);
             setErrorDetalle('');
         }).catch(() => {
             if (active) setErrorDetalle('No se pudieron actualizar los gastos. Regresa a la solicitud e intenta de nuevo.');

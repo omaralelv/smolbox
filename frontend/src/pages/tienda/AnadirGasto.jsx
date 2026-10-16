@@ -87,6 +87,10 @@ function AnadirGasto() {
     const [observaciones, setObservaciones] = useState('');
 
     const [folioValidado, setFolioValidado] = useState(false);
+
+    // CAMBIO: Estado para controlar si el gasto ya fue validado mediante el botón "Validar Gasto"
+    const [gastoValidado, setGastoValidado] = useState(false);
+
     const [ocrFactura, setOcrFactura] = useState(null);
     const [ocrVale, setOcrVale] = useState(null);
     const [ocrRecibo, setOcrRecibo] = useState(null);
@@ -98,13 +102,42 @@ function AnadirGasto() {
         auditField('document_type', nuevoTipo);
         setTipoDocumento(nuevoTipo);
         setMensajeValidacion('');
-        if (nuevoTipo === 'vale' || nuevoTipo === 'recibo') {
+        setGastoValidado(false);
+
+        //Limpiar archivos y OCR de los tipos no seleccionados
+        if (nuevoTipo === 'factura') {
+            setValeFile(null);
+            setReciboFile(null);
+            setOcrVale(null);
+            setOcrRecibo(null);
+        } else if (nuevoTipo === 'vale') {
+            setFacturaFile(null);
+            setReciboFile(null);
+            setOcrFactura(null);
+            setOcrRecibo(null);
+            setFolio('N/A');
+            setFolioValidado(true);
+        } else if (nuevoTipo === 'recibo') {
+            setFacturaFile(null);
+            setValeFile(null);
+            setOcrFactura(null);
+            setOcrVale(null);
+            setFolio('N/A');
+            setFolioValidado(true);
+        }
+
+        if (nuevoTipo !== 'vale' && nuevoTipo !== 'recibo') {
+            if (folio === 'N/A') setFolio('');
+            setFolioValidado(false);
+        }
+
+        /*if (nuevoTipo === 'vale' || nuevoTipo === 'recibo') {
             setFolio('N/A');
             setFolioValidado(true);
         } else {
             if (folio === 'N/A') setFolio('');
             setFolioValidado(false);
-        }
+        }*/
     };
 
     const handleValidarFolio = () => {
@@ -153,6 +186,7 @@ function AnadirGasto() {
     const handleMontoChange = (nuevoMonto) => {
         auditFieldSoon('amount', nuevoMonto);
         setMonto(nuevoMonto);
+        setGastoValidado(false);
         const archivoDocumento = archivoParaTipoDocumento(tipoDocumento, { facturaFile, valeFile, reciboFile });
         const ocrDocumento = ocrParaTipoDocumento(tipoDocumento, { ocrFactura, ocrVale, ocrRecibo });
         if (
@@ -191,6 +225,7 @@ function AnadirGasto() {
 
     const handleValeFileChange = (file) => {
         auditFile('vale', file);
+        setGastoValidado(false);
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrVale, file);
         setValeFile(file || null);
         setEstadoValidacion(null);
@@ -202,6 +237,7 @@ function AnadirGasto() {
 
     const handleReciboFileChange = (file) => {
         auditFile('recibo', file);
+        setGastoValidado(false);
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrRecibo, file);
         setReciboFile(file || null);
         setEstadoValidacion(null);
@@ -225,6 +261,7 @@ function AnadirGasto() {
 
     const handleFacturaFileChange = async (file) => {
         auditFile('factura', file);
+        setGastoValidado(false);
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrFactura, file);
         setFacturaFile(file || null);
         setEstadoValidacion(null);
@@ -377,6 +414,7 @@ function AnadirGasto() {
                 );
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
+                setGastoValidado(true);
                 auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             } catch (error) {
                 const mensaje = apiErrorMessage(error);
@@ -414,6 +452,7 @@ function AnadirGasto() {
                 ]);
                 setMensajeValidacion(mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
+                setGastoValidado(true);
                 auditValidation('validation_completed', mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
             } else if (facturaEsPdf) {
                 await captureAudit.flush();
@@ -458,6 +497,7 @@ function AnadirGasto() {
                     : `Extracción de texto finalizada. Folio sugerido: ${folioDetectado}. Revisa que el Folio coincida con tu factura y presiona "Confirmar" para guardarlo.`;
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
+                setGastoValidado(true);
                 auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             }
         } 
@@ -757,6 +797,7 @@ function AnadirGasto() {
                         <input type="text" value={fecha} onChange={(e) => {
                             auditFieldSoon('date', e.target.value);
                             setFecha(e.target.value);
+                            setGastoValidado(false);
                         }}
                             onBlur={(e) => auditField('date', e.target.value)}
                             placeholder="DD/MM/AAAA"
@@ -1025,11 +1066,14 @@ function AnadirGasto() {
                 ref={addExpenseButtonRef}
                 style={{
                     ...styles.añadirActionBtn,
-                    opacity: cargandoValidacion || preparandoGasto || guardandoGasto ? 0.6 : 1,
-                    cursor: cargandoValidacion || preparandoGasto || guardandoGasto ? 'not-allowed' : 'pointer',
+                    // CAMBIO: Desactivar botón si está cargando, si no se ha validado, o si falta confirmar el folio fiscal en factura
+                    opacity: cargandoValidacion || preparandoGasto || guardandoGasto || !gastoValidado || (tipoDocumento === 'factura' && !folioValidado) ? 0.6 : 1,
+                    cursor: cargandoValidacion || preparandoGasto || guardandoGasto || !gastoValidado || (tipoDocumento === 'factura' && !folioValidado) ? 'not-allowed' : 'pointer',
                 }}
-                onClick={handleGuardarGasto}
-                disabled={cargandoValidacion || preparandoGasto || guardandoGasto}
+                //onClick={handleGuardarGasto}
+                //disabled={cargandoValidacion || preparandoGasto || guardandoGasto}
+                onClick={cargandoValidacion || preparandoGasto || guardandoGasto || !gastoValidado || (tipoDocumento === 'factura' && !folioValidado) ? undefined : handleGuardarGasto}
+                disabled={cargandoValidacion || preparandoGasto || guardandoGasto || !gastoValidado || (tipoDocumento === 'factura' && !folioValidado)}
             >
             {guardandoGasto ? 'Guardando...' : preparandoGasto ? 'Validando...' : 'Añadir'}
             </button>
