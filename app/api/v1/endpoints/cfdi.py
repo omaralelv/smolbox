@@ -30,6 +30,7 @@ from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_e
 from app.services.expense_capture_audit import add_capture_event, get_capture
 from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
+from app.services.ocr_receiver import assess_invoice_receiver
 from app.services.ocr_results import extraction_from_ocr_result
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
@@ -44,7 +45,6 @@ from app.services.textract_ocr import (
     TextractOcrError,
     TextractOcrService,
     expected_invoice_receiver_message,
-    validate_expected_invoice_receiver,
 )
 
 router = APIRouter()
@@ -244,16 +244,18 @@ async def _preview_invoice_ocr(
     extraction = extraction_from_ocr_result(
         result, document_checksum_sha256=checksum, source_filename=source_filename,
     )
+    if document_type.strip().lower() == "factura":
+        extraction.receiver_validation = assess_invoice_receiver(
+            result.raw_text,
+            expected_name=settings.invoice_ocr_receiver_name,
+            expected_rfc=settings.invoice_ocr_receiver_rfc,
+        )
     db.add(extraction)
     db.commit()
     db.refresh(extraction)
 
     if document_type.strip().lower() == "factura":
-        missing_receiver_fields = validate_expected_invoice_receiver(
-            result.raw_text,
-            expected_name=settings.invoice_ocr_receiver_name,
-            expected_rfc=settings.invoice_ocr_receiver_rfc,
-        )
+        missing_receiver_fields = extraction.receiver_validation["missing_fields"]
         if missing_receiver_fields:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

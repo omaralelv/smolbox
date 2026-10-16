@@ -52,6 +52,7 @@ class OcrExtraction(Base):
     suggested_cfdi_uuid: Mapped[str | None] = mapped_column(String(36))
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    receiver_validation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -11,6 +11,7 @@ from io import BytesIO
 from typing import Any
 
 from app.core.config import Settings
+from app.services.ocr_receiver import assess_invoice_receiver
 from app.services.pdf_ocr import PdfOcrRenderError, render_invoice_header, render_pdf_pages
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class TextractOcrResult:
     suggested_cfdi_uuid: str | None
     confidence: Decimal | None
     raw_response: dict[str, Any] | None
+    receiver_validation: dict[str, Any] | None = None
 
 
 class TextractOcrService:
@@ -357,16 +359,9 @@ def validate_expected_invoice_receiver(
     expected_name: str | None,
     expected_rfc: str | None,
 ) -> list[str]:
-    missing_fields: list[str] = []
-    searchable_text = _compact_search_text(raw_text)
-
-    if expected_name and _compact_search_text(expected_name) not in searchable_text:
-        missing_fields.append("razon_social")
-
-    if expected_rfc and _compact_search_text(expected_rfc) not in searchable_text:
-        missing_fields.append("rfc")
-
-    return missing_fields
+    return assess_invoice_receiver(
+        raw_text, expected_name=expected_name, expected_rfc=expected_rfc,
+    )["missing_fields"]
 
 
 def expected_invoice_receiver_message(

@@ -12,6 +12,7 @@ def extraction_from_ocr_result(result: TextractOcrResult, **metadata) -> OcrExtr
         suggested_cfdi_uuid=result.suggested_cfdi_uuid,
         confidence=result.confidence,
         raw_response=result.raw_response,
+        receiver_validation=result.receiver_validation,
         **metadata,
     )
 
@@ -25,4 +26,5 @@ def ocr_result_from_extraction(extraction: OcrExtraction) -> TextractOcrResult:
         suggested_cfdi_uuid=extraction.suggested_cfdi_uuid,
         confidence=extraction.confidence,
         raw_response=extraction.raw_response,
+        receiver_validation=extraction.receiver_validation,
     )

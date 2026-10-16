@@ -62,3 +62,35 @@ def test_migration_preserves_attached_readings_and_prevents_loss_on_downgrade(
         with pytest.raises(RuntimeError, match="no readings were deleted"):
             migration.downgrade()
         assert connection.execute(text("SELECT count(*) FROM ocr_extractions")).scalar_one() == 2
+
+
+def test_receiver_comparison_migration_keeps_existing_raw_data(db_engine, session_factory, monkeypatch):
+    with session_factory() as session:
+        extraction = OcrExtraction(
+            status=OcrExtractionStatus.succeeded, raw_text="COMERCIAL IAC CIA090819PW4",
+            raw_response={"Blocks": [{"Text": "Original AWS text"}]},
+        )
+        session.add(extraction)
+        session.commit()
+        extraction_id = extraction.id
+    path = Path(__file__).parents[1] / "alembic/versions/20261016_0025_ocr_receiver_validation.py"
+    spec = importlib.util.spec_from_file_location("receiver_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    with db_engine.begin() as connection:
+        monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+        migration.downgrade()
+        assert "receiver_validation" not in {
+            column["name"] for column in inspect(connection).get_columns("ocr_extractions")
+        }
+        migration.upgrade()
+        migration.upgrade()
+    with session_factory() as session:
+        extraction = session.get(OcrExtraction, extraction_id)
+        assert extraction.raw_text == "COMERCIAL IAC CIA090819PW4"
+        assert extraction.raw_response == {"Blocks": [{"Text": "Original AWS text"}]}
+        assert extraction.receiver_validation is None
+        extraction.receiver_validation = {"accepted": True, "max_differences": 3}
+        session.commit()
+    with session_factory() as session:
+        assert session.get(OcrExtraction, extraction_id).receiver_validation["accepted"]

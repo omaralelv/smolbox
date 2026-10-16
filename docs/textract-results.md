@@ -11,6 +11,7 @@ Las lecturas nuevas se guardan en la tabla `ocr_extractions` de la base de datos
 | `extracted_total`, `extracted_date`, `extracted_supplier`, `suggested_cfdi_uuid`, `confidence` | Campos interpretados por la aplicacion. |
 | `document_checksum_sha256`, `source_filename` | Huella del archivo original y nombre del comprobante. |
 | `status`, `error_message`, `created_at` | Resultado, error cuando corresponda y momento del guardado. |
+| `receiver_validation` | Comparacion del RFC y razon social del receptor: valores detectados, esperados y tolerancia aplicada. |
 
 El guardado ocurre desde `POST /api/v1/cfdi/ocr-preview`: no depende de presionar
 Anadir ni de crear un gasto. Si el documento se lee pero no cumple la validacion
@@ -67,7 +68,8 @@ No hay un endpoint publico que exponga las lecturas previas.
 1. Respaldar la base de datos y actualizar el backend.
 2. Ejecutar `alembic upgrade head` en el entorno del backend. La migracion
    `20261016_0024` conserva los registros existentes y permite guardar lecturas
-   sin adjunto. Ejecutarla antes de iniciar la API actualizada.
+   sin adjunto; `20261016_0025` agrega el resultado de comparacion del receptor.
+   Ejecutarlas antes de iniciar la API actualizada.
 3. Verificar `TEXTRACT_STORE_RAW_RESPONSE=true` en las variables del backend y
    reiniciarlo. El nuevo valor predeterminado es `true`, pero un `false` explicito
    en el entorno o en `.env` tiene prioridad. No hace falta cambiar credenciales.
@@ -81,3 +83,48 @@ Proteger accesos y respaldos, y definir una politica de retencion antes de purga
 lecturas. No hay borrado automatico. Una validacion seguida de un adjunto conserva
 dos registros para no perder la evidencia previa. La migracion inversa se bloquea
 si existen lecturas sin adjunto, evitando eliminarlas silenciosamente.
+
+## Tolerancia del receptor en OCR
+
+Solo la razon social y el RFC del receptor de una factura leida por OCR admiten
+hasta tres cambios, caracteres adicionales o caracteres faltantes por campo.
+Primero se eliminan diferencias de mayusculas, acentos, espacios y signos; estas
+no consumen tolerancia. Ambos campos deben estar presentes y cumplir su limite.
+La fecha, monto, folio fiscal y validacion XML no usan esta tolerancia.
+
+Se separan los bloques de emisor y receptor cuando aparecen identificados. Si hay
+varios receptores, no se combinan sus campos. Encabezados ambiguos o multiples
+identidades sin identificar no se aprueban usando datos de otro bloque. Se
+conserva compatibilidad con textos simples sin encabezados. Si no se consigue
+identificar ambos campos o alguno supera tres diferencias, se mantiene el rechazo
+y la alerta actual. No se agregaron controles ni mensajes al formulario.
+
+En `receiver_validation`, `fields.rfc` y `fields.razon_social` guardan `expected`,
+`detected`, `normalized_detected`, `accepted`, `match_type` y `edit_distance`.
+`match_type` indica `exact`, `tolerated`, `mismatch`, `missing` o `not_required`.
+La distancia se guarda cuando esta entre 0 y 3; fuera del limite queda vacia, no
+se presenta como si fuera una distancia exacta de cuatro. Tambien se guarda el
+limite, el contexto y los campos rechazados. Esta evidencia se copia al adjunto
+al reutilizar la validacion y se consulta en el mismo endpoint protegido de OCR.
+
+`raw_text` y `raw_response` no se corrigen ni sustituyen por los valores esperados.
+Las lecturas anteriores no se recalculan; su `receiver_validation` queda vacio.
+Esta tolerancia es una regla de lectura, no una comprobacion de identidad: un RFC
+distinto que este dentro de tres cambios puede aceptarse conforme a esta regla.
+
+`status=succeeded` indica que el OCR leyo el documento, no que el receptor fue
+aceptado. Para comprobar esto ultimo, consultar `receiver_validation.accepted`.
+
+### Verificacion del cambio (2026-10-16)
+
+Las pruebas cubren coincidencia exacta, normalizacion, de uno a tres cambios por
+campo (sustituciones, inserciones y eliminaciones), cuatro cambios rechazados,
+campos ausentes, emisor/receptor separados, bloques ambiguos, conservacion de
+texto/JSON, reutilizacion del OCR, permisos y migracion. Los XML con RFC distinto
+siguen rechazandose. No se hicieron llamadas reales a AWS en estas pruebas.
+
+La revision general registro 496 pruebas aprobadas, 14 fallas y una omitida.
+Once fallas ya estaban identificadas en otras areas; las tres adicionales son
+pruebas de macro SAP que esperan datos sin `expense_content_revision`. Estas
+ultimas se reprodujeron en una exportacion limpia de `eda962e`, sin este cambio.
+No se corrigieron fallas ajenas al alcance del OCR.

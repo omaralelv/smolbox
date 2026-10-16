@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+import pytest
 from conftest import create_expense
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -143,3 +144,15 @@ def test_missing_cfdi_fields_are_invalid_and_size_limit_is_enforced(
         files={"file": ("malformed.xml", b"<broken>", "application/xml")},
     )
     assert malformed.status_code == 422
+
+
+@pytest.mark.parametrize("rfc", ["BBB010101BBX", "BBB010101XXX", "BBB010101BB"])
+def test_xml_receiver_rfc_stays_exact_despite_ocr_tolerance(client, base_records, rfc):
+    expense = create_expense(client, base_records)
+    response = _validate(
+        client, str(expense["id"]),
+        _cfdi_xml("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", receiver_attribute=f'Rfc="{rfc}"'),
+    )
+    assert response.status_code == 200, response.text
+    assert not response.json()["is_valid"]
+    assert "receiver_rfc_mismatch" in {issue["code"] for issue in response.json()["issues"]}

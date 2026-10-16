@@ -46,3 +46,4 @@ class OcrExtractionDetailRead(OcrExtractionRead):
     raw_response: dict[str, Any] | None = None
     document_checksum_sha256: str | None = None
     source_filename: str | None = None
+    receiver_validation: dict[str, Any] | None = None

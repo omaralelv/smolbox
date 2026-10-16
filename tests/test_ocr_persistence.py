@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from hashlib import sha256
@@ -331,3 +332,71 @@ def test_authorizer_reading_access_follows_area_and_active_partitions(
         )
         assert revoked.status_code == 201, revoked.text
     assert client.get(endpoint, headers=headers).status_code == 403
+
+
+@pytest.mark.parametrize("document_type", ["factura", "vale", "recibo"])
+def test_receiver_tolerance_keeps_original_reading_and_signed_preview_reuse(
+    client, base_records, saved_result, session_factory, monkeypatch, document_type,
+):
+    result = replace(saved_result, raw_text=(
+        "Emisor: Nombre: PROVEEDOR DEMO RFC: AAA010101AAA\n"
+        "Receptor: Nombre: COMERCIAL XXX RFC: CIA090819XXX\n"
+        "Fecha: 07/08/2026\nTotal: $100.00"
+    ))
+    monkeypatch.setattr(TextractOcrService, "extract_expense", lambda *args, **kwargs: result)
+    response = _preview(client, document_type=document_type)
+    assert response.status_code == 200, response.text
+    assert response.json()["extracted_total"] == "100.00"
+    assert "receiver_validation" not in response.json()
+    uploaded = _upload(
+        client, create_expense(client, base_records), token=response.json()["verification_token"],
+    )
+    assert "receiver_validation" not in uploaded["ocr_extraction"]
+    with session_factory() as session:
+        rows = session.scalars(select(OcrExtraction)).all()
+        assert len(rows) == 2
+        for row in rows:
+            assert row.raw_text == result.raw_text
+            assert row.raw_response == RAW_RESPONSE
+            if document_type == "factura":
+                assert row.receiver_validation["accepted"]
+                assert row.receiver_validation["fields"]["rfc"]["edit_distance"] == 3
+                assert row.receiver_validation["fields"]["razon_social"]["edit_distance"] == 3
+            else:
+                assert row.receiver_validation is None
+    headers = authenticated_audit_headers(client)
+    detail = client.get(f"/api/v1/attachments/{uploaded['id']}/ocr/me", headers=headers)
+    assert detail.status_code == 200, detail.text
+    if document_type == "factura":
+        assert detail.json()["receiver_validation"]["fields"]["rfc"]["detected"] == "CIA090819XXX"
+
+
+@pytest.mark.parametrize("name,rfc,missing", [
+    ("COMERCIAL IAC", "CIA09081XXXX", ["rfc"]),
+    ("COMERCIA XXXX", "CIA090819PW4", ["razon_social"]),
+    ("", "CIA090819PW4", ["razon_social"]),
+    ("COMERCIAL IAC", "", ["rfc"]),
+])
+def test_rejected_receiver_keeps_same_alert_and_internal_comparison(
+    client, saved_result, session_factory, monkeypatch, name, rfc, missing,
+):
+    result = replace(saved_result, raw_text=f"RECEPTOR\nNombre: {name}\nRFC: {rfc}")
+    monkeypatch.setattr(TextractOcrService, "extract_expense", lambda *args, **kwargs: result)
+    response = _preview(client)
+    assert response.status_code == 409, response.text
+    field_names = {"razon_social": "Raz\u00f3n Social", "rfc": "RFC"}
+    assert response.json()["detail"] == {
+        "code": "OCR_RECEIVER_MISMATCH",
+        "message": (
+            "La factura PDF no corresponde al receptor esperado.\n"
+            f"Corroborar: {', '.join(field_names[field] for field in missing)}.\n"
+            "Debe incluir Raz\u00f3n Social: COMERCIAL IAC y RFC: CIA090819PW4."
+        ),
+        "missing_fields": missing,
+    }
+    with session_factory() as session:
+        row = session.scalars(select(OcrExtraction)).one()
+        assert row.raw_text == result.raw_text
+        assert row.raw_response == RAW_RESPONSE
+        assert not row.receiver_validation["accepted"]
+        assert row.receiver_validation["missing_fields"] == missing
