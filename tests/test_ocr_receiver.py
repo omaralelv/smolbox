@@ -157,6 +157,87 @@ def test_repeated_identical_unlabeled_fields_are_not_ambiguous():
     assert result["accepted"]
 
 
+def test_name_does_not_include_address_from_reported_receiver_text():
+    text = (
+        "RECEPTOR FACTURAR A: 77750385 1814\n"
+        "ENTREGAR EN:\n"
+        "RFC RECEPTOR CIA090819PW\n"
+        "NOMBRE RECEPTOR: COMERCIAL IAC\n"
+        "AV REFORMA 326 CENTRO PUEBLA DE ZARAGOZA PUEBLA MEXICO C.P.\n"
+        "DOMICILIO RECEPTOR: CALLE DE PRUEBA 22 CENTRO\n"
+        "72000\nHUIXQUILUCAN\nESTADO DE MEXICO MEXICO C.P. 52760\n"
+        "USO DEL CFDI POR EL RECEPTOR G03-Gastos en general\n"
+        "DOMICILIO FISCAL RECEPTOR: 52760\nREGIMEN FISCAL RECEPTOR: 601"
+    )
+    result = _check(text)
+    assert result["accepted"]
+    assert result["fields"]["razon_social"]["detected"] == NAME
+    assert result["fields"]["razon_social"]["match_type"] == "exact"
+    assert result["fields"]["rfc"]["detected"] == "CIA090819PW"
+    assert result["fields"]["rfc"]["edit_distance"] == 1
+
+
+@pytest.mark.parametrize("address", [
+    "AV REFORMA 326 CENTRO",
+    "AV. REFORMA 326 CENTRO",
+    "AVENIDA REFORMA 326 CENTRO",
+    "CALLE DE PRUEBA 22",
+    "CALZADA DE PRUEBA 100",
+    "BLVD. DE PRUEBA 428",
+    "PROLONGACION REFORMA 6623",
+    "CARRETERA DE PRUEBA KM 12",
+    "PASEO DE PRUEBA S/N",
+])
+@pytest.mark.parametrize("separator", ["\n", "  ", "; ", " | ", "\t"])
+def test_address_boundary_keeps_complete_multiline_name(address, separator):
+    result = _check(
+        f"RFC RECEPTOR: {RFC}\nNOMBRE RECEPTOR: COMERCIAL\nIAC{separator}{address}"
+    )
+    assert result["accepted"]
+    assert result["fields"]["razon_social"]["detected"] == NAME
+    assert result["fields"]["razon_social"]["edit_distance"] == 0
+
+
+@pytest.mark.parametrize("address_label", [
+    "DOMICILIO RECEPTOR", "DOMICILIO FISCAL DEL RECEPTOR", "DIRECCION DEL RECEPTOR",
+    "REGIMEN FISCAL RECEPTOR", "USO DEL CFDI POR EL RECEPTOR",
+])
+def test_non_identity_receiver_fields_do_not_split_its_rfc_and_name(address_label):
+    result = _check(
+        f"RFC RECEPTOR: {RFC}\n{address_label}: DATO ADICIONAL\nNOMBRE RECEPTOR: {NAME}"
+    )
+    assert result["accepted"]
+    assert result["fields"]["razon_social"]["edit_distance"] == 0
+    assert result["fields"]["rfc"]["edit_distance"] == 0
+
+
+@pytest.mark.parametrize("name", [
+    "COMERCIAL IACXXXX", "OTRA EMPRESA", "COMERCIAL IAC\nXXXX",
+    "COMERCIAL IAC AVENIDA", "COMERCIAL IAC\nAVENIDA",
+    "COMERCIAL IAC AVENIDA 123", "COMERCIAL IAC CALLE 123",
+])
+def test_address_separator_does_not_hide_a_different_business_name(name):
+    result = _check(
+        f"RFC RECEPTOR: {RFC}\nNOMBRE RECEPTOR: {name}\nCALLE DE PRUEBA 22"
+    )
+    assert not result["accepted"]
+    assert result["missing_fields"] == ["razon_social"]
+
+
+def test_address_without_a_name_does_not_supply_a_receiver_identity():
+    result = _check(f"RFC RECEPTOR: {RFC}\nNOMBRE RECEPTOR:\nAV REFORMA 326 COMERCIAL IAC")
+    assert not result["accepted"]
+    assert result["fields"]["razon_social"]["match_type"] == "missing"
+
+
+def test_rfc_address_boundary_does_not_change_the_three_character_limit():
+    result = _check(
+        "RFC RECEPTOR: CIA09081XXXX\nAV REFORMA 326\nNOMBRE RECEPTOR: COMERCIAL IAC"
+    )
+    assert not result["accepted"]
+    assert result["missing_fields"] == ["rfc"]
+
+
 @pytest.mark.parametrize("expected,detected,distance", [
     ("ABC", "ABC", 0), ("ABC", "ABX", 1), ("ABC", "AB", 1),
     ("ABC", "XABC", 1), ("ABC", "ACB", 2), ("ABCD", "WXYZ", 4),

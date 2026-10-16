@@ -18,6 +18,17 @@ _FIELD = re.compile(
     r"|MONEDA|CORREO|TELEFONO|LUGAR\s+DE\s+EXPEDICION))\b",
 )
 _BODY = re.compile(r"\b(?:CONCEPTOS|SUBTOTAL|FOLIO\s+FISCAL)\b")
+_ADDRESS_START = re.compile(
+    r"(?:^|(?<=[;|\t])|(?<=  ))[ \t]*"
+    r"\b(?:AV(?:ENIDA)?|CALLE|CALZ(?:ADA)?|BLVD|BOULEVARD|BULEVAR"
+    r"|PROL(?:ONGACION)?|CARR(?:ETERA)?|PRIV(?:ADA)?|PASEO|CIRCUITO|ANDADOR)\b\.?[ \t]+"
+    r"(?=[^\r\n]{0,160}(?:\b\d+[A-Z]?\b|\bS[ \t]*/[ \t]*N\b))",
+    re.MULTILINE,
+)
+_NON_IDENTITY_ROLE_PREFIX = re.compile(
+    r"\b(?:DOMICILIO(?:\s+FISCAL)?|DIRECCION(?:\s+FISCAL)?|REGIMEN\s+FISCAL"
+    r"|USO\s+(?:DEL\s+)?CFDI)(?:\s+(?:DEL|DE|POR|EL))*\s*$",
+)
 
 
 def assess_invoice_receiver(
@@ -60,7 +71,7 @@ def assess_invoice_receiver(
 
 
 def _receiver_sections(text: str) -> tuple[list[str], str]:
-    roles = list(_ROLE.finditer(text))
+    roles = [token for token in _ROLE.finditer(text) if not _is_non_identity_role(text, token)]
     if not roles:
         return [text], "unlabeled"
     sections = []
@@ -87,6 +98,19 @@ def _receiver_sections(text: str) -> tuple[list[str], str]:
     return sections, "receiver" if sections else "no_receiver"
 
 
+def _is_non_identity_role(text: str, token: re.Match[str]) -> bool:
+    if token["field"]:
+        return False
+    line_start = text.rfind("\n", 0, token.start()) + 1
+    return _NON_IDENTITY_ROLE_PREFIX.search(text[line_start:token.start()]) is not None
+
+
+def _before_address(value: str) -> str:
+    # Require a line/column boundary and address evidence, not just a street word in a name.
+    address = _ADDRESS_START.search(value)
+    return (value[:address.start()] if address else value).strip(" \t\r\n:=,;|")
+
+
 def _field_candidates(
     section: str, expected_name: str | None, expected_rfc: str | None,
 ) -> dict[str, list[str]]:
@@ -99,14 +123,14 @@ def _field_candidates(
             continue
         labeled_fields.add(field)
         stop = labels[index + 1].start() if index + 1 < len(labels) else len(section)
-        value = section[label.end():stop].strip(" \t\r\n:=,;|")
+        value = _before_address(section[label.end():stop])
         if not value:
             continue
         values[field].append(" ".join(value.split()))
 
     if "razon_social" not in labeled_fields:
         # Unlabeled company names normally precede the first labeled field.
-        prefix = section[:labels[0].start()] if labels else section
+        prefix = _before_address(section[:labels[0].start()] if labels else section)
         normalized_name = _compact(_plain_text(expected_name or ""))
         normalized_rfc = _compact(_plain_text(expected_rfc or ""))
         prefix = re.sub(

@@ -99,6 +99,14 @@ conserva compatibilidad con textos simples sin encabezados. Si no se consigue
 identificar ambos campos o alguno supera tres diferencias, se mantiene el rechazo
 y la alerta actual. No se agregaron controles ni mensajes al formulario.
 
+La extraccion separa el nombre y RFC de una direccion que comienza en otro
+renglon o una columna delimitada, usando indicadores de calle/avenida y numero
+o S/N. Conserva nombres en varios renglones; no recorta un nombre solo porque
+empiece a coincidir con el esperado. Etiquetas como `DOMICILIO RECEPTOR`,
+`REGIMEN FISCAL RECEPTOR` y `USO DEL CFDI POR EL RECEPTOR` no crean otro receptor.
+Esta correccion no requiere otra migracion: usa `20261016_0025` y se aplica al
+validar nuevamente el archivo, sin alterar lecturas anteriores guardadas.
+
 En `receiver_validation`, `fields.rfc` y `fields.razon_social` guardan `expected`,
 `detected`, `normalized_detected`, `accepted`, `match_type` y `edit_distance`.
 `match_type` indica `exact`, `tolerated`, `mismatch`, `missing` o `not_required`.

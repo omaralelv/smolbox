@@ -400,3 +400,41 @@ def test_rejected_receiver_keeps_same_alert_and_internal_comparison(
         assert row.raw_response == RAW_RESPONSE
         assert not row.receiver_validation["accepted"]
         assert row.receiver_validation["missing_fields"] == missing
+
+
+def test_receiver_address_is_not_part_of_name_and_original_ocr_is_preserved(
+    client, base_records, saved_result, session_factory, monkeypatch,
+):
+    raw_text = (
+        "RECEPTOR FACTURAR A: 77750385 1814\nENTREGAR EN:\n"
+        "RFC RECEPTOR CIA090819PW\nNOMBRE RECEPTOR: COMERCIAL IAC\n"
+        "AV REFORMA 326 CENTRO PUEBLA DE ZARAGOZA PUEBLA MEXICO C.P.\n"
+        "DOMICILIO RECEPTOR: CALLE DE PRUEBA 22\nREGIMEN FISCAL RECEPTOR: 601"
+    )
+    raw_response = {"Blocks": [
+        {"BlockType": "LINE", "Text": line} for line in raw_text.splitlines()
+    ]}
+    result = replace(saved_result, raw_text=raw_text, raw_response=raw_response)
+    monkeypatch.setattr(TextractOcrService, "extract_expense", lambda *args, **kwargs: result)
+    response = _preview(client)
+    assert response.status_code == 200, response.text
+    uploaded = _upload(
+        client, create_expense(client, base_records), token=response.json()["verification_token"],
+    )
+    with session_factory() as session:
+        rows = session.scalars(select(OcrExtraction)).all()
+        assert len(rows) == 2
+        for row in rows:
+            assert row.raw_text == raw_text
+            assert row.raw_response == raw_response
+            assert row.receiver_validation["accepted"]
+            name = row.receiver_validation["fields"]["razon_social"]
+            assert name["detected"] == "COMERCIAL IAC"
+            assert name["edit_distance"] == 0
+            assert row.receiver_validation["fields"]["rfc"]["edit_distance"] == 1
+    detail = client.get(
+        f"/api/v1/attachments/{uploaded['id']}/ocr/me", headers=authenticated_audit_headers(client),
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["raw_text"] == raw_text
+    assert detail.json()["receiver_validation"]["fields"]["razon_social"]["detected"] == "COMERCIAL IAC"
