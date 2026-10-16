@@ -80,7 +80,9 @@ OCR_RECEIVER_MISMATCH_CODE = "OCR_RECEIVER_MISMATCH"
 
 
 class TextractOcrError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, result: TextractOcrResult | None = None) -> None:
+        super().__init__(message)
+        self.result = result
 
 
 @dataclass(frozen=True)
@@ -168,7 +170,9 @@ class TextractOcrService:
             else:
                 result = _merge_ocr_results(result, pdf_text_result)
         if not result.raw_text.strip():
-            error = TextractOcrError(f"Textract returned no readable text for {filename}.")
+            error = TextractOcrError(
+                f"Textract returned no readable text for {filename}.", result=result,
+            )
             self._log_error(error, operation="extract_expense", filename=filename)
             raise error
         return result
@@ -211,10 +215,11 @@ class TextractOcrService:
             detected = self._detect_text(
                 client, content, filename=filename, page_number=page_number
             )
-        except TextractOcrError:
+        except TextractOcrError as exc:
             # A successful partial read still allows the existing manual-entry flow.
             if result.raw_text.strip():
                 return result
+            exc.result = result
             raise
         result = _merge_ocr_results(result, detected)
         if search_cfdi_uuid and result.suggested_cfdi_uuid is None:

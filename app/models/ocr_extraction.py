@@ -25,10 +25,10 @@ class OcrExtraction(Base):
     __tablename__ = "ocr_extractions"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    attachment_id: Mapped[uuid.UUID] = mapped_column(
+    attachment_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("attachments.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         unique=True,
         index=True,
     )
@@ -44,6 +44,8 @@ class OcrExtraction(Base):
         nullable=False,
     )
     raw_text: Mapped[str | None] = mapped_column(Text)
+    document_checksum_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    source_filename: Mapped[str | None] = mapped_column(String(255))
     extracted_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     extracted_date: Mapped[date | None] = mapped_column(Date)
     extracted_supplier: Mapped[str | None] = mapped_column(String(255))
@@ -57,5 +59,5 @@ class OcrExtraction(Base):
         nullable=False,
     )
 
-    attachment: Mapped[Attachment] = relationship(back_populates="ocr_extraction")
+    attachment: Mapped[Attachment | None] = relationship(back_populates="ocr_extraction")
     expense: Mapped[Expense | None] = relationship()

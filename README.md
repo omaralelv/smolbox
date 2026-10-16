@@ -116,7 +116,7 @@ COGNITO_APP_CLIENT_ID=tu_app_client_id
    AWS_ACCESS_KEY_ID=tu_access_key
    AWS_SECRET_ACCESS_KEY=tu_secret_key
    AWS_SESSION_TOKEN=
-   TEXTRACT_STORE_RAW_RESPONSE=false
+   TEXTRACT_STORE_RAW_RESPONSE=true
    ```
 
    La llamada a Textract esta aislada en `app/services/textract_ocr.py`.
@@ -124,6 +124,9 @@ COGNITO_APP_CLIENT_ID=tu_app_client_id
    `textract:DetectDocumentText` para usar ambas formas de lectura.
    Los errores tecnicos se registran en el log de la API con la operacion, region,
    codigo AWS y RequestId; las alertas al usuario conservan sus mensajes actuales.
+   El texto y la respuesta completa se conservan desde la validacion, antes de
+   anadir el gasto. Consulta [Lecturas OCR guardadas](docs/textract-results.md)
+   para actualizar la base de datos y consultar los resultados con permisos.
    Cuando AWS rechaza la lectura de un PDF, se renderizan temporalmente sus paginas
    a PNG en memoria (hasta 20 paginas) y se vuelve a intentar el OCR, conservando el
    archivo original. La imagen de cada pagina se limita a 8 millones de pixeles y

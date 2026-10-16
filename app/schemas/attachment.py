@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -38,3 +39,10 @@ class AttachmentRead(BaseModel):
     checksum_sha256: str
     uploaded_at: datetime
     ocr_extraction: OcrExtractionRead | None = None
+
+
+class OcrExtractionDetailRead(OcrExtractionRead):
+    raw_text: str | None = None
+    raw_response: dict[str, Any] | None = None
+    document_checksum_sha256: str | None = None
+    source_filename: str | None = None

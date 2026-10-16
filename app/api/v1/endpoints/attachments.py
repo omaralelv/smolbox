@@ -17,6 +17,7 @@ from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.attachment import AttachmentRead
 from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
 from app.services.ocr_preview import verify_ocr_preview_token
+from app.services.ocr_results import extraction_from_ocr_result, ocr_result_from_extraction
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
@@ -165,6 +166,7 @@ def _maybe_extract_attachment_ocr(
         ocr_preview_token,
         checksum_sha256=checksum_sha256,
         settings=settings,
+        db=db,
     )
     if preview_result is not None:
         _store_ocr_extraction_result(
@@ -187,14 +189,14 @@ def _maybe_extract_attachment_ocr(
             filename=attachment.filename,
         )
     except TextractOcrError as exc:
-        db.add(
-            OcrExtraction(
-                attachment_id=attachment.id,
-                expense_id=expense.id,
-                status=OcrExtractionStatus.failed,
-                error_message=OCR_UNREADABLE_DOCUMENT_MESSAGE,
-            )
-        )
+        extraction = extraction_from_ocr_result(exc.result) if exc.result else OcrExtraction()
+        extraction.attachment_id = attachment.id
+        extraction.expense_id = expense.id
+        extraction.status = OcrExtractionStatus.failed
+        extraction.document_checksum_sha256 = attachment.checksum_sha256
+        extraction.source_filename = attachment.filename
+        extraction.error_message = OCR_UNREADABLE_DOCUMENT_MESSAGE
+        db.add(extraction)
         _add_ocr_audit_event(
             expense,
             action="expense_ocr_failed",
@@ -225,17 +227,12 @@ def _store_ocr_extraction_result(
     db: Session,
 ) -> None:
     db.add(
-        OcrExtraction(
+        extraction_from_ocr_result(
+            result,
             attachment_id=attachment.id,
             expense_id=expense.id,
-            status=OcrExtractionStatus.succeeded,
-            raw_text=result.raw_text,
-            extracted_total=result.extracted_total,
-            extracted_date=result.extracted_date,
-            extracted_supplier=result.extracted_supplier,
-            suggested_cfdi_uuid=result.suggested_cfdi_uuid,
-            confidence=result.confidence,
-            raw_response=result.raw_response,
+            document_checksum_sha256=attachment.checksum_sha256,
+            source_filename=attachment.filename,
         )
     )
     _add_ocr_audit_event(
@@ -252,11 +249,27 @@ def _ocr_result_from_preview_token(
     *,
     checksum_sha256: str,
     settings: Settings,
+    db: Session,
 ) -> TextractOcrResult | None:
     payload = verify_ocr_preview_token(token, settings.auth_token_secret)
     if payload is None or payload.get("checksum_sha256") != checksum_sha256:
         return None
 
+    if payload.get("extraction_id"):
+        try:
+            extraction_id = UUID(payload["extraction_id"])
+        except (ValueError, TypeError, AttributeError):
+            return None
+        extraction = db.get(OcrExtraction, extraction_id)
+        if (
+            extraction is None
+            or extraction.document_checksum_sha256 != checksum_sha256
+            or extraction.status != OcrExtractionStatus.succeeded
+        ):
+            return None
+        return ocr_result_from_extraction(extraction)
+
+    # Older signed previews contain only the summary; never invent their original OCR text.
     return TextractOcrResult(
         raw_text="",
         extracted_total=_decimal_from_payload(payload.get("extracted_total")),

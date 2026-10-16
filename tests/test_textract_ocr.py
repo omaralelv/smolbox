@@ -351,8 +351,9 @@ def test_client_initialization_failure_is_logged(monkeypatch, test_settings, cap
     assert "AWS credential provider failed" in caplog.text
 
 
+@pytest.mark.parametrize("store_raw_response", [False, True])
 def test_detect_document_text_completes_missing_fields_without_overwriting_total(
-    monkeypatch, test_settings
+    monkeypatch, test_settings, store_raw_response
 ) -> None:
     class FakeClient:
         def analyze_expense(self, Document):
@@ -372,6 +373,7 @@ def test_detect_document_text_completes_missing_fields_without_overwriting_total
             }
 
     test_settings.textract_enabled = True
+    test_settings.textract_store_raw_response = store_raw_response
     service = TextractOcrService(test_settings)
     monkeypatch.setattr(service, "_client", lambda: FakeClient())
     result = service.extract_expense(b"image", content_type="image/jpeg", filename="scan.jpg")
@@ -380,7 +382,12 @@ def test_detect_document_text_completes_missing_fields_without_overwriting_total
     assert result.extracted_date == date(2026, 8, 7)
     assert result.suggested_cfdi_uuid == "11111111-2222-3333-4444-AAAAAAAAAAAA"
     assert result.confidence == Decimal("98.00")
-    assert result.raw_response is None
+    if store_raw_response:
+        assert len(result.raw_response["sources"]) == 2
+        assert "ExpenseDocuments" in result.raw_response["sources"][0]
+        assert "Blocks" in result.raw_response["sources"][1]
+    else:
+        assert result.raw_response is None
     assert "COMERCIAL IAC" in result.raw_text
     assert "CIA090819PW4" in result.raw_text
 
