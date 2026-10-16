@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-21T15:00:00"
+  Moneda="MXN"
+  Total="720.80"
+  MetodoPago="PPD">
+  <cfdi:Emisor Rfc="XYZ070707CCC" Nombre="GRUPO LOGISTICO DEL PACIFICO"/>
+  <cfdi:Receptor Rfc="HHH070707HHH" Nombre="SERVICIOS FINANCIEROS Y ADMINISTRATIVOS"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="7824F691-7D93-4425-BB5A-9B16FEFADF5F"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

@@ -1,0 +1,40 @@
+{
+  "reset_existing": true,
+  "store_code": "HUD-RECHAZO",
+  "store_name": "HUD Tienda Rechazo Producto",
+  "contact_email": "hud.store@hud.smolbox.example.com",
+  "assigned_accountant": "HUD Usuario Contador",
+  "period_name": "HUD Agosto 2026 Rechazo",
+  "starts_on": "2026-08-01",
+  "ends_on": "2026-08-31",
+  "reported_total": "1500.00",
+  "previous_reimbursement_starts_on": "2026-07-01",
+  "previous_reimbursement_ends_on": "2026-07-31",
+  "previous_reimbursement_amount": "1300.00",
+  "notes": "Escenario para rechazar un producto en autorizacion sin rechazar toda la solicitud.",
+  "expenses": [
+    {
+      "merchant": "Papeleria Base",
+      "amount": "1000.00",
+      "currency": "MXN",
+      "spent_on": "2026-08-06",
+      "category": "papeleria",
+      "description": "Gasto normal que debe seguir en la solicitud.",
+      "supplier_tax_id": "PBA010101AA1",
+      "requires_authorization": false,
+      "create_receipt": true
+    },
+    {
+      "merchant": "Producto No Procedente",
+      "amount": "500.00",
+      "currency": "MXN",
+      "spent_on": "2026-08-07",
+      "category": "operacion",
+      "description": "Producto que autorizacion debe rechazar individualmente.",
+      "supplier_tax_id": "PNP010101BB1",
+      "requires_authorization": true,
+      "create_receipt": true
+    }
+  ]
+}
+
