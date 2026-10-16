@@ -77,6 +77,10 @@ from app.services.reimbursement_periods import (
 )
 from app.services.reimbursement_validation import summarize_reimbursement_request
 from app.services.request_editability import is_request_editable
+from app.services.request_expense_artifacts import (
+    invalidate_request_expense_artifacts,
+    policy_is_current,
+)
 from app.services.sap_policy import SapPolicyPreparationError, prepare_sap_policy_placeholder
 from app.services.storage import (
     EmptyUpload,
@@ -930,6 +934,13 @@ async def import_reimbursement_request_expenses(
             db.add(expense)
         db.flush()
         actualizar_fecha_fin_reembolso(db, reimbursement_request)
+        if expenses:
+            invalidate_request_expense_artifacts(
+                db,
+                reimbursement_request,
+                settings,
+                reason="Expense import changed the request contents.",
+            )
         db.add(
             AuditLog(
                 reimbursement_request_id=reimbursement_request.id,
@@ -1079,6 +1090,18 @@ async def upload_reimbursement_excel_as_current_user(
             },
         )
 
+    if not policy_is_current(reimbursement_request):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CURRENT_POLICY_REQUIRED",
+                "message": (
+                    "Descarga la póliza de la versión actual de la solicitud "
+                    "antes de cargar el reembolso."
+                ),
+            },
+        )
+
     try:
         content = await read_upload_limited(file, settings.max_upload_bytes)
     except EmptyUpload as exc:
@@ -1118,6 +1141,11 @@ async def upload_reimbursement_excel_as_current_user(
     )
     audit_now = datetime.now(UTC)
     db.add(attachment)
+    db.flush()
+    reimbursement_request.reimbursement_excel_revision = (
+        reimbursement_request.expense_content_revision
+    )
+    reimbursement_request.artifacts_refresh_required = False
     db.add(
         AuditLog(
             reimbursement_request_id=reimbursement_request.id,
@@ -1128,6 +1156,8 @@ async def upload_reimbursement_excel_as_current_user(
             created_at=audit_now,
             event_payload={
                 "attachment_type": AttachmentType.cash_box_format.value,
+                "attachment_id": str(attachment.id),
+                "expense_content_revision": reimbursement_request.expense_content_revision,
                 "filename": stored.filename,
                 "size_bytes": stored.size_bytes,
                 "checksum_sha256": stored.checksum_sha256,

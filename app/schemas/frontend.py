@@ -225,6 +225,8 @@ class FrontendSolicitudRead(BaseModel):
     reembolso_attachment_id: UUID | None = Field(default=None, alias="reembolsoAttachmentId")
     reembolso_file_name: str | None = Field(default=None, alias="reembolsoFileName")
     reembolso_download_url: str | None = Field(default=None, alias="reembolsoDownloadUrl")
+    policy_generated: bool = Field(default=False, alias="policyGenerated")
+    reimbursement_current: bool = Field(default=False, alias="reimbursementCurrent")
     available_actions: list[str] = Field(default_factory=list, alias="availableActions")
     action_labels: dict[str, str] = Field(default_factory=dict, alias="actionLabels")
 

@@ -298,11 +298,12 @@ const styles = {
 
     clearDateFilter: {
         border: '1px solid var(--sb-btnBorder)',
-        borderRadius: '8px',
-        backgroundColor: '#ffffff',
-        color: '#555',
+        borderRadius: '20px',
+        backgroundColor: 'var(--sb-sendBtnBg)',
+        color: '#ffffff',
         padding: '7px 10px',
         fontSize: '13px',
+        fontWeight: '700',
         cursor: 'pointer',
     },
 

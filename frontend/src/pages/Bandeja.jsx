@@ -502,7 +502,7 @@ const styles = {
         backgroundColor: 'var(--sb-sendBtnBg)',
         color: '#ffffff',
         padding: '7px 10px',
-        fontSize: '12px',
+        fontSize: '13px',
         fontWeight: '700',
         cursor: 'pointer',
     },

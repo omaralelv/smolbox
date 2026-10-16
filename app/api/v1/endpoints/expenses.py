@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import get_current_user
+from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
@@ -55,6 +56,7 @@ from app.services.reimbursement_validation import (
     summarize_reimbursement_request,
 )
 from app.services.request_editability import is_request_editable
+from app.services.request_expense_artifacts import invalidate_request_expense_artifacts
 from app.services.tax_rules import (
     categoria_tiene_iva_cero_por_regla,
     determinar_indice_iva_manual,
@@ -68,7 +70,6 @@ router = APIRouter()
 REVIEW_EDIT_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
     ReimbursementRequestStatus.under_accounting_review: {UserRole.accountant, UserRole.admin},
     ReimbursementRequestStatus.accounting_manager_review: {
-        UserRole.accounting_manager,
         UserRole.admin,
     },
 }
@@ -83,6 +84,7 @@ REMOVAL_ROLES_BY_STATUS: dict[ReimbursementRequestStatus, set[UserRole]] = {
 def create_expense(
     expense_in: ExpenseCreate,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense_data = expense_in.model_dump()
     request_id = expense_data.get("reimbursement_request_id")
@@ -167,6 +169,12 @@ def create_expense(
     db.add(expense)
     db.flush()
     if expense.reimbursement_request_id is not None:
+        invalidate_request_expense_artifacts(
+            db,
+            reimbursement_request,
+            settings,
+            reason="Expense created for the request.",
+        )
         actualizar_fecha_fin_reembolso(db, reimbursement_request)
         db.add(
             AuditLog(
@@ -256,6 +264,7 @@ def authorize_expense(
     expense_id: UUID,
     authorization_in: ExpenseAuthorization,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     actor = _get_actor_or_404(authorization_in.actor_user_id, db)
@@ -265,6 +274,7 @@ def authorize_expense(
         note=authorization_in.note,
         require_store_assignment=False,
         db=db,
+        settings=settings,
     )
 
 
@@ -274,6 +284,7 @@ def authorize_expense_as_current_user(
     authorization_in: AuthenticatedExpenseAuthorization,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     return _authorize_expense_with_actor(
@@ -282,6 +293,7 @@ def authorize_expense_as_current_user(
         note=authorization_in.note,
         require_store_assignment=True,
         db=db,
+        settings=settings,
     )
 
 
@@ -290,6 +302,7 @@ def reject_expense_authorization(
     expense_id: UUID,
     rejection_in: ExpenseRejection,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     actor = _get_actor_or_404(rejection_in.actor_user_id, db)
@@ -300,6 +313,7 @@ def reject_expense_authorization(
         adjust_reported_total=rejection_in.adjust_reported_total,
         require_store_assignment=False,
         db=db,
+        settings=settings,
     )
 
 
@@ -309,6 +323,7 @@ def reject_expense_authorization_as_current_user(
     rejection_in: AuthenticatedExpenseRejection,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     return _reject_expense_with_actor(
@@ -318,6 +333,7 @@ def reject_expense_authorization_as_current_user(
         adjust_reported_total=rejection_in.adjust_reported_total,
         require_store_assignment=True,
         db=db,
+        settings=settings,
     )
 
 
@@ -361,6 +377,7 @@ def review_update_expense(
     expense_id: UUID,
     expense_in: ExpenseReviewUpdate,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     actor = _get_actor_or_404(expense_in.actor_user_id, db)
@@ -374,6 +391,7 @@ def review_update_expense(
         note=note,
         require_store_assignment=False,
         db=db,
+        settings=settings,
     )
 
 
@@ -383,6 +401,7 @@ def review_update_expense_as_current_user(
     expense_in: AuthenticatedExpenseReviewUpdate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     updates = expense_in.model_dump(exclude_unset=True)
@@ -394,6 +413,7 @@ def review_update_expense_as_current_user(
         note=note,
         require_store_assignment=True,
         db=db,
+        settings=settings,
     )
 
 
@@ -402,6 +422,7 @@ def remove_expense_from_review(
     expense_id: UUID,
     removal_in: ExpenseRemoval,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     actor = _get_actor_or_404(removal_in.actor_user_id, db)
@@ -412,6 +433,7 @@ def remove_expense_from_review(
         adjust_reported_total=removal_in.adjust_reported_total,
         require_store_assignment=False,
         db=db,
+        settings=settings,
     )
 
 
@@ -421,6 +443,7 @@ def remove_expense_from_review_as_current_user(
     removal_in: AuthenticatedExpenseRemoval,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = _get_expense_or_404(expense_id, db)
     return _remove_expense_with_actor(
@@ -430,6 +453,7 @@ def remove_expense_from_review_as_current_user(
         adjust_reported_total=removal_in.adjust_reported_total,
         require_store_assignment=True,
         db=db,
+        settings=settings,
     )
 
 
@@ -438,6 +462,7 @@ def update_expense(
     expense_id: UUID,
     expense_in: ExpenseUpdate,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Expense:
     expense = db.get(Expense, expense_id)
     if expense is None:
@@ -450,11 +475,19 @@ def update_expense(
         )
 
     updates = expense_in.model_dump(exclude_unset=True)
+    previous_values = {name: getattr(expense, name) for name in updates}
     changed_fields = sorted(updates)
     _apply_expense_updates(expense, updates, db)
+    changed_content = any(getattr(expense, name) != value for name, value in previous_values.items())
     if "spent_on" in updates and expense.reimbursement_request is not None:
         actualizar_fecha_fin_reembolso(db, expense.reimbursement_request)
-    if expense.reimbursement_request_id is not None and changed_fields:
+    if expense.reimbursement_request_id is not None and changed_content:
+        invalidate_request_expense_artifacts(
+            db,
+            expense.reimbursement_request,
+            settings,
+            reason="Expense content updated.",
+        )
         db.add(
             AuditLog(
                 reimbursement_request_id=expense.reimbursement_request_id,
@@ -478,6 +511,7 @@ def _authorize_expense_with_actor(
     note: str | None,
     require_store_assignment: bool,
     db: Session,
+    settings: Settings,
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
     if reimbursement_request.status != ReimbursementRequestStatus.authorization_review:
@@ -504,6 +538,13 @@ def _authorize_expense_with_actor(
     expense.authorized_by_user_id = actor.id
     expense.authorization_note = note
     expense.status = ExpenseStatus.approved
+    invalidate_request_expense_artifacts(
+        db,
+        reimbursement_request,
+        settings,
+        actor=actor,
+        reason="Expense authorization changed the policy contents.",
+    )
     _add_expense_button_selected_audit_event(
         db,
         reimbursement_request=reimbursement_request,
@@ -539,6 +580,7 @@ def _reject_expense_with_actor(
     adjust_reported_total: bool,
     require_store_assignment: bool,
     db: Session,
+    settings: Settings,
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
     if reimbursement_request.status != ReimbursementRequestStatus.authorization_review:
@@ -571,6 +613,13 @@ def _reject_expense_with_actor(
     expense.requires_authorization = True
     expense.status = ExpenseStatus.rejected
     expense.authorization_note = reason
+    invalidate_request_expense_artifacts(
+        db,
+        reimbursement_request,
+        settings,
+        actor=actor,
+        reason="Expense authorization rejection changed the policy contents.",
+    )
     actualizar_fecha_fin_reembolso(db, reimbursement_request)
     if adjust_reported_total:
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)
@@ -713,6 +762,7 @@ def _review_update_expense_with_actor(
     note: str | None,
     require_store_assignment: bool,
     db: Session,
+    settings: Settings,
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
     _ensure_actor_can(actor, REVIEW_EDIT_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
@@ -732,6 +782,14 @@ def _review_update_expense_with_actor(
         actualizar_fecha_fin_reembolso(db, expense.reimbursement_request)
     new_values = _review_tracked_values(expense, db)
     changed_fields = _review_changed_fields(requested_fields, previous_values, new_values)
+    if changed_fields:
+        invalidate_request_expense_artifacts(
+            db,
+            reimbursement_request,
+            settings,
+            actor=actor,
+            reason="Expense content changed during accounting review.",
+        )
     changed_previous_values = _review_payload_values(previous_values, changed_fields)
     changed_new_values = _review_payload_values(new_values, changed_fields)
     event_message = (
@@ -913,6 +971,7 @@ def _remove_expense_with_actor(
     adjust_reported_total: bool,
     require_store_assignment: bool,
     db: Session,
+    settings: Settings,
 ) -> Expense:
     reimbursement_request = _attached_request_or_conflict(expense)
     _ensure_actor_can(actor, REMOVAL_ROLES_BY_STATUS.get(reimbursement_request.status, set()))
@@ -942,6 +1001,13 @@ def _remove_expense_with_actor(
     expense.removed_at = datetime.now(UTC)
     expense.removed_by_user_id = actor.id
     expense.removal_reason = reason
+    invalidate_request_expense_artifacts(
+        db,
+        reimbursement_request,
+        settings,
+        actor=actor,
+        reason="Expense removal changed the policy contents.",
+    )
     actualizar_fecha_fin_reembolso(db, reimbursement_request)
     if adjust_reported_total:
         reimbursement_request.reported_total = _active_expense_total(reimbursement_request)

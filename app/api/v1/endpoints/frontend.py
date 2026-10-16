@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies.auth import get_current_user
+from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
@@ -82,6 +83,12 @@ from app.services.reimbursement_periods import (
 from app.services.reimbursement_validation import (
     calculate_active_expense_total,
     summarize_reimbursement_request,
+)
+from app.services.request_expense_artifacts import (
+    current_reimbursement_excel_attachment,
+    invalidate_request_expense_artifacts,
+    policy_is_current,
+    reimbursement_is_current,
 )
 from app.services.tax_rules import (
     determinar_indice_iva_manual,
@@ -866,6 +873,7 @@ def add_frontend_expense(
     expense_in: FrontendGastoCreate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> FrontendSolicitudRead:
     request = _get_request_by_frontend_identifier(request_identifier, db)
     _ensure_request_visible(request, current_user, db)
@@ -892,6 +900,13 @@ def add_frontend_expense(
     expense = _expense_from_frontend(expense_in, request=request, period=request.period, db=db)
     db.add(expense)
     db.flush()
+    invalidate_request_expense_artifacts(
+        db,
+        request,
+        settings,
+        actor=current_user,
+        reason="Expense added to the request.",
+    )
     actualizar_fecha_fin_reembolso(db, request)
     link_capture_to_expense(db, expense_in.capture_id, current_user, request, expense)
     request.reported_total = _money(
@@ -938,6 +953,7 @@ def delete_frontend_draft_expense(
     expense_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> FrontendSolicitudRead:
     request = _get_request_by_frontend_identifier(request_identifier, db)
     _ensure_request_visible(request, current_user, db)
@@ -1011,6 +1027,13 @@ def delete_frontend_draft_expense(
             },
         )
     )
+    invalidate_request_expense_artifacts(
+        db,
+        request,
+        settings,
+        actor=current_user,
+        reason="Expense removed from the request.",
+    )
     db.delete(expense)
     actualizar_fecha_fin_reembolso(db, request)
 
@@ -1030,6 +1053,7 @@ def partition_frontend_expense(
     partition_in: FrontendExpensePartitionCreate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> FrontendSolicitudRead:
     request = _get_request_by_frontend_identifier(request_identifier, db)
     _ensure_request_visible(request, current_user, db)
@@ -1142,6 +1166,13 @@ def partition_frontend_expense(
             },
         )
     )
+    invalidate_request_expense_artifacts(
+        db,
+        request,
+        settings,
+        actor=current_user,
+        reason="Expense partition changed the request contents.",
+    )
     request.reported_total = calculate_active_expense_total(request)
     db.commit()
     db.expire_all()
@@ -1158,6 +1189,7 @@ def cancel_frontend_expense_partition(
     expense_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> FrontendSolicitudRead:
     request = _get_request_by_frontend_identifier(request_identifier, db)
     _ensure_request_visible(request, current_user, db)
@@ -1207,6 +1239,13 @@ def cancel_frontend_expense_partition(
                 "cancelled_partitions": cancelled_partitions,
             },
         )
+    )
+    invalidate_request_expense_artifacts(
+        db,
+        request,
+        settings,
+        actor=current_user,
+        reason="Expense partition was cancelled.",
     )
     db.commit()
     db.expire_all()
@@ -1516,7 +1555,7 @@ def _request_payload(
     folio = request.folio or f"Solicitud {str(request.id)[:8]}"
     calculated_total = _money(summary.calculated_total)
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
-    reembolso_attachment = _latest_reembolso_attachment(request)
+    reembolso_attachment = current_reimbursement_excel_attachment(db, request)
     return FrontendSolicitudRead(
         id=folio,
         backend_id=request.id,
@@ -1557,6 +1596,8 @@ def _request_payload(
         reembolso_attachment_id=reembolso_attachment.id if reembolso_attachment else None,
         reembolso_file_name=reembolso_attachment.filename if reembolso_attachment else None,
         reembolso_download_url=_attachment_download_url(reembolso_attachment),
+        policy_generated=policy_is_current(request),
+        reimbursement_current=reimbursement_is_current(request),
         available_actions=actions,
         action_labels={action: ACTION_LABELS.get(action, action) for action in actions},
     )
@@ -2532,21 +2573,6 @@ def _attachment_download_url(attachment: Attachment | None) -> str | None:
     if attachment is None:
         return None
     return f"/api/v1/attachments/{attachment.id}/download/me"
-
-
-def _latest_reembolso_attachment(request: ReimbursementRequest) -> Attachment | None:
-    return next(
-        (
-            attachment
-            for attachment in sorted(
-                request.attachments,
-                key=lambda item: item.uploaded_at,
-                reverse=True,
-            )
-            if attachment.attachment_type == AttachmentType.cash_box_format
-        ),
-        None,
-    )
 
 
 def _looks_like_invoice(attachment: Attachment) -> bool:

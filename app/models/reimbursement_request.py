@@ -8,11 +8,13 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
@@ -100,6 +102,20 @@ class ReimbursementRequest(Base):
     )
 
     reported_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    expense_content_revision: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    policy_downloaded_revision: Mapped[int | None] = mapped_column(Integer)
+    reimbursement_excel_revision: Mapped[int | None] = mapped_column(Integer)
+    artifacts_refresh_required: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
     previous_reimbursement_starts_on: Mapped[date | None] = mapped_column(Date)
     previous_reimbursement_ends_on: Mapped[date | None] = mapped_column(Date)
     previous_reimbursement_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

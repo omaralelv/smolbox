@@ -1,6 +1,7 @@
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import ReimbursementValidationSummary
+from app.services.request_expense_artifacts import reimbursement_is_current
 
 ACTION_LABELS = {
     "edit_request": "Editar solicitud",
@@ -116,6 +117,10 @@ def available_actions_for_request(
             UserRole.admin,
         }
         and request.sap_policy_generated_at is not None
+        and (
+            reimbursement_is_current(request)
+            or not request.artifacts_refresh_required
+        )
     ):
         actions.append("start_accounting_manager_review")
 

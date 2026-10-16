@@ -140,6 +140,7 @@ def generar_polizas(
         )
 
     numero_tienda = str(tienda_db["code"]).strip()
+    expense_content_revision = int(solicitud["expense_content_revision"] or 0)
 
     query_periodo = text("""
         SELECT *
@@ -580,9 +581,14 @@ def generar_polizas(
             event_payload={
                 "filename": nombre_zip,
                 "source": "macro_sap",
+                "expense_content_revision": expense_content_revision,
             },
         )
     )
+    request_model = db.get(ReimbursementRequest, solicitud_id)
+    if request_model is None:
+        raise HTTPException(status_code=404, detail="Solicitud de reembolso no encontrada.")
+    request_model.policy_downloaded_revision = expense_content_revision
     db.commit()
 
     return StreamingResponse(

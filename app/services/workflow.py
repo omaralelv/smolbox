@@ -9,6 +9,7 @@ from app.models.reimbursement_request import (
 )
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import ReimbursementValidationSummary
+from app.services.request_expense_artifacts import reimbursement_is_current
 
 
 class WorkflowTransitionError(ValueError):
@@ -251,6 +252,17 @@ def transition_reimbursement_request(
         and not summary.ready_for_accounting_approval
     ):
         raise WorkflowTransitionError("Request is not ready for accounting review completion")
+
+    if (
+        target_status == ReimbursementRequestStatus.accounting_manager_review
+        and current_status == ReimbursementRequestStatus.accounting_reviewed
+        and request.artifacts_refresh_required
+        and not reimbursement_is_current(request)
+    ):
+        raise WorkflowTransitionError(
+            "A reimbursement Excel for the current expense revision must be uploaded "
+            "before sending the request to management"
+        )
 
     if (
         target_status == ReimbursementRequestStatus.accounting_manager_review

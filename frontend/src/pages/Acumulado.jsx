@@ -29,19 +29,31 @@ function Acumulado( {currentRole} ) {
     const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
     const solicitudSeleccionada = solicitudActual || location.state?.solicitud || null;
     const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.reimbursementRequestId || solicitudSeleccionada?.id;
-    const reembolsoDownloadUrl = solicitudSeleccionada?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolso_download_url || null;
-    const reembolsoFileName = solicitudSeleccionada?.reembolsoFileName || solicitudSeleccionada?.reembolso_file_name || 'Reembolso.xlsx';
+    const reembolsoDownloadUrl = solicitudActual
+        ? solicitudActual.reembolsoDownloadUrl || solicitudActual.reembolso_download_url || null
+        : solicitudSeleccionada?.reembolsoDownloadUrl || solicitudSeleccionada?.reembolso_download_url || null;
+    const reembolsoFileName = solicitudActual
+        ? solicitudActual.reembolsoFileName || solicitudActual.reembolso_file_name || 'Reembolso.xlsx'
+        : solicitudSeleccionada?.reembolsoFileName || solicitudSeleccionada?.reembolso_file_name || 'Reembolso.xlsx';
 
 
     // ESTADOS PARA EL BLOQUEO DE BOTONES SEGUN EL FLUJO
-    // Rastrear si ya se descargó la póliza/reembolso
-    const [polizaGenerada, setPolizaGenerada] = useState(false);
+    const polizaGenerada = Boolean(
+        solicitudActual?.policyGenerated
+        ?? solicitudActual?.policy_generated
+        ?? solicitudSeleccionada?.policyGenerated
+        ?? solicitudSeleccionada?.policy_generated
+    );
     // Comprobar si ya existe un reembolso previo en el backend o si fue cargado en la sesión
     const reembolsoCargado = Boolean(
-        solicitudActual?.reembolsoDownloadUrl
-        || solicitudActual?.reembolso_download_url
-        || solicitudSeleccionada?.reembolsoDownloadUrl
-        || solicitudSeleccionada?.reembolso_download_url
+        solicitudActual?.reimbursementCurrent
+        ?? solicitudActual?.reimbursement_current
+        ?? solicitudSeleccionada?.reimbursementCurrent
+        ?? solicitudSeleccionada?.reimbursement_current
+        ?? solicitudActual?.reembolsoDownloadUrl
+        ?? solicitudActual?.reembolso_download_url
+        ?? solicitudSeleccionada?.reembolsoDownloadUrl
+        ?? solicitudSeleccionada?.reembolso_download_url
     );
 
     const currentBackendStatus = solicitudActual?.backendStatus
@@ -448,8 +460,11 @@ function Acumulado( {currentRole} ) {
 
         window.URL.revokeObjectURL(urlDescarga);
 
-        // MARCAR COMO GENERADA
-        setPolizaGenerada(true);
+        setSolicitudActual((solicitud) => ({
+            ...(solicitud || solicitudSeleccionada || {}),
+            policyGenerated: true,
+            policy_generated: true,
+        }));
 
     } catch (error) {
         console.error("Error descargando pólizas:", error);
@@ -495,7 +510,7 @@ function Acumulado( {currentRole} ) {
             case 'supervisor':
                 return null;
 
-            case 'contabilidad':
+            case 'contabilidad': {
                 // 1. Cargar Reembolso solo si ya se descargó la Póliza
                 const puedeCargarReembolso = polizaGenerada;
 
@@ -511,7 +526,11 @@ function Acumulado( {currentRole} ) {
                         </button>
 
                         <button
-                            style={puedeCargarReembolso ? styles.btnOutline : styles.btnOutlineDisabled}
+                            style={reembolsoCargado
+                                ? styles.btnGreenCargado
+                                : puedeCargarReembolso
+                                    ? styles.btnOutline
+                                    : styles.btnOutlineDisabled}
                             onClick={puedeCargarReembolso ? abrirCargaReembolso : undefined}
                             disabled={!puedeCargarReembolso}
                         >
@@ -533,6 +552,7 @@ function Acumulado( {currentRole} ) {
                         >Enviar a Gerencia</button>
                     </>
                 );
+            }
 
             case 'gerencia':
                 return (
@@ -554,7 +574,6 @@ function Acumulado( {currentRole} ) {
                         <button 
                             style={{
                                 ...(puedeConfirmarPago ? styles.btnGreen : styles.btnGreenDisabled),
-                                pointerEvents: puedeConfirmarPago ? 'auto' : 'none',
                             }}
                             onClick={puedeConfirmarPago ? () => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.') : undefined}
                             disabled={!puedeConfirmarPago}
@@ -573,8 +592,11 @@ function Acumulado( {currentRole} ) {
                         >Regresar acumulado</button>
                         <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
                         <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
+                            style={{
+                                ...(puedeConfirmarPago ? styles.btnBlueDisabled : styles.btnBlue),
+                            }}
+                            onClick={!puedeConfirmarPago ? () => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.') : undefined}
+                            disabled={puedeConfirmarPago}
                         >
                             Aprobar pago
                         </button>
@@ -609,13 +631,23 @@ function Acumulado( {currentRole} ) {
                             onClick={() => handleDescargarPoliza(solicitudBackendId)}>
                         Póliza y Reembolso</button>
                         <button
-                            style={puedeCargarReembolso ? styles.btnOutline : styles.btnOutlineDisabled}
+                            style={reembolsoCargado
+                                ? styles.btnGreenCargado
+                                : puedeCargarReembolso
+                                    ? styles.btnOutline
+                                    : styles.btnOutlineDisabled}
                             onClick={puedeCargarReembolso ? abrirCargaReembolso : undefined}
                             disabled={!puedeCargarReembolso}
                         >
-                            {subiendoReembolso ? 'Cargando...' : 'Cargar Reembolso'}
+                            {subiendoReembolso
+                                ? 'Cargando...'
+                                : reembolsoCargado
+                                    ? 'Reembolso Cargado'
+                                    : 'Cargar Reembolso'}
                         </button>
+
                         <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
+
                         <button
                             style={puedeEnviarGerencia ? styles.btnFilledCoral : styles.btnFilledCoralDisabled}
                             onClick={() => ejecutarAcciones(
@@ -633,8 +665,11 @@ function Acumulado( {currentRole} ) {
                         >Enviar a Tesorería</button>
 
                         <button
-                            style={styles.btnBlue}
-                            onClick={() => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.')}
+                            style={{
+                                ...(puedeConfirmarPago ? styles.btnBlueDisabled : styles.btnBlue),
+                            }}
+                            onClick={!puedeConfirmarPago ? () => ejecutarAcciones(['approve_direction'], 'Pago aprobado por dirección.') : undefined}
+                            disabled={puedeConfirmarPago}
                         >
                             Aprobar pago
                         </button>
@@ -642,7 +677,6 @@ function Acumulado( {currentRole} ) {
                         <button 
                             style={{
                                 ...(puedeConfirmarPago ? styles.btnGreen : styles.btnGreenDisabled),
-                                pointerEvents: puedeConfirmarPago ? 'auto' : 'none',
                             }}
                             onClick={puedeConfirmarPago ? () => ejecutarAcciones(['mark_approved_for_payment', 'record_payment'], 'Pago confirmado.') : undefined}
                             disabled={!puedeConfirmarPago}
@@ -1099,6 +1133,9 @@ const styles = {
         fontWeight: '600',
         cursor: 'not-allowed',
     },
+
+
+    
     btnFilledCoral: {
         backgroundColor: 'var(--sb-sendBtnBg)',
         border: 'none',
@@ -1133,6 +1170,18 @@ const styles = {
         boxShadow: 'var(--shadow-blue)',
         cursor: 'pointer',
     },
+    btnBlueDisabled: {
+        backgroundColor: '#d3f4fd',
+        border: '1px solid #4f96ae',
+        color: '#4f96ae',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        cursor: 'not-allowed',
+        opacity: 0.6,
+    },
+
     btnGreen: {
         backgroundColor: 'var(--sb-pagadaBg)',
         border: '1px solid var(--text-pagada)',
@@ -1144,6 +1193,18 @@ const styles = {
         boxShadow: 'var(--shadow-green)',
         cursor: 'pointer',
     }, 
+
+    btnGreenCargado: {
+        backgroundColor: '#e1fddd',
+        border: '1px solid #91cd86',
+        color: '#5a9a4f',
+        borderRadius: '12px',
+        padding: '10px 22px',
+        fontSize: '14px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+    }, 
+    
     btnGreenDisabled: {
         backgroundColor: '#d9f4d0',
         border: '1px solid #629557',

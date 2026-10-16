@@ -20,12 +20,9 @@ import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGas
 
 
 const CATEGORIAS_GASTO = [
-    "Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica",
-    "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil",
-    "Hospedaje", "Impuesto Hospedaje", "Insumo", "Licencias y Permisos", "Medicamentos",
-    "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis",
-    "Publicidad", "Recolección de Basura", "Servicio de Agua", "Trámites",
-    "Trasportación", "Vigilancia", "Otros",
+    "Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil",
+    "Gasolina", "Hospedaje", "Insumos", "Licencias y Permisos", "Mantenimiento Equipo de Cómputo", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad",
+    "Recolección de Basura", "Servicio de Agua", "Teléfono", "Trasportación", "Otros"
 ];
 
 const CATEGORIAS_IVA_CERO = new Set([
@@ -152,9 +149,9 @@ function Detalle({ currentRole }) {
         factura: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         recibo: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
         observaciones: ['tienda', 'supervisor', 'contabilidad', 'gerencia', 'tesoreria', 'direccion', 'admin'],
-        editar: ['contabilidad', 'gerencia', 'admin'],
-        particionar: ['contabilidad', 'gerencia', 'admin'],
-        eliminar: ['contabilidad', 'gerencia', 'admin']
+        editar: ['contabilidad', 'admin'],
+        particionar: ['contabilidad', 'admin'],
+        eliminar: ['contabilidad', 'admin']
     };
 
     const puedeVer = (herramienta) => visibilidadIconos[herramienta]?.includes(rol);
@@ -1103,9 +1100,9 @@ function Detalle({ currentRole }) {
                                     <strong>Total de Factura :</strong>
                                     <strong>{formatoMonto(totalGasto)}</strong>
                                 </div>
-                                <div style={{ ...styles.partitionAvailableRow, color: restante != 0 ? '#d3211b' : '#386c03' }}>
+                                <div style={{ ...styles.partitionAvailableRow, color: restante != 0 ? '#d3211b' : '#448800' }}>
                                     <span>Restante :</span>
-                                    <span>{formatoMonto(restante)}</span>
+                                    <strong>{formatoMonto(restante)}</strong>
                                 </div>
                             </div>
 
