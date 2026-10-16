@@ -39,18 +39,18 @@ def test_receiver_exact_match_normalizes_without_consuming_tolerance(text):
     ("rfc", "CIA090819PW", 1),
     ("rfc", "CIA090819P", 2),
     ("rfc", "CIA090819", 3),
-    ("rfc", "CIA090819PW4X", 1),
-    ("rfc", "CIA090819PW4XX", 2),
-    ("rfc", "CIA090819PW4XXX", 3),
+    ("rfc", "CIA0X90819PW4", 1),
+    ("rfc", "CIA0XX90819PW4", 2),
+    ("rfc", "CIA0XXX90819PW4", 3),
     ("razon_social", "COMERCIAL IAX", 1),
     ("razon_social", "COMERCIAL IXX", 2),
     ("razon_social", "COMERCIAL XXX", 3),
     ("razon_social", "COMERCIAL IA", 1),
     ("razon_social", "COMERCIAL I", 2),
     ("razon_social", "COMERCIAL", 3),
-    ("razon_social", "COMERCIAL IACX", 1),
-    ("razon_social", "COMERCIAL IACXX", 2),
-    ("razon_social", "COMERCIAL IACXXX", 3),
+    ("razon_social", "COMERXCIAL IAC", 1),
+    ("razon_social", "COMERXXCIAL IAC", 2),
+    ("razon_social", "COMERXXXCIAL IAC", 3),
 ])
 def test_receiver_accepts_one_to_three_edits_in_each_field(field, detected, differences):
     name = detected if field == "razon_social" else NAME
@@ -82,12 +82,10 @@ def test_unlabeled_name_can_contain_digit_confusions(name, differences):
 @pytest.mark.parametrize("field,detected", [
     ("rfc", "CIA09081XXXX"),
     ("rfc", "CIA09081"),
-    ("rfc", "CIA090819PW4XXXX"),
-    ("rfc", "CIA090819PW4\nXXXX"),
+    ("rfc", "CIA0XXXX90819PW4"),
     ("razon_social", "COMERCIA XXXX"),
     ("razon_social", "COMERCIA"),
-    ("razon_social", "COMERCIAL IACXXXX"),
-    ("razon_social", "COMERCIAL IAC\nXXXX"),
+    ("razon_social", "COMERXXXXCIAL IAC"),
 ])
 def test_receiver_rejects_four_differences(field, detected):
     name = detected if field == "razon_social" else NAME
@@ -95,7 +93,7 @@ def test_receiver_rejects_four_differences(field, detected):
     result = _check(f"RECEPTOR\nNombre: {name}\nRFC: {rfc}")
     assert not result["accepted"]
     assert result["missing_fields"] == [field]
-    assert result["fields"][field]["match_type"] == "mismatch"
+    assert result["fields"][field]["edit_distance"] is None
 
 
 @pytest.mark.parametrize("text,missing", [
@@ -142,8 +140,64 @@ def test_absent_fields_do_not_pass_via_tolerance(text, missing):
         "RECEPTOR Nombre: OTRA EMPRESA RFC: CIA090819PW4"
     ),
 ])
-def test_expected_values_in_issuer_or_different_receivers_do_not_approve(text):
-    assert not _check(text)["accepted"]
+def test_global_search_accepts_both_values_anywhere_regardless_of_role(text):
+    result = _check(text)
+    assert result["accepted"]
+    assert result["scope"] == "global"
+    assert all(field["match_type"] == "exact" for field in result["fields"].values())
+
+
+@pytest.mark.parametrize("text", [
+    "Facturado a: COMERCIAL IAC\nRFC: CIA090819PW4",
+    (
+        "FOLIO FISCAL: DEMO\nNumero de serie CSD del emisor: 123\n"
+        "Facturado a: COMERCIAL IAC\nDireccion: CALLE DEMO 22\nRFC: CIA090819PW4"
+    ),
+    "CLIENTE\nCOMERCIAL\nIAC\nDOMICILIO: DEMO\nCIA 090 819 PW 4",
+    "SUBTOTAL: 100\nNotas: comerci\u00e1l-iac\nR.F.C.: c.i.a-09 08 19 pw4",
+    (
+        "RECEPTOR: NOMBRE OMITIDO RFC: OMITIDO\n"
+        "Notas: COMERCIAL IAX\nSello: CIA090819PWX"
+    ),
+    "COMERCIAL IAX;\nC.I.A.09 08 19 P.W.X\nAV REFORMA 326",
+])
+def test_global_search_does_not_depend_on_labels_order_or_invoice_body(text):
+    assert _check(text)["accepted"]
+
+
+@pytest.mark.parametrize("text", [
+    "RECEPTOR Nombre: OTRA EMPRESA RFC: CIA090819PW4",
+    "EMISOR Nombre: COMERCIAL IAC RFC: OTR010101AAA",
+    "FOLIO FISCAL: DEMO\nFacturado a: OTRA EMPRESA\nRFC: OTR010101AAA",
+    "TOTAL: $100.00\nSin datos fiscales",
+])
+def test_global_search_still_requires_a_match_for_both_fields(text):
+    result = _check(text)
+    assert not result["accepted"]
+    assert result["missing_fields"]
+
+
+def test_global_search_prefers_exact_match_over_an_earlier_tolerated_match():
+    result = _check("COMERCIAL XXX\nCIA090819XXX\nCOMERCIAL IAC\nCIA090819PW4")
+    assert result["accepted"]
+    assert all(field["match_type"] == "exact" for field in result["fields"].values())
+
+
+def test_global_search_reaches_the_end_of_a_long_document():
+    result = _check("CONCEPTOS\nArticulo de prueba $100.00\n" * 1000 + "COMERCIAL IAX CIA090819PWX")
+    assert result["accepted"]
+    assert all(field["edit_distance"] == 1 for field in result["fields"].values())
+
+
+@pytest.mark.parametrize("text", [
+    "COMERCIAL IACXXXX CIA090819PW4XXXX",
+    "COMERCIAL IAC\nXXXX\nCIA090819PW4\nXXXX",
+    "AV REFORMA 326 COMERCIAL IAC\nCIA090819PW4",
+])
+def test_global_exact_search_checks_presence_not_full_field_identity(text):
+    result = _check(text)
+    assert result["accepted"]
+    assert all(field["edit_distance"] == 0 for field in result["fields"].values())
 
 
 def test_unset_expected_fields_are_not_required():
@@ -211,12 +265,8 @@ def test_non_identity_receiver_fields_do_not_split_its_rfc_and_name(address_labe
     assert result["fields"]["rfc"]["edit_distance"] == 0
 
 
-@pytest.mark.parametrize("name", [
-    "COMERCIAL IACXXXX", "OTRA EMPRESA", "COMERCIAL IAC\nXXXX",
-    "COMERCIAL IAC AVENIDA", "COMERCIAL IAC\nAVENIDA",
-    "COMERCIAL IAC AVENIDA 123", "COMERCIAL IAC CALLE 123",
-])
-def test_address_separator_does_not_hide_a_different_business_name(name):
+@pytest.mark.parametrize("name", ["OTRA EMPRESA", "COMERCIA XXXX"])
+def test_global_search_rejects_an_unmatched_name_next_to_an_address(name):
     result = _check(
         f"RFC RECEPTOR: {RFC}\nNOMBRE RECEPTOR: {name}\nCALLE DE PRUEBA 22"
     )
@@ -224,10 +274,10 @@ def test_address_separator_does_not_hide_a_different_business_name(name):
     assert result["missing_fields"] == ["razon_social"]
 
 
-def test_address_without_a_name_does_not_supply_a_receiver_identity():
+def test_global_search_can_find_the_name_inside_an_address():
     result = _check(f"RFC RECEPTOR: {RFC}\nNOMBRE RECEPTOR:\nAV REFORMA 326 COMERCIAL IAC")
-    assert not result["accepted"]
-    assert result["fields"]["razon_social"]["match_type"] == "missing"
+    assert result["accepted"]
+    assert result["fields"]["razon_social"]["detected"] == NAME
 
 
 def test_rfc_address_boundary_does_not_change_the_three_character_limit():

@@ -438,3 +438,57 @@ def test_receiver_address_is_not_part_of_name_and_original_ocr_is_preserved(
     assert detail.status_code == 200, detail.text
     assert detail.json()["raw_text"] == raw_text
     assert detail.json()["receiver_validation"]["fields"]["razon_social"]["detected"] == "COMERCIAL IAC"
+
+
+@pytest.mark.parametrize("raw_text", [
+    (
+        "PROVEEDOR DEMO\nRFC: AAA010101AAA\nFolio Fiscal: DEMO\n"
+        "Numero de serie CSD del emisor: 123456\nFecha: 03/10/2026\n"
+        "Facturado a: COMERCIAL IAC\nDireccion: CALLE DEMO 22\nRFC: CIA090819PW4\n"
+        "Conceptos: Agua\nTotal: $100.00"
+    ),
+    (
+        "EMISOR\nNombre: COMERCIAL IAC\nRFC: CIA090819PW4\n"
+        "RECEPTOR\nNombre: OTRA EMPRESA\nRFC: OTR010101AAA"
+    ),
+    (
+        "Nombre del receptor: COMERCIAL IAX\nRFC del receptor: OTR010101AAA\n"
+        "SUBTOTAL: $100.00\nNotas: CIA090819PWX"
+    ),
+])
+def test_global_receiver_search_is_saved_and_reused_without_changing_the_reading(
+    client, base_records, saved_result, session_factory, monkeypatch, raw_text,
+):
+    raw_response = {"Blocks": [
+        {"BlockType": "LINE", "Text": line} for line in raw_text.splitlines()
+    ]}
+    result = replace(saved_result, raw_text=raw_text, raw_response=raw_response)
+    monkeypatch.setattr(TextractOcrService, "extract_expense", lambda *args, **kwargs: result)
+    response = _preview(client, document_type="factura")
+    assert response.status_code == 200, response.text
+    assert "receiver_validation" not in response.json()
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("A saved global comparison must not require another OCR reading")
+
+    monkeypatch.setattr(TextractOcrService, "extract_expense", fail_if_called)
+    uploaded = _upload(
+        client, create_expense(client, base_records), token=response.json()["verification_token"],
+    )
+    with session_factory() as session:
+        rows = session.scalars(select(OcrExtraction)).all()
+        assert len(rows) == 2
+        for row in rows:
+            assert row.raw_text == raw_text
+            assert row.raw_response == raw_response
+            assert row.receiver_validation["accepted"]
+            assert row.receiver_validation["scope"] == "global"
+            assert row.receiver_validation["missing_fields"] == []
+        assert rows[0].receiver_validation == rows[1].receiver_validation
+    detail = client.get(
+        f"/api/v1/attachments/{uploaded['id']}/ocr/me", headers=authenticated_audit_headers(client),
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["raw_text"] == raw_text
+    assert detail.json()["raw_response"] == raw_response
+    assert detail.json()["receiver_validation"]["scope"] == "global"

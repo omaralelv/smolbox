@@ -92,31 +92,35 @@ Primero se eliminan diferencias de mayusculas, acentos, espacios y signos; estas
 no consumen tolerancia. Ambos campos deben estar presentes y cumplir su limite.
 La fecha, monto, folio fiscal y validacion XML no usan esta tolerancia.
 
-Se separan los bloques de emisor y receptor cuando aparecen identificados. Si hay
-varios receptores, no se combinan sus campos. Encabezados ambiguos o multiples
-identidades sin identificar no se aprueban usando datos de otro bloque. Se
-conserva compatibilidad con textos simples sin encabezados. Si no se consigue
-identificar ambos campos o alguno supera tres diferencias, se mantiene el rechazo
-y la alerta actual. No se agregaron controles ni mensajes al formulario.
+La busqueda es global: se revisa todo el texto reconocido, sin separar emisor,
+receptor, cliente, direcciones, conceptos o notas. Tampoco se detiene al encontrar
+el folio fiscal o el subtotal. Primero se busca el valor exacto normalizado; si
+no aparece, se comparan fragmentos de palabras consecutivas en todo el documento
+con el limite de tres diferencias. Los fragmentos aproximados respetan palabras
+completas para no recortar un token incorrecto hasta hacerlo coincidir. Los dos
+campos se buscan por separado y no necesitan estar juntos ni llevar etiquetas.
+Si alguno no tiene coincidencia, se mantiene el rechazo y la alerta actual.
+No se agregaron controles ni mensajes al formulario.
 
-La extraccion separa el nombre y RFC de una direccion que comienza en otro
-renglon o una columna delimitada, usando indicadores de calle/avenida y numero
-o S/N. Conserva nombres en varios renglones; no recorta un nombre solo porque
-empiece a coincidir con el esperado. Etiquetas como `DOMICILIO RECEPTOR`,
-`REGIMEN FISCAL RECEPTOR` y `USO DEL CFDI POR EL RECEPTOR` no crean otro receptor.
-Esta correccion no requiere otra migracion: usa `20261016_0025` y se aplica al
-validar nuevamente el archivo, sin alterar lecturas anteriores guardadas.
+Esta regla comprueba presencia, no pertenencia al receptor: puede aceptar datos
+del emisor, de una direccion, de bloques distintos o que aparezcan dentro de un
+valor mas largo. Es una relajacion deliberada de la validacion anterior, no una
+comprobacion fiscal de identidad. El XML sigue usando coincidencia exacta del
+receptor. No requiere otra migracion: usa `20261016_0025` y se aplica al validar
+nuevamente el archivo, sin alterar lecturas anteriores guardadas.
 
 En `receiver_validation`, `fields.rfc` y `fields.razon_social` guardan `expected`,
 `detected`, `normalized_detected`, `accepted`, `match_type` y `edit_distance`.
-`match_type` indica `exact`, `tolerated`, `mismatch`, `missing` o `not_required`.
-La distancia se guarda cuando esta entre 0 y 3; fuera del limite queda vacia, no
-se presenta como si fuera una distancia exacta de cuatro. Tambien se guarda el
-limite, el contexto y los campos rechazados. Esta evidencia se copia al adjunto
+`match_type` indica `exact`, `tolerated`, `missing` o `not_required`; las lecturas
+anteriores tambien pueden contener `mismatch`. La distancia se guarda cuando
+esta entre 0 y 3; si no hay coincidencia, el valor detectado y la distancia quedan
+vacios, sin inventar una lectura. Tambien se guarda el limite, `scope=global` y
+los campos rechazados. Esta evidencia se copia al adjunto
 al reutilizar la validacion y se consulta en el mismo endpoint protegido de OCR.
 
 `raw_text` y `raw_response` no se corrigen ni sustituyen por los valores esperados.
-Las lecturas anteriores no se recalculan; su `receiver_validation` queda vacio.
+Las lecturas anteriores no se recalculan; conservan su comparacion previa o el
+campo vacio si se crearon antes de incorporar esta evidencia.
 Esta tolerancia es una regla de lectura, no una comprobacion de identidad: un RFC
 distinto que este dentro de tres cambios puede aceptarse conforme a esta regla.
 
@@ -125,13 +129,15 @@ aceptado. Para comprobar esto ultimo, consultar `receiver_validation.accepted`.
 
 ### Verificacion del cambio (2026-10-16)
 
-Las pruebas cubren coincidencia exacta, normalizacion, de uno a tres cambios por
-campo (sustituciones, inserciones y eliminaciones), cuatro cambios rechazados,
-campos ausentes, emisor/receptor separados, bloques ambiguos, conservacion de
-texto/JSON, reutilizacion del OCR, permisos y migracion. Los XML con RFC distinto
+Las 313 pruebas relacionadas aprobaron. Cubren coincidencia exacta, normalizacion,
+de uno a tres cambios por campo (sustituciones, inserciones y eliminaciones),
+fragmentos con cuatro cambios sin otra coincidencia valida rechazados,
+campos ausentes, busqueda global sin depender de etiquetas o posicion,
+coincidencias repartidas entre bloques, conservacion de texto/JSON, reutilizacion
+del OCR, permisos y migracion. Los XML con RFC distinto
 siguen rechazandose. No se hicieron llamadas reales a AWS en estas pruebas.
 
-La revision general registro 496 pruebas aprobadas, 14 fallas y una omitida.
+Una revision general anterior registro 496 pruebas aprobadas, 14 fallas y una omitida.
 Once fallas ya estaban identificadas en otras areas; las tres adicionales son
 pruebas de macro SAP que esperan datos sin `expense_content_revision`. Estas
 ultimas se reprodujeron en una exportacion limpia de `eda962e`, sin este cambio.
