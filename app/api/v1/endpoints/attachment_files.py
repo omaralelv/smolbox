@@ -12,9 +12,10 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.attachment import Attachment
 from app.models.expense import Expense, ExpenseStatus
+from app.models.ocr_extraction import OcrExtraction
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
 from app.models.user import User, UserRole
-from app.schemas.attachment import AttachmentRead
+from app.schemas.attachment import AttachmentRead, OcrExtractionDetailRead
 from app.services.authorization_areas import (
     expense_is_visible_to_authorizer,
     request_is_visible_to_authorizer,
@@ -71,6 +72,26 @@ def download_attachment_as_current_user(
     if attachment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
 
+    _ensure_attachment_visible(attachment, current_user, db)
+    return _file_response(attachment, settings)
+
+
+@router.get("/{attachment_id}/ocr/me", response_model=OcrExtractionDetailRead)
+def read_attachment_ocr_as_current_user(
+    attachment_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> OcrExtraction:
+    attachment = db.get(Attachment, attachment_id)
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    _ensure_attachment_visible(attachment, current_user, db)
+    if attachment.ocr_extraction is None:
+        raise HTTPException(status_code=404, detail="No hay una lectura OCR guardada para este comprobante.")
+    return attachment.ocr_extraction
+
+
+def _ensure_attachment_visible(attachment: Attachment, current_user: User, db: Session) -> None:
     request = _attachment_request(db, attachment)
     if request is None:
         raise HTTPException(
@@ -115,8 +136,6 @@ def download_attachment_as_current_user(
                 "message": "El comprobante no pertenece a un gasto visible para tu \u00e1rea de autorizaci\u00f3n.",
             },
         )
-
-    return _file_response(attachment, settings)
 
 
 def _file_response(attachment: Attachment, settings: Settings) -> FileResponse:

@@ -17,6 +17,7 @@ from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense
+from app.models.ocr_extraction import OcrExtraction, OcrExtractionStatus
 from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.cfdi import (
     CfdiParseResult,
@@ -29,6 +30,7 @@ from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_e
 from app.services.expense_capture_audit import add_capture_event, get_capture
 from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
+from app.services.ocr_results import extraction_from_ocr_result
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
@@ -114,7 +116,7 @@ async def preview_invoice_ocr(
         )
         db.commit()
     try:
-        result = await _preview_invoice_ocr(file, settings, document_type)
+        result = await _preview_invoice_ocr(file, settings, document_type, db)
     except HTTPException as exc:
         if capture is not None:
             db.refresh(capture)
@@ -162,6 +164,7 @@ async def _preview_invoice_ocr(
     file: UploadFile,
     settings: Settings,
     document_type: str,
+    db: Session,
 ) -> InvoiceOcrPreviewResult:
     try:
         content = await read_upload_limited(file, settings.max_upload_bytes)
@@ -202,6 +205,8 @@ async def _preview_invoice_ocr(
             detail="Textract OCR solo acepta PDF, JPEG y PNG.",
         )
 
+    checksum = sha256(content).hexdigest()
+    source_filename = (file.filename or "factura.pdf")[:255]
     try:
         result = await run_in_threadpool(
             service.extract_expense,
@@ -211,6 +216,13 @@ async def _preview_invoice_ocr(
             search_cfdi_uuid=document_type.strip().lower() == "factura",
         )
     except TextractOcrError as exc:
+        extraction = extraction_from_ocr_result(exc.result) if exc.result else OcrExtraction()
+        extraction.status = OcrExtractionStatus.failed
+        extraction.document_checksum_sha256 = checksum
+        extraction.source_filename = source_filename
+        extraction.error_message = str(exc)
+        db.add(extraction)
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
@@ -227,6 +239,14 @@ async def _preview_invoice_ocr(
                 "message": OCR_UNREADABLE_DOCUMENT_MESSAGE,
             },
         )
+
+    # Save before fiscal validation: a readable document can still have the wrong receiver.
+    extraction = extraction_from_ocr_result(
+        result, document_checksum_sha256=checksum, source_filename=source_filename,
+    )
+    db.add(extraction)
+    db.commit()
+    db.refresh(extraction)
 
     if document_type.strip().lower() == "factura":
         missing_receiver_fields = validate_expected_invoice_receiver(
@@ -248,7 +268,6 @@ async def _preview_invoice_ocr(
                 },
             )
 
-    checksum = sha256(content).hexdigest()
     payload = build_ocr_preview_payload(
         checksum_sha256=checksum,
         suggested_cfdi_uuid=result.suggested_cfdi_uuid,
@@ -257,6 +276,7 @@ async def _preview_invoice_ocr(
         extracted_supplier=result.extracted_supplier,
         confidence=result.confidence,
     )
+    payload["extraction_id"] = str(extraction.id)
     return InvoiceOcrPreviewResult(
         suggested_cfdi_uuid=result.suggested_cfdi_uuid,
         extracted_total=result.extracted_total,

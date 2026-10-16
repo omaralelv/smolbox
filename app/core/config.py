@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     invoice_ocr_receiver_name: str | None = "COMERCIAL IAC"
     invoice_ocr_receiver_rfc: str | None = "CIA090819PW4"
     textract_enabled: bool = False
-    textract_store_raw_response: bool = False
+    textract_store_raw_response: bool = True
     aws_region: str = "us-east-1"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
