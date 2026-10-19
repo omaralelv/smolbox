@@ -496,6 +496,7 @@ function Usuarios() {
                     manager_name: form.managerName.trim() || undefined,
                     bank_account: form.bankAccount.trim() || undefined,
                     petty_cash_fund: form.pettyCashFund || '0.00',
+                    supervisor_id: form.supervisorId || undefined,
                 });
                 mensajeGuardado = 'Tienda y usuario guardados correctamente.';
             } else {
@@ -843,10 +844,10 @@ function Usuarios() {
                                     value={form.supervisorId}
                                     onChange={(event) => actualizarCampo('supervisorId', event.target.value)}
                                     style={styles.input}
-                                    disabled={!form.storeId || supervisoresActivos.length === 0}
+                                    disabled={(!form.storeId && !crearTiendaNueva) || supervisoresActivos.length === 0}
                                 >
                                     <option value="">
-                                        {form.storeId ? 'Sin supervisor asignado' : 'Selecciona una tienda primero'}
+                                        {form.storeId || crearTiendaNueva ? 'Sin supervisor asignado' : 'Selecciona una tienda primero'}
                                     </option>
                                     {supervisoresActivos.map((supervisor) => (
                                         <option key={supervisor.id} value={supervisor.id}>

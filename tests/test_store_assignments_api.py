@@ -30,6 +30,7 @@ def test_create_store_user_creates_store_cutoff_and_assignment_atomically(
     assert response.status_code == 201, response.text
     assert response.json()["store"]["code"] == "T214"
     assert response.json()["store"]["name"] == "San Francisco"
+    assert response.json()["store"]["state_region"] == "San Francisco"
     assert response.json()["user"]["full_name"] == "San Francisco"
     assert response.json()["user"]["role"] == "store"
     assert response.json()["user"]["email"] == "san.francisco@example.com"
@@ -58,6 +59,47 @@ def test_create_store_user_creates_store_cutoff_and_assignment_atomically(
         assert cutoff.reimbursed_amount == Decimal("0.00")
         assert assignment is not None
         assert assignment.is_active is True
+
+
+def test_create_store_user_assigns_supervisor(
+    client: TestClient,
+    session_factory,
+) -> None:
+    supervisor = client.post(
+        "/api/v1/users/",
+        json={"email": "sup@example.com", "full_name": "Sup", "role": "authorizer"},
+    )
+    assert supervisor.status_code == 201, supervisor.text
+    supervisor_id = supervisor.json()["id"]
+
+    response = client.post(
+        "/api/v1/users/store",
+        json={
+            "code": "T300",
+            "full_name": "Tienda Sup",
+            "email": "t300@example.com",
+            "supervisor_id": supervisor_id,
+        },
+    )
+    assert response.status_code == 201, response.text
+
+    with session_factory() as db:
+        store = db.scalar(select(Store).where(Store.code == "T300"))
+        rows = db.scalars(
+            select(StoreUserAssignment).where(StoreUserAssignment.store_id == store.id)
+        ).all()
+        assert {str(r.user_id) for r in rows if r.role.value == "authorizer"} == {supervisor_id}
+
+    invalid = client.post(
+        "/api/v1/users/store",
+        json={
+            "code": "T301",
+            "full_name": "Otra",
+            "email": "t301@example.com",
+            "supervisor_id": response.json()["user"]["id"],
+        },
+    )
+    assert invalid.status_code == 422
 
 
 @pytest.mark.parametrize("code", ["V101", "L102", "A103", "R104", "O105", "FE106"])
