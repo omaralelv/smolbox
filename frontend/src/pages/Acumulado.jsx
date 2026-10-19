@@ -558,18 +558,24 @@ function Acumulado( {currentRole} ) {
                 return (
                     <>
                         <button
-                            style={styles.btnOutline}
-                            onClick={() => abrirModalDevolucion('return_to_accounting')}
-                        >Regresar Acumulado</button>
+                            style={puedeConfirmarPago ? styles.btnOutlineDisabled : styles.btnOutline}
+                            onClick={!puedeConfirmarPago ? () => abrirModalDevolucion('return_to_accounting') : undefined}
+                            disabled={puedeConfirmarPago}
+                        >
+                            Regresar Acumulado
+                        </button>
 
                         <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
                         <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
+                            style={puedeConfirmarPago ? styles.btnFilledCoralDisabled : styles.btnFilledCoral}
+                            onClick={!puedeConfirmarPago ? () => ejecutarAcciones(
                                 ['start_accounting_manager_review', 'approve_accounting_manager'],
                                 'Solicitud enviada a tesorería.'
-                            )}
-                        >Enviar a Tesorería</button>
+                            ) : undefined}
+                            disabled={puedeConfirmarPago}
+                        >
+                            Enviar a Tesorería
+                        </button>
 
                         <button 
                             style={{
@@ -590,7 +596,13 @@ function Acumulado( {currentRole} ) {
                             style={styles.btnOutline}
                             onClick={() => abrirModalDevolucion('return_to_manager')}
                         >Regresar acumulado</button>
-                        <button style={styles.btnOutline} onClick={descargarReembolso}>Descargar Reembolso</button>
+                        <button 
+                            style={styles.btnOutline} 
+                            onClick={descargarReembolso}
+                        >
+                            Descargar Reembolso
+                        </button>
+
                         <button
                             style={{
                                 ...(puedeConfirmarPago ? styles.btnBlueDisabled : styles.btnBlue),
@@ -623,13 +635,19 @@ function Acumulado( {currentRole} ) {
                 return (
                         <>
                         <button
-                            style={styles.btnOutline}
-                            onClick={() => abrirModalDevolucion('return_to_manager')}
-                        >Regresar acumulado</button>
+                            style={puedeConfirmarPago ? styles.btnOutlineDisabled : styles.btnOutline}
+                            onClick={!puedeConfirmarPago ? () => abrirModalDevolucion('return_to_accounting') : undefined}
+                            disabled={puedeConfirmarPago}
+                        >
+                            Regresar Acumulado
+                        </button>
+
                         <button
                             style={styles.btnOutline}
                             onClick={() => handleDescargarPoliza(solicitudBackendId)}>
-                        Póliza y Reembolso</button>
+                        Póliza y Reembolso
+                        </button>
+
                         <button
                             style={reembolsoCargado
                                 ? styles.btnGreenCargado
@@ -656,13 +674,17 @@ function Acumulado( {currentRole} ) {
                             )}
                             disabled={!puedeEnviarGerencia}
                         >Enviar a Gerencia</button>
+                        
                         <button
-                            style={styles.btnFilledCoral}
-                            onClick={() => ejecutarAcciones(
+                            style={puedeConfirmarPago ? styles.btnFilledCoralDisabled : styles.btnFilledCoral}
+                            onClick={!puedeConfirmarPago ? () => ejecutarAcciones(
                                 ['start_accounting_manager_review', 'approve_accounting_manager'],
                                 'Solicitud enviada a tesorería.'
-                            )}
-                        >Enviar a Tesorería</button>
+                            ) : undefined}
+                            disabled={puedeConfirmarPago}
+                        >
+                            Enviar a Tesorería
+                        </button>
 
                         <button
                             style={{
