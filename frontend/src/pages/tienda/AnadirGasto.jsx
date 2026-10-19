@@ -88,8 +88,10 @@ function AnadirGasto() {
 
     const [folioValidado, setFolioValidado] = useState(false);
 
-    // CAMBIO: Estado para controlar si el gasto ya fue validado mediante el botón "Validar Gasto"
+    // Estado para controlar si el gasto ya fue validado mediante el botón "Validar Gasto"
     const [gastoValidado, setGastoValidado] = useState(false);
+
+    const [gastoHaSidoValidadoAlMenosUnaVez, setGastoHaSidoValidadoAlMenosUnaVez] = useState(false);
 
     const [ocrFactura, setOcrFactura] = useState(null);
     const [ocrVale, setOcrVale] = useState(null);
@@ -187,6 +189,12 @@ function AnadirGasto() {
         auditFieldSoon('amount', nuevoMonto);
         setMonto(nuevoMonto);
         setGastoValidado(false);
+
+        if (gastoHaSidoValidadoAlMenosUnaVez) {
+            setEstadoValidacion('advertencia');
+            setMensajeValidacion('MONTO EDITADO, VUELVE A VALIDAR GASTO.');
+        }
+
         const archivoDocumento = archivoParaTipoDocumento(tipoDocumento, { facturaFile, valeFile, reciboFile });
         const ocrDocumento = ocrParaTipoDocumento(tipoDocumento, { ocrFactura, ocrVale, ocrRecibo });
         if (
@@ -226,6 +234,12 @@ function AnadirGasto() {
     const handleValeFileChange = (file) => {
         auditFile('vale', file);
         setGastoValidado(false);
+
+        if (gastoHaSidoValidadoAlMenosUnaVez) {
+            setEstadoValidacion('advertencia');
+            setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
+        }
+
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrVale, file);
         setValeFile(file || null);
         setEstadoValidacion(null);
@@ -238,6 +252,12 @@ function AnadirGasto() {
     const handleReciboFileChange = (file) => {
         auditFile('recibo', file);
         setGastoValidado(false);
+
+        if (gastoHaSidoValidadoAlMenosUnaVez) {
+            setEstadoValidacion('advertencia');
+            setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
+        }
+
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrRecibo, file);
         setReciboFile(file || null);
         setEstadoValidacion(null);
@@ -262,6 +282,12 @@ function AnadirGasto() {
     const handleFacturaFileChange = async (file) => {
         auditFile('factura', file);
         setGastoValidado(false);
+
+        if (gastoHaSidoValidadoAlMenosUnaVez) {
+            setEstadoValidacion('advertencia');
+            setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
+        }
+
         const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrFactura, file);
         setFacturaFile(file || null);
         setEstadoValidacion(null);
@@ -415,6 +441,9 @@ function AnadirGasto() {
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
                 setGastoValidado(true);
+
+                setGastoHaSidoValidadoAlMenosUnaVez(true);
+
                 auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             } catch (error) {
                 const mensaje = apiErrorMessage(error);
@@ -453,6 +482,9 @@ function AnadirGasto() {
                 setMensajeValidacion(mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
                 setGastoValidado(true);
+
+                setGastoHaSidoValidadoAlMenosUnaVez(true);
+
                 auditValidation('validation_completed', mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
             } else if (facturaEsPdf) {
                 await captureAudit.flush();
@@ -498,6 +530,9 @@ function AnadirGasto() {
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
                 setGastoValidado(true);
+
+                setGastoHaSidoValidadoAlMenosUnaVez(true);
+
                 auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             }
         } 
@@ -798,6 +833,11 @@ function AnadirGasto() {
                             auditFieldSoon('date', e.target.value);
                             setFecha(e.target.value);
                             setGastoValidado(false);
+
+                            if (gastoHaSidoValidadoAlMenosUnaVez) {
+                                setEstadoValidacion('advertencia');
+                                setMensajeValidacion('FECHA EDITADA, VUELVE A VALIDAR GASTO.');
+                            }
                         }}
                             onBlur={(e) => auditField('date', e.target.value)}
                             placeholder="DD/MM/AAAA"
