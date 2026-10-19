@@ -72,10 +72,22 @@ def create_store_user(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "DUPLICATE_STORE_CODE", "message": "Store code already exists"},
         )
+    supervisor = None
+    if user_in.supervisor_id is not None:
+        supervisor = db.get(User, user_in.supervisor_id)
+        if supervisor is None or not supervisor.is_active or supervisor.role != UserRole.authorizer:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "INVALID_SUPERVISOR",
+                    "message": "Supervisor must be an active authorizer user",
+                },
+            )
 
     store = Store(
         code=user_in.code,
         name=user_in.full_name,
+        state_region=user_in.full_name,
         contact_email=user_in.email,
         manager_name=user_in.manager_name,
         bank_account=user_in.bank_account,
@@ -104,6 +116,15 @@ def create_store_user(
             is_active=user.is_active,
         )
         db.add(assignment)
+        if supervisor is not None:
+            db.add(
+                StoreUserAssignment(
+                    store_id=store.id,
+                    user_id=supervisor.id,
+                    role=UserRole.authorizer,
+                    is_active=True,
+                )
+            )
         db.commit()
     except HTTPException:
         db.rollback()

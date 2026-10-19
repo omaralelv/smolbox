@@ -77,6 +77,7 @@ class StoreUserCreate(BaseModel):
     manager_name: str | None = Field(default=None, max_length=160)
     bank_account: str | None = Field(default=None, max_length=80)
     petty_cash_fund: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=12, decimal_places=2)
+    supervisor_id: UUID | None = None
 
     @field_validator("manager_name", "bank_account")
     @classmethod
