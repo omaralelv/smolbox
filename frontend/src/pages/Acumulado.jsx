@@ -593,9 +593,12 @@ function Acumulado( {currentRole} ) {
                 return (
                     <>
                         <button
-                            style={styles.btnOutline}
-                            onClick={() => abrirModalDevolucion('return_to_manager')}
-                        >Regresar acumulado</button>
+                            style={puedeConfirmarPago ? styles.btnOutlineDisabled : styles.btnOutline}
+                            onClick={!puedeConfirmarPago ? () => abrirModalDevolucion('return_to_manager') : undefined}
+                            disabled={puedeConfirmarPago}
+                        >
+                            Regresar acumulado
+                        </button>
                         <button 
                             style={styles.btnOutline} 
                             onClick={descargarReembolso}
