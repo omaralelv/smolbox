@@ -11,10 +11,13 @@ import {
     apiErrorMessage,
     createFrontendSolicitud,
     currentToken,
+    currentStoredRole,
     deleteDraftExpense,
     executeRequestAction,
     getFrontendContext,
     getFrontendSolicitud,
+    getStoreDraft,
+    listActiveFrontendStores,
     parseCfdi,
     uploadExpenseAttachment,
     validateExpenseCfdi,
@@ -22,8 +25,6 @@ import {
 
 import {
     clearDraftGastos,
-    loadDraftGastos,
-    loadDraftRequest,
     removeDraftGasto,
     replaceDraftGastos,
     saveDraftRequest,
@@ -134,15 +135,38 @@ function observacionesHistorialParaBackend(gasto) {
 function SolicitudForm({ currentRole }) {
     const navigate = useNavigate();
     const location = useLocation();
-    const [datosIniciales, setDatosIniciales] = useState(DATOS_INICIALES);
+    const rol = String(currentRole || currentStoredRole() || 'admin').toLowerCase().trim();
+    const [stores, setStores] = useState([]);
+    const [selectedStoreId, setSelectedStoreId] = useState(
+        () => rol === 'admin'
+            ? location.state?.selectedStoreId || localStorage.getItem('solicitudTiendaActiva') || ''
+            : ''
+    );
+    const [draftLoadedStoreId, setDraftLoadedStoreId] = useState('');
+    const [borradorBackend, setBorradorBackend] = useState(null);
+    const [cargandoTiendas, setCargandoTiendas] = useState(true);
+    const [errorBorrador, setErrorBorrador] = useState('');
     const [enviando, setEnviando] = useState(false);
     const [borrandoGastoId, setBorrandoGastoId] = useState(null);
+    const [gastos, setGastos] = useState([]);
 
-    // 2. ESTADOS PARA LA LISTA DE GASTOS Y FORMULARIO
-    const [gastos, setGastos] = useState(() => loadDraftGastos());
-
+    const tiendaSeleccionada = stores.find((store) => store.id === selectedStoreId);
+    const datosIniciales = {
+        fecha: DATOS_INICIALES.fecha,
+        tienda: tiendaSeleccionada?.code
+            || (rol === 'admin' ? 'Selecciona una tienda' : DATOS_INICIALES.tienda),
+        gerente: tiendaSeleccionada?.gerente || DATOS_INICIALES.gerente,
+        cuentaBancaria: tiendaSeleccionada?.cuentaBancaria || DATOS_INICIALES.cuentaBancaria,
+        estadoRegion: tiendaSeleccionada?.estadoRegion || DATOS_INICIALES.estadoRegion,
+    };
+    const cargandoBorrador = Boolean(
+        selectedStoreId && draftLoadedStoreId !== selectedStoreId
+    );
+    const gastosVisibles = selectedStoreId && draftLoadedStoreId === selectedStoreId
+        ? gastos
+        : [];
     const solicitudBackendId = location.state?.solicitudBackendId || null;
-    const observationRequestId = solicitudBackendId || loadDraftRequest()?.backendId || null;
+    const observationRequestId = solicitudBackendId || borradorBackend?.backendId || null;
 
     // 1. ESTADOS PARA CONTROLAR LOS PANELES Y OBSERVACIONES
         const [documentoActivo, setDocumentoActivo] = useState(null); // 'factura' | 'vale' | null
@@ -154,10 +178,7 @@ function SolicitudForm({ currentRole }) {
         const [guardandoObservacion, setGuardandoObservacion] = useState(false);
         const guardandoObservacionRef = useRef(false);
         const [errorHistorial, setErrorHistorial] = useState('');
-        const [historial, setHistorial] = useState(() => historialBorradorDesdeGastos(loadDraftGastos()));
-    
-        // 2. NORMALIZAR EL ROL
-        const rol = String(currentRole || localStorage.getItem('currentRole') || 'admin').toLowerCase().trim();
+        const [historial, setHistorial] = useState([]);
     
     useEffect(() => {
         if (!currentToken()) {
@@ -166,44 +187,135 @@ function SolicitudForm({ currentRole }) {
         }
 
         let activo = true;
-        getFrontendContext()
-            .then((contexto) => {
+        const cargarTiendas = async () => {
+            setCargandoTiendas(true);
+            setErrorBorrador('');
+            try {
+                let tiendas;
+                let tiendaInicial;
+                if (rol === 'admin') {
+                    tiendas = await listActiveFrontendStores();
+                    const tiendaPreferida = location.state?.selectedStoreId
+                        || localStorage.getItem('solicitudTiendaActiva');
+                    tiendaInicial = tiendas.find((store) => store.id === tiendaPreferida)
+                        || tiendas[0]
+                        || null;
+                } else {
+                    const contexto = await getFrontendContext();
+                    tiendas = contexto.stores || [];
+                    tiendaInicial = contexto.activeStore || tiendas[0] || null;
+                }
                 if (!activo) return;
-                setDatosIniciales({
-                    fecha: DATOS_INICIALES.fecha,
-                    tienda: contexto.tienda || DATOS_INICIALES.tienda,
-                    gerente: contexto.gerente || DATOS_INICIALES.gerente,
-                    cuentaBancaria: contexto.cuentaBancaria || DATOS_INICIALES.cuentaBancaria,
-                    estadoRegion: contexto.estadoRegion || DATOS_INICIALES.estadoRegion,
-                });
+                setStores(tiendas);
+                setSelectedStoreId(tiendaInicial?.id || '');
+                if (tiendaInicial?.id) {
+                    localStorage.setItem('solicitudTiendaActiva', tiendaInicial.id);
+                } else {
+                    setBorradorBackend(null);
+                    setGastos([]);
+                    setHistorial([]);
+                    setGastoSeleccionado(null);
+                    setDocumentoActivo(null);
+                    setObservacionesAbiertas(false);
+                    setDraftLoadedStoreId('');
+                    setErrorBorrador(rol === 'admin'
+                        ? 'No hay tiendas vinculadas a usuarios activos.'
+                        : 'No se encontró una tienda asignada a este usuario.');
+                }
+            } catch (error) {
+                if (activo) {
+                    setStores([]);
+                    setSelectedStoreId('');
+                    setBorradorBackend(null);
+                    setGastos([]);
+                    setHistorial([]);
+                    setDraftLoadedStoreId('');
+                    setErrorBorrador(apiErrorMessage(error));
+                }
+            } finally {
+                if (activo) setCargandoTiendas(false);
+            }
+        };
+        cargarTiendas();
+
+        return () => {
+            activo = false;
+        };
+    }, [rol, navigate, location.state?.selectedStoreId]);
+
+    useEffect(() => {
+        if (!selectedStoreId || !currentToken()) return undefined;
+
+        let activo = true;
+        const cargarBorrador = solicitudBackendId
+            ? getFrontendSolicitud(solicitudBackendId)
+            : getStoreDraft(selectedStoreId);
+        cargarBorrador
+            .then((solicitud) => {
+                if (!activo) return;
+                const backendStatus = solicitud?.backendStatus || solicitud?.backend_status;
+                if (!solicitud || !['draft', 'correction_required'].includes(backendStatus)) {
+                    clearDraftGastos(selectedStoreId);
+                    setBorradorBackend(null);
+                    setGastos([]);
+                    setHistorial([]);
+                    return;
+                }
+
+                const gastosBackend = (solicitud.gastos || []).filter(gastoActivoEnBorrador);
+                setBorradorBackend(solicitud);
+                saveDraftRequest(solicitud, selectedStoreId);
+                replaceDraftGastos(gastosBackend, selectedStoreId);
+                setGastos(gastosBackend);
+                setHistorial(historialBorradorDesdeGastos(gastosBackend));
             })
-            .catch(() => {
-                if (activo) setDatosIniciales(DATOS_INICIALES);
+            .catch((error) => {
+                if (!activo) return;
+                setErrorBorrador(apiErrorMessage(error));
+                console.error('No se pudo cargar el borrador de la tienda', error);
+            })
+            .finally(() => {
+                if (activo) setDraftLoadedStoreId(selectedStoreId);
             });
 
         return () => {
             activo = false;
         };
-    }, [currentRole, navigate]);
+    }, [selectedStoreId, solicitudBackendId]);
+
+    const handleSeleccionarTienda = (event) => {
+        const storeId = event.target.value;
+        setSelectedStoreId(storeId);
+        setBorradorBackend(null);
+        setGastos([]);
+        setHistorial([]);
+        setDraftLoadedStoreId('');
+        setErrorBorrador('');
+        if (storeId) localStorage.setItem('solicitudTiendaActiva', storeId);
+    };
 
     // Calcular el TOTAL dinámicamente basándose en la lista actual
     const calcularTotal = () => {
-        return gastos
+        return gastosVisibles
             .filter(gastoEnviableEnSolicitud)
             .reduce((sum, item) => sum + Number(item.monto || 0), 0)
             .toFixed(2);
     };
 
     const handleEnviarSolicitud = async () => {
-        const borradorBackend = loadDraftRequest();
+        if (!selectedStoreId) {
+            alert('Selecciona una tienda antes de enviar la solicitud.');
+            return;
+        }
+        const borrador = borradorBackend;
         const gastosActivos = gastos.filter(gastoEnviableEnSolicitud);
 
-        if (gastosActivos.length === 0 && !borradorBackend?.backendId) {
+        if (gastosActivos.length === 0 && !borrador?.backendId) {
             alert("Debes añadir al menos un gasto antes de enviar.");
             return;
         }
 
-        const errorEvidencia = borradorBackend?.backendId
+        const errorEvidencia = borrador?.backendId
             ? null
             : validarEvidenciaAntesDeEnviar(gastosActivos);
         if (errorEvidencia) {
@@ -214,8 +326,8 @@ function SolicitudForm({ currentRole }) {
         setEnviando(true);
 
         try {
-            if (borradorBackend?.backendId) {
-                const solicitudBorrador = await getFrontendSolicitud(borradorBackend.backendId);
+            if (borrador?.backendId) {
+                const solicitudBorrador = await getFrontendSolicitud(borrador.backendId);
                 const gastosBackendActivos = (solicitudBorrador.gastos || []).filter(gastoActivoEnBorrador);
                 if (!gastosBackendActivos.length) {
                     throw new Error('El borrador no tiene gastos guardados.');
@@ -224,7 +336,9 @@ function SolicitudForm({ currentRole }) {
                 await executeRequestAction(solicitudBorrador.backendId, 'submit_request');
                 const solicitudActualizada = await getFrontendSolicitud(solicitudBorrador.backendId);
 
-                clearDraftGastos();
+                clearDraftGastos(selectedStoreId);
+                setBorradorBackend(null);
+                setGastos([]);
                 localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitudActualizada]));
 
                 alert(`¡Solicitud ${solicitudActualizada.id} enviada con éxito!`);
@@ -235,6 +349,7 @@ function SolicitudForm({ currentRole }) {
             await validarCfdisAntesDeCrearSolicitud(gastosActivos);
 
             const nuevaSolicitud = await createFrontendSolicitud({
+                store_id: selectedStoreId,
                 tienda: datosIniciales.tienda,
                 montoTotal: calcularTotal(),
                 gastos: gastosActivos.map((gasto) => ({
@@ -264,7 +379,9 @@ function SolicitudForm({ currentRole }) {
             await executeRequestAction(nuevaSolicitud.backendId, 'submit_request');
             const solicitudActualizada = await getFrontendSolicitud(nuevaSolicitud.backendId);
 
-            clearDraftGastos();
+            clearDraftGastos(selectedStoreId);
+            setBorradorBackend(null);
+            setGastos([]);
             localStorage.setItem('bandejaSolicitudes', JSON.stringify([solicitudActualizada]));
 
             alert(`¡Solicitud ${solicitudActualizada.id} enviada con éxito!`);
@@ -276,48 +393,6 @@ function SolicitudForm({ currentRole }) {
         }
 
     };
-
-
-    useEffect(() => {
-        if (solicitudBackendId || !currentToken()) return undefined;
-
-        const borradorBackend = loadDraftRequest();
-        if (!borradorBackend?.backendId) return undefined;
-
-        let activo = true;
-
-        getFrontendSolicitud(borradorBackend.backendId)
-            .then((solicitud) => {
-                if (!activo) return;
-
-                const backendStatus = solicitud.backendStatus || solicitud.backend_status;
-                if (!['draft', 'correction_required'].includes(backendStatus)) {
-                    clearDraftGastos();
-                    setGastos([]);
-                    setHistorial([]);
-                    setGastoSeleccionado(null);
-                    setObservacionesAbiertas(false);
-                    return;
-                }
-
-                const gastosBackend = (solicitud.gastos || []).filter(gastoActivoEnBorrador);
-                saveDraftRequest(solicitud);
-                replaceDraftGastos(gastosBackend);
-                setGastos(gastosBackend);
-                setGastoSeleccionado((actual) => actual
-                    ? gastosBackend.find((gasto) => idsIguales(gastoHistorialId(gasto), gastoHistorialId(actual))) || null
-                    : null);
-                setHistorial((actual) => combinarHistorialObservaciones(historialBorradorDesdeGastos(gastosBackend), actual));
-            })
-            .catch((error) => {
-                console.error('No se pudo restaurar el borrador guardado', error);
-            });
-
-        return () => {
-            activo = false;
-        };
-    }, [solicitudBackendId]);
-
 
     useEffect(() => {
         if (!observationRequestId) {
@@ -396,12 +471,11 @@ function SolicitudForm({ currentRole }) {
 
         try {
             const backendId = gasto.backendId || gasto.backend_id;
-            const borradorBackend = loadDraftRequest();
             if (backendId && borradorBackend?.backendId) {
                 await deleteDraftExpense(borradorBackend.backendId, backendId);
             }
 
-            const gastosActualizados = removeDraftGasto(gastoId).filter(gastoActivoEnBorrador);
+            const gastosActualizados = removeDraftGasto(gastoId, selectedStoreId).filter(gastoActivoEnBorrador);
             setGastos(gastosActualizados);
             setHistorial(historialBorradorDesdeGastos(gastosActualizados));
 
@@ -423,7 +497,7 @@ function SolicitudForm({ currentRole }) {
         if (!textoObservacion || guardandoObservacionRef.current || !puedeAgregarObservacion(gastoSeleccionado, { localDraft: !observationRequestId })) return;
 
         const expenseId = gastoSeleccionado.backendId || gastoSeleccionado.id;
-        const draftBackendId = loadDraftRequest()?.backendId || null;
+        const draftBackendId = borradorBackend?.backendId || null;
         const requestIdParaObservacion = solicitudBackendId || draftBackendId;
         if (requestIdParaObservacion && (!expenseId || typeof expenseId !== 'string')) {
             alert('Este gasto no tiene ID de backend para guardar la observación.');
@@ -447,7 +521,7 @@ function SolicitudForm({ currentRole }) {
                 const gastosActualizados = gastos.map(actualizarGasto);
                 setGastos(gastosActualizados);
                 setHistorial(historialBorradorDesdeGastos(gastosActualizados));
-                updateDraftGasto(currentGastoId, actualizarGasto);
+                updateDraftGasto(currentGastoId, actualizarGasto, selectedStoreId);
             }
             setComentario('');
         } catch (error) {
@@ -459,7 +533,7 @@ function SolicitudForm({ currentRole }) {
     };
     
     
-    const auditRequestId = solicitudBackendId || loadDraftRequest()?.backendId || null;
+    const auditRequestId = solicitudBackendId || borradorBackend?.backendId || null;
 
     return (
         <div style={styles.mainLayout} data-audit-request-id={auditRequestId || undefined}>
@@ -468,10 +542,34 @@ function SolicitudForm({ currentRole }) {
             {/* TÍTULO Y BOTÓN DE AÑADIR */}
             <div style={styles.titleRow}>
                 <h2 style={styles.mainTitle}>Solicitud de Reembolso</h2>
+                {rol === 'admin' && (
+                    <div style={styles.storeFilterGroup}>
+                        <label style={styles.label} htmlFor="solicitud-store-select">Tienda activa</label>
+                        <select
+                            id="solicitud-store-select"
+                            style={styles.storeSelect}
+                            value={selectedStoreId}
+                            onChange={handleSeleccionarTienda}
+                            disabled={cargandoTiendas || !stores.length}
+                        >
+                            <option value="">Selecciona una tienda</option>
+                            {stores.map((store) => (
+                                <option key={store.id} value={store.id}>
+                                    {store.code} - {store.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 <button 
-                style={styles.añadirBtn} 
+                style={{
+                    ...styles.añadirBtn,
+                    opacity: !selectedStoreId || cargandoTiendas || cargandoBorrador ? 0.55 : 1,
+                    cursor: !selectedStoreId || cargandoTiendas || cargandoBorrador ? 'not-allowed' : 'pointer',
+                }}
+                disabled={!selectedStoreId || cargandoTiendas || cargandoBorrador}
                 onClick={() => {
-                    navigate('/gasto/nuevo')
+                    navigate('/gasto/nuevo', { state: { selectedStoreId } })
                     }
                 }
                 //onClick={() => setMostrarFormGasto(!mostrarFormGasto)}
@@ -479,6 +577,12 @@ function SolicitudForm({ currentRole }) {
                 Añadir Gasto
                 </button>
             </div>
+            {errorBorrador && (
+                <p role="alert" style={styles.errorMessage}>{errorBorrador}</p>
+            )}
+            {cargandoBorrador && (
+                <p role="status" style={styles.loadingMessage}>Cargando borrador de la tienda...</p>
+            )}
 
             {/* BLOQUE DE DATOS AUTOCOMPLETADOS (Campos Fijos) */}
             <div style={styles.gridAuto}>
@@ -516,7 +620,7 @@ function SolicitudForm({ currentRole }) {
                 </div>
 
                 {/* FILAS DE GASTOS */}
-                {gastos.filter(gastoActivoEnBorrador).map((gasto) => {
+                {gastosVisibles.filter(gastoActivoEnBorrador).map((gasto) => {
                     const gastoId = gastoHistorialId(gasto);
                     const borrandoEsteGasto = idsIguales(borrandoGastoId, gastoId);
                     return (
@@ -600,7 +704,7 @@ function SolicitudForm({ currentRole }) {
                 <button
                     onClick={handleEnviarSolicitud}
                     style={styles.enviarSolicitudBtnFixed}
-                    disabled={enviando}
+                    disabled={enviando || cargandoTiendas || cargandoBorrador || !selectedStoreId}
                 >
                 {enviando ? 'Enviando...' : 'Enviar Solicitud'}
                 </button>
@@ -792,7 +896,33 @@ const styles = {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: '16px',
+        flexWrap: 'wrap',
         marginBottom: '30px',
+    },
+    storeFilterGroup: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+    },
+    storeSelect: {
+        minWidth: '240px',
+        border: '1px solid var(--border)',
+        borderRadius: '8px',
+        padding: '10px',
+        backgroundColor: 'var(--bg)',
+        color: 'var(--text)',
+        fontSize: '14px',
+    },
+    errorMessage: {
+        margin: '0 0 12px',
+        color: '#b42318',
+        fontSize: '14px',
+    },
+    loadingMessage: {
+        margin: '0 0 12px',
+        color: 'var(--text)',
+        fontSize: '14px',
     },
     mainTitle: {
         margin: 0,

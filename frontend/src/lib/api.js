@@ -188,6 +188,10 @@ export async function getFrontendContext() {
     return request('/frontend/context/me');
 }
 
+export async function listActiveFrontendStores() {
+    return request('/frontend/stores/active/me');
+}
+
 export async function getAppHealth() {
     return request('/health', { skipAuth: true });
 }
@@ -227,6 +231,17 @@ function productivityQuery(params) {
 
 export async function getFrontendSolicitud(requestIdOrFolio) {
     return request(`/frontend/solicitudes/${encodeURIComponent(requestIdOrFolio)}/me`);
+}
+
+export async function getStoreDraft(storeId) {
+    return request(`/frontend/solicitudes/tienda/${encodeURIComponent(storeId)}/borrador/me`);
+}
+
+export async function ensureStoreDraft(storeId) {
+    return request(`/frontend/solicitudes/tienda/${encodeURIComponent(storeId)}/borrador/me`, {
+        method: 'POST',
+        body: {},
+    });
 }
 
 export async function getReimbursementValidationSummary(requestId) {

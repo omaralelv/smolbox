@@ -1,98 +1,109 @@
 const DRAFT_GASTOS_KEY = 'listaGastosSmolbox';
 const DRAFT_REQUEST_KEY = 'solicitudBorradorBackendSmolbox';
 
-let draftGastos = null;
-let draftRequest = null;
+const draftGastos = new Map();
+const draftRequests = new Map();
 
-export function loadDraftGastos() {
-    if (draftGastos) return draftGastos;
+export function loadDraftGastos(storeId) {
+    const key = scopedKey(DRAFT_GASTOS_KEY, storeId);
+    if (!key) return [];
+    if (draftGastos.has(key)) return draftGastos.get(key);
 
-    const guardados = localStorage.getItem(DRAFT_GASTOS_KEY);
-    draftGastos = guardados ? JSON.parse(guardados) : [];
-    return draftGastos;
+    const saved = localStorage.getItem(key);
+    const expenses = saved ? JSON.parse(saved) : [];
+    draftGastos.set(key, expenses);
+    return expenses;
 }
 
-export function addDraftGasto(gasto) {
-    const gastos = loadDraftGastos();
-    const existe = gastos.some((item) => item.id === gasto.id);
-    //draftGastos = existe ? gastos : [...gastos, gasto];
-    if (existe) {
-        // 🔄 Si existe, actualizamos el gasto con los nuevos datos (incluyendo observaciones)
-        draftGastos = gastos.map((item) => (item.id === gasto.id ? gasto : item));
-    } else {
-        // ➕ Si no existe, lo agregamos a la lista
-        draftGastos = [...gastos, gasto];
-    }
+export function addDraftGasto(gasto, storeId) {
+    const gastos = loadDraftGastos(storeId);
+    const exists = gastos.some((item) => item.id === gasto.id);
+    const updated = exists
+        ? gastos.map((item) => (item.id === gasto.id ? gasto : item))
+        : [...gastos, gasto];
 
-    persistDraftMetadata();
-    return draftGastos;
+    saveDraftGastos(updated, storeId);
+    return updated;
 }
 
-export function replaceDraftGastos(gastos) {
-    draftGastos = Array.isArray(gastos) ? [...gastos] : [];
-    persistDraftMetadata();
-    return draftGastos;
+export function replaceDraftGastos(gastos, storeId) {
+    const updated = Array.isArray(gastos) ? [...gastos] : [];
+    saveDraftGastos(updated, storeId);
+    return updated;
 }
 
-export function updateDraftGasto(gastoId, updater) {
-    const gastos = loadDraftGastos();
-    draftGastos = gastos.map((item) => {
+export function updateDraftGasto(gastoId, updater, storeId) {
+    const updated = loadDraftGastos(storeId).map((item) => {
         const itemId = item.backendId ?? item.backend_id ?? item.id;
-        if (String(itemId) !== String(gastoId)) return item;
-        return updater(item);
+        return String(itemId) === String(gastoId) ? updater(item) : item;
     });
 
-    persistDraftMetadata();
-    return draftGastos;
+    saveDraftGastos(updated, storeId);
+    return updated;
 }
 
-export function removeDraftGasto(gastoId) {
-    const gastos = loadDraftGastos();
-    draftGastos = gastos.filter((item) => {
+export function removeDraftGasto(gastoId, storeId) {
+    const updated = loadDraftGastos(storeId).filter((item) => {
         const itemId = item.backendId ?? item.backend_id ?? item.id;
         return String(itemId) !== String(gastoId);
     });
 
-    persistDraftMetadata();
-    return draftGastos;
+    saveDraftGastos(updated, storeId);
+    return updated;
 }
 
-export function clearDraftGastos() {
-    draftGastos = [];
-    localStorage.removeItem(DRAFT_GASTOS_KEY);
-    localStorage.removeItem('pendienteGasto');
-    clearDraftRequest();
+export function clearDraftGastos(storeId) {
+    const key = scopedKey(DRAFT_GASTOS_KEY, storeId);
+    if (!key) return;
+    draftGastos.set(key, []);
+    localStorage.removeItem(key);
+    clearDraftRequest(storeId);
 }
 
-export function loadDraftRequest() {
-    if (draftRequest) return draftRequest;
+export function loadDraftRequest(storeId) {
+    const key = scopedKey(DRAFT_REQUEST_KEY, storeId);
+    if (!key) return null;
+    if (draftRequests.has(key)) return draftRequests.get(key);
 
-    const guardado = localStorage.getItem(DRAFT_REQUEST_KEY);
-    draftRequest = guardado ? JSON.parse(guardado) : null;
-    return draftRequest;
+    const saved = localStorage.getItem(key);
+    const request = saved ? JSON.parse(saved) : null;
+    draftRequests.set(key, request);
+    return request;
 }
 
-export function saveDraftRequest(solicitud) {
+export function saveDraftRequest(solicitud, storeId) {
+    const key = scopedKey(DRAFT_REQUEST_KEY, storeId);
     const backendId = solicitud?.backendId || solicitud?.backend_id;
-    if (!backendId) return null;
+    if (!key || !backendId) return null;
 
-    draftRequest = {
+    const draftRequest = {
         backendId: String(backendId),
         id: solicitud.id || null,
         folio: solicitud.folio || solicitud.id || null,
+        storeId: String(storeId),
         savedAt: new Date().toISOString(),
     };
-    localStorage.setItem(DRAFT_REQUEST_KEY, JSON.stringify(draftRequest));
+    draftRequests.set(key, draftRequest);
+    localStorage.setItem(key, JSON.stringify(draftRequest));
     return draftRequest;
 }
 
-export function clearDraftRequest() {
-    draftRequest = null;
-    localStorage.removeItem(DRAFT_REQUEST_KEY);
+export function clearDraftRequest(storeId) {
+    const key = scopedKey(DRAFT_REQUEST_KEY, storeId);
+    if (!key) return;
+    draftRequests.set(key, null);
+    localStorage.removeItem(key);
 }
 
-function persistDraftMetadata() {
-    localStorage.setItem(DRAFT_GASTOS_KEY, JSON.stringify(draftGastos.map(sinArchivos)));
+function saveDraftGastos(gastos, storeId) {
+    const key = scopedKey(DRAFT_GASTOS_KEY, storeId);
+    if (!key) return;
+    draftGastos.set(key, gastos);
+    localStorage.setItem(key, JSON.stringify(gastos.map(sinArchivos)));
+}
+
+function scopedKey(base, storeId) {
+    return storeId ? `${base}:${storeId}` : null;
 }
 
 function sinArchivos(gasto) {

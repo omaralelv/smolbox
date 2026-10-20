@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import {
     addFrontendGasto,
     apiErrorMessage,
     checkCfdiUuidAvailability,
-    createFrontendSolicitud,
+    currentStoredRole,
+    ensureStoreDraft,
     getFrontendContext,
+    listActiveFrontendStores,
     parseCfdi,
     previewInvoiceOcr,
     uploadExpenseAttachment,
@@ -20,7 +22,17 @@ import ExpenseConfirmationDialog from '../../components/shared/ExpenseConfirmati
 
 function AnadirGasto() {
     const navigate = useNavigate();
-    const [captureAudit] = useState(() => createCaptureAudit(loadDraftRequest()?.backendId || null));
+    const location = useLocation();
+    const rol = currentStoredRole();
+    const [storeId, setStoreId] = useState(
+        () => location.state?.selectedStoreId
+            || (rol === 'admin' ? localStorage.getItem('solicitudTiendaActiva') : '')
+            || ''
+    );
+    const [captureAudit] = useState(
+        () => createCaptureAudit(loadDraftRequest(storeId)?.backendId || null)
+    );
+    const [mensajeValidacion, setMensajeValidacion] = useState('');
     const capturedValues = useRef({ category: 'Papelería', document_type: 'factura' });
     const pendingFields = useRef({});
     const fieldTimers = useRef({});
@@ -60,6 +72,37 @@ function AnadirGasto() {
         };
     }, [captureAudit, auditField]);
 
+    useEffect(() => {
+        if (storeId) return undefined;
+
+        let active = true;
+        const storePromise = rol === 'admin'
+            ? listActiveFrontendStores().then((stores) => {
+                const preferredStoreId = localStorage.getItem('solicitudTiendaActiva');
+                return stores.find((store) => store.id === preferredStoreId) || stores[0];
+            })
+            : getFrontendContext().then((context) => context.activeStore || context.stores?.[0]);
+        storePromise
+            .then((store) => {
+                if (!active) return;
+                if (!store?.id) {
+                    setMensajeValidacion(rol === 'admin'
+                        ? 'No hay tiendas vinculadas a usuarios activos.'
+                        : 'No se encontró una tienda asignada a este usuario.');
+                    return;
+                }
+                setStoreId(store.id);
+                localStorage.setItem('solicitudTiendaActiva', store.id);
+            })
+            .catch((error) => {
+                if (active) setMensajeValidacion(apiErrorMessage(error));
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [rol, storeId]);
+
     const auditFile = (documentType, file) => {
         captureTouched.current = true;
         captureAudit.record('file_selected', {
@@ -96,9 +139,6 @@ function AnadirGasto() {
     const [ocrFactura, setOcrFactura] = useState(null);
     const [ocrVale, setOcrVale] = useState(null);
     const [ocrRecibo, setOcrRecibo] = useState(null);
-    const [mensajeValidacion, setMensajeValidacion] = useState('');
-
-
     // Cambio dinámico de tipo de documento
     const handleTipoDocumentoChange = (nuevoTipo) => {
         auditField('document_type', nuevoTipo);
@@ -474,9 +514,16 @@ function AnadirGasto() {
 
         try {
             if (facturaEsXml) {
-                const { parsed: cfdiParsed, advertencias } = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`, folio);
+                const { parsed: cfdiParsed, advertencias } = await validarCfdiAntesDeAnadir(
+                    facturaFile,
+                    monto,
+                    fecha,
+                    `Gasto - ${categoria}`,
+                    folio,
+                    storeId
+                );
                 validarSolicitudDespuesDeAnadir([
-                    ...loadDraftGastos(),
+                    ...loadDraftGastos(storeId),
                     crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
                 ]);
                 setMensajeValidacion(mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
@@ -500,7 +547,14 @@ function AnadirGasto() {
                     setFolio('');
                     setFolioValidado(false);
                 }
-                const advertencias = await validarResultadoFacturaPdf(ocrParsed, monto, fecha, `Gasto - ${categoria}`, folioParaGuardar);
+                const advertencias = await validarResultadoFacturaPdf(
+                    ocrParsed,
+                    monto,
+                    fecha,
+                    `Gasto - ${categoria}`,
+                    folioParaGuardar,
+                    storeId
+                );
                 const ocrActualizado = datosOcrParaBorrador(ocrParsed, facturaFile, {
                     monto,
                     folio: folioParaGuardar,
@@ -508,7 +562,7 @@ function AnadirGasto() {
                 setOcrFactura(ocrActualizado);
                 if (folioParaGuardar) {
                     validarSolicitudDespuesDeAnadir([
-                        ...loadDraftGastos(),
+                        ...loadDraftGastos(storeId),
                         crearGastoParaValidacion({
                             categoria,
                             monto,
@@ -582,7 +636,14 @@ function AnadirGasto() {
         let advertencias = [];
         if (facturaEsXml) {
             try {
-                const resultado = await validarCfdiAntesDeAnadir(facturaFile, monto, fecha, `Gasto - ${categoria}`, folio);
+                const resultado = await validarCfdiAntesDeAnadir(
+                    facturaFile,
+                    monto,
+                    fecha,
+                    `Gasto - ${categoria}`,
+                    folio,
+                    storeId
+                );
                 cfdiParsed = resultado.parsed;
                 advertencias = resultado.advertencias;
             } catch (error) {
@@ -608,7 +669,14 @@ function AnadirGasto() {
                     alert(mensaje);
                     return;
                 }
-                advertencias = await validarResultadoFacturaPdf(ocrParsed, monto, fecha, `Gasto - ${categoria}`, folio);
+                advertencias = await validarResultadoFacturaPdf(
+                    ocrParsed,
+                    monto,
+                    fecha,
+                    `Gasto - ${categoria}`,
+                    folio,
+                    storeId
+                );
                 cfdiParsed = cfdiDesdeOcr(ocrParsed, folio);
             } catch (error) {
                 const mensaje = apiErrorMessage(error);
@@ -681,7 +749,7 @@ function AnadirGasto() {
 
         if (tipoDocumento === 'factura'){
             try {
-                validarSolicitudDespuesDeAnadir([...loadDraftGastos(), nuevoGastoItem]);
+                validarSolicitudDespuesDeAnadir([...loadDraftGastos(storeId), nuevoGastoItem]);
             } catch (error) {
                 const mensaje = apiErrorMessage(error);
                 setEstadoValidacion('error');
@@ -734,7 +802,10 @@ function AnadirGasto() {
 
         try {
             await captureAudit.flush();
-            const { solicitud, gastoBackend } = await guardarGastoEnBorradorBackend(nuevoGastoItem);
+            const { solicitud, gastoBackend, storeId: gastoStoreId } = await guardarGastoEnBorradorBackend(
+                nuevoGastoItem,
+                storeId
+            );
             const gastoGuardado = {
                 ...nuevoGastoItem,
                 id: gastoBackend.id || nuevoGastoItem.id,
@@ -772,12 +843,14 @@ function AnadirGasto() {
                 documentoGuardadoEnBackend: true,
             };
 
-            saveDraftRequest(solicitud);
-            addDraftGasto(gastoGuardado);
+            saveDraftRequest(solicitud, gastoStoreId);
+            addDraftGasto(gastoGuardado, gastoStoreId);
+            if (!storeId) setStoreId(gastoStoreId);
+            localStorage.setItem('solicitudTiendaActiva', gastoStoreId);
             captureFinished.current = true;
             captureAudit.finish();
             alert("¡Gasto guardado exitosamente en la solicitud!");
-            navigate('/solicitud/nueva');
+            navigate('/solicitud/nueva', { state: { selectedStoreId: gastoStoreId } });
         } catch (error) {
             const mensaje = apiErrorMessage(error);
             setGastoPorConfirmar(null);
@@ -796,7 +869,7 @@ function AnadirGasto() {
 
     return (
         <div style={styles.container} data-audit-capture-id={captureAudit.id}>
-        <fieldset disabled={preparandoGasto || guardandoGasto} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset disabled={preparandoGasto || guardandoGasto || !storeId} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         
         {/* HEADER DE LA PÁGINA CON BOTÓN CANCELAR */}
         <div style={styles.topRow}>
@@ -811,7 +884,7 @@ function AnadirGasto() {
                     await captureAudit.flush();
                     captureFinished.current = true;
                     captureAudit.finish();
-                    navigate('/solicitud/nueva');
+                    navigate('/solicitud/nueva', { state: { selectedStoreId: storeId } });
                 } catch (error) {
                     alert(apiErrorMessage(error));
                 }
@@ -1461,8 +1534,17 @@ function AnadirGasto() {
 
 export default AnadirGasto;
 
-async function guardarGastoEnBorradorBackend(gasto) {
-    const gastosPrevios = loadDraftGastos();
+async function guardarGastoEnBorradorBackend(gasto, selectedStoreId) {
+    let storeId = selectedStoreId;
+    if (!storeId) {
+        const context = await getFrontendContext();
+        storeId = context.activeStore?.id || context.stores?.[0]?.id;
+    }
+    if (!storeId) {
+        throw new Error('No se encontró una tienda para guardar el borrador.');
+    }
+
+    const gastosPrevios = loadDraftGastos(storeId);
     const gastosPreviosBackendIds = new Set(
         gastosPrevios
             .map((item) => item.backendId || item.backend_id)
@@ -1470,19 +1552,14 @@ async function guardarGastoEnBorradorBackend(gasto) {
             .map(String)
     );
     const payloadGasto = gastoPayloadParaBackend(gasto);
-    const borradorActual = loadDraftRequest();
-    let solicitud;
-
-    if (borradorActual?.backendId) {
-        solicitud = await addFrontendGasto(borradorActual.backendId, payloadGasto);
-    } else {
-        const contexto = await getFrontendContext();
-        solicitud = await createFrontendSolicitud({
-            tienda: contexto.tienda,
-            montoTotal: String(gasto.monto || 0),
-            gastos: [payloadGasto],
-        });
-    }
+    const borradorActual = loadDraftRequest(storeId);
+    const solicitudVacia = borradorActual?.backendId
+        ? null
+        : await ensureStoreDraft(storeId);
+    const solicitud = await addFrontendGasto(
+        borradorActual?.backendId || solicitudVacia.backendId,
+        payloadGasto
+    );
 
     const gastoBackend = gastoAgregadoDesdeRespuesta(solicitud, gastosPreviosBackendIds, gasto);
     if (!gastoBackend?.backendId) {
@@ -1490,7 +1567,7 @@ async function guardarGastoEnBorradorBackend(gasto) {
     }
 
     await subirDocumentoGastoBackend(gastoBackend.backendId, gasto);
-    return { solicitud, gastoBackend };
+    return { solicitud, gastoBackend, storeId };
 }
 
 function gastoPayloadParaBackend(gasto) {
@@ -1638,7 +1715,14 @@ function esPdf(file) {
     return nombre.endsWith('.pdf') || tipo === 'application/pdf';
 }
 
-async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCapturado = null) {
+async function validarCfdiAntesDeAnadir(
+    file,
+    monto,
+    fecha,
+    nombreGasto,
+    folioCapturado = null,
+    storeId = null
+) {
     const parsed = await parseCfdi(file);
     const errores = [];
     const advertencias = [];
@@ -1678,7 +1762,7 @@ async function validarCfdiAntesDeAnadir(file, monto, fecha, nombreGasto, folioCa
     }
 
     if (uuidXml) {
-        if (uuidYaExisteEnSolicitud(uuidXml)) {
+        if (uuidYaExisteEnSolicitud(uuidXml, storeId)) {
             errores.push('- El UUID fiscal de la factura ya está registrado en otro gasto de esta solicitud.\n');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(uuidXml);
@@ -1714,7 +1798,14 @@ async function leerFacturaPdfConOcr(file, ocrActual = null, captureId = null) {
     return leerDocumentoConOcr(file, ocrConFolio, 'factura', captureId);
 }
 
-async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, folioCapturado = null) {
+async function validarResultadoFacturaPdf(
+    parsed,
+    monto,
+    fecha,
+    nombreGasto,
+    folioCapturado = null,
+    storeId = null
+) {
     const errores = [];
     const advertencias = [];
     const uuidOcrTexto = normalizarUuidLocal(parsed.suggested_cfdi_uuid);
@@ -1754,7 +1845,7 @@ async function validarResultadoFacturaPdf(parsed, monto, fecha, nombreGasto, fol
     }
 
     if (uuidParaGuardar) {
-        if (uuidYaExisteEnSolicitud(uuidParaGuardar)) {
+        if (uuidYaExisteEnSolicitud(uuidParaGuardar, storeId)) {
             errores.push('- El folio fiscal del PDF ya está agregado en otro gasto de esta solicitud.\n');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(uuidParaGuardar);
@@ -1883,9 +1974,9 @@ function cfdiDesdeOcr(ocr, folioConfirmado = null) {
     };
 }
 
-function uuidYaExisteEnSolicitud(uuid) {
+function uuidYaExisteEnSolicitud(uuid, storeId) {
     if (!uuid) return false;
-    return loadDraftGastos().some((gasto) => {
+    return loadDraftGastos(storeId).some((gasto) => {
         const uuidExistente = normalizarUuidFiscalValido(
             gasto.cfdiUuid || gasto.cfdi_uuid || gasto.folioFiscal || gasto.folio_fiscal
         );

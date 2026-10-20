@@ -205,6 +205,23 @@ def get_frontend_context(
     )
 
 
+@router.get("/stores/active/me", response_model=list[FrontendStoreRead])
+def list_active_frontend_stores(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[FrontendStoreRead]:
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "FORBIDDEN_ROLE", "message": "Only admins can list stores for assistance"},
+        )
+
+    return [
+        _store_payload(store)
+        for store in _active_stores_for_admin(db)
+    ]
+
+
 @router.get("/bandeja/me", response_model=list[FrontendSolicitudRead])
 def list_frontend_work_queue(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -281,6 +298,56 @@ def list_frontend_historical_requests(
 
     requests = list(db.scalars(statement.limit(200)))
     return [_request_payload(request, current_user, db) for request in requests]
+
+
+@router.get(
+    "/solicitudes/tienda/{store_id}/borrador/me",
+    response_model=FrontendSolicitudRead | None,
+)
+def get_store_draft(
+    store_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendSolicitudRead | None:
+    store = db.get(Store, store_id)
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "STORE_NOT_FOUND", "message": "Store was not found"},
+        )
+    _ensure_store_draft_access(store, current_user, db)
+    request = _store_draft_query(store.id, db)
+    return _request_payload(request, current_user, db) if request else None
+
+
+@router.post(
+    "/solicitudes/tienda/{store_id}/borrador/me",
+    response_model=FrontendSolicitudRead,
+)
+def ensure_store_draft(
+    store_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FrontendSolicitudRead:
+    store = db.scalar(
+        select(Store).where(Store.id == store_id).with_for_update()
+    )
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "STORE_NOT_FOUND", "message": "Store was not found"},
+        )
+    _ensure_store_draft_access(store, current_user, db)
+
+    request = _store_draft_query(store.id, db)
+    if request is not None:
+        return _request_payload(request, current_user, db)
+
+    return create_frontend_request(
+        FrontendSolicitudCreate(store_id=store.id),
+        current_user,
+        db,
+    )
 
 
 @router.get("/solicitudes/{request_identifier}/me", response_model=FrontendSolicitudRead)
@@ -1531,6 +1598,81 @@ def _stores_for_user(current_user: User, db: Session) -> list[Store]:
             .order_by(StoreUserAssignment.created_at.desc())
         )
     ]
+
+
+def _active_stores_for_admin(db: Session) -> list[Store]:
+    statement = (
+        select(Store)
+        .join(StoreUserAssignment, StoreUserAssignment.store_id == Store.id)
+        .join(User, User.id == StoreUserAssignment.user_id)
+        .where(
+            StoreUserAssignment.role == UserRole.store,
+            User.role == UserRole.store,
+            User.is_active.is_(True),
+        )
+        .distinct()
+        .order_by(Store.code)
+    )
+    return list(db.scalars(statement))
+
+
+def _ensure_store_draft_access(store: Store, current_user: User, db: Session) -> None:
+    if current_user.role == UserRole.admin:
+        active_store_id = db.scalar(
+            select(Store.id)
+            .join(StoreUserAssignment, StoreUserAssignment.store_id == Store.id)
+            .join(User, User.id == StoreUserAssignment.user_id)
+            .where(
+                Store.id == store.id,
+                StoreUserAssignment.role == UserRole.store,
+                User.role == UserRole.store,
+                User.is_active.is_(True),
+            )
+            .limit(1)
+        )
+        if active_store_id is not None:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ACTIVE_STORE_NOT_FOUND", "message": "Active store was not found"},
+        )
+
+    if current_user.role == UserRole.store and user_has_store_assignment(
+        db,
+        current_user,
+        store.id,
+        roles={UserRole.store},
+    ):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "STORE_ASSIGNMENT_REQUIRED",
+            "message": "Only admins and assigned store users can access this draft",
+        },
+    )
+
+
+def _store_draft_query(store_id: UUID, db: Session) -> ReimbursementRequest | None:
+    statement = (
+        _request_detail_statement()
+        .where(
+            ReimbursementRequest.store_id == store_id,
+            ReimbursementRequest.status.in_(
+                {
+                    ReimbursementRequestStatus.draft,
+                    ReimbursementRequestStatus.correction_required,
+                }
+            ),
+        )
+        .order_by(
+            ReimbursementRequest.updated_at.desc(),
+            ReimbursementRequest.created_at.desc(),
+        )
+        .limit(1)
+    )
+    return db.scalar(statement)
 
 
 def _store_payload(store: Store) -> FrontendStoreRead:

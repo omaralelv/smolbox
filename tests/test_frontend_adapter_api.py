@@ -19,6 +19,7 @@ from app.models.reimbursement_request import (
 from app.models.store_reimbursement_opening_cutoff import (
     StoreReimbursementOpeningCutoff,
 )
+from app.models.user import User
 
 
 def test_frontend_initial_tax_rules_assign_zero_percent() -> None:
@@ -123,6 +124,107 @@ def test_frontend_context_and_bandeja_use_ui_shape(
     assert "backendId" in item["gastos"][0]
     assert item["availableActions"] == []
     assert item["actionLabels"] == {}
+
+
+def test_admin_store_selector_and_store_draft_are_shared(
+    client: TestClient,
+    base_records: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    store_user_id = _create_user(client, "store", "frontend.shared.store@example.com")
+    _assign_user_to_store(client, base_records["store_id"], store_user_id, "store")
+
+    inactive_store = client.post(
+        "/api/v1/stores/",
+        json={"code": "T002", "name": "Tienda Inactiva"},
+    )
+    assert inactive_store.status_code == 201, inactive_store.text
+    inactive_store_user_id = _create_user(
+        client,
+        "store",
+        "frontend.inactive.store@example.com",
+    )
+    _assign_user_to_store(
+        client,
+        inactive_store.json()["id"],
+        inactive_store_user_id,
+        "store",
+    )
+    with session_factory() as db:
+        inactive_user = db.get(User, UUID(inactive_store_user_id))
+        assert inactive_user is not None
+        inactive_user.is_active = False
+        db.commit()
+
+    _create_user(client, "admin", "frontend.shared.admin@example.com")
+    admin_headers = _auth_headers(client, "frontend.shared.admin@example.com")
+    store_headers = _auth_headers(client, "frontend.shared.store@example.com")
+
+    active_stores = client.get(
+        "/api/v1/frontend/stores/active/me",
+        headers=admin_headers,
+    )
+    assert active_stores.status_code == 200, active_stores.text
+    assert [store["code"] for store in active_stores.json()] == ["T001"]
+    assert client.get(
+        "/api/v1/frontend/stores/active/me",
+        headers=store_headers,
+    ).status_code == 403
+
+    draft_path = (
+        f"/api/v1/frontend/solicitudes/tienda/{base_records['store_id']}/borrador/me"
+    )
+    draft_admin = client.post(draft_path, headers=admin_headers)
+    assert draft_admin.status_code == 200, draft_admin.text
+    assert draft_admin.json()["backendStatus"] == "draft"
+
+    draft_admin_again = client.post(draft_path, headers=admin_headers)
+    assert draft_admin_again.status_code == 200, draft_admin_again.text
+    assert draft_admin_again.json()["backendId"] == draft_admin.json()["backendId"]
+
+    expense = client.post(
+        f"/api/v1/frontend/solicitudes/{draft_admin.json()['backendId']}/gastos/me",
+        headers=store_headers,
+        json={
+            "fecha": "2026-08-07",
+            "categoria": "Agua",
+            "monto": "125.00",
+            "moneda": "MXN",
+        },
+    )
+    assert expense.status_code == 201, expense.text
+
+    draft_store = client.get(draft_path, headers=store_headers)
+    assert draft_store.status_code == 200, draft_store.text
+    assert draft_store.json()["backendId"] == draft_admin.json()["backendId"]
+    assert [item["monto"] for item in draft_store.json()["gastos"]] == [125.0]
+    draft_admin_reload = client.get(draft_path, headers=admin_headers)
+    assert draft_admin_reload.status_code == 200, draft_admin_reload.text
+    assert draft_admin_reload.json()["gastos"][0]["monto"] == 125.0
+
+    inactive_draft_path = (
+        f"/api/v1/frontend/solicitudes/tienda/{inactive_store.json()['id']}/borrador/me"
+    )
+    assert client.get(inactive_draft_path, headers=admin_headers).status_code == 404
+    assert client.post(inactive_draft_path, headers=admin_headers).status_code == 404
+
+    other_store_user_id = _create_user(client, "store", "frontend.other.store@example.com")
+    _assign_user_to_store(
+        client,
+        inactive_store.json()["id"],
+        other_store_user_id,
+        "store",
+    )
+    other_store_headers = _auth_headers(client, "frontend.other.store@example.com")
+    assert client.get(draft_path, headers=other_store_headers).status_code == 403
+    other_store_draft_path = (
+        f"/api/v1/frontend/solicitudes/tienda/{inactive_store.json()['id']}/borrador/me"
+    )
+    other_store_draft = client.post(other_store_draft_path, headers=other_store_headers)
+    assert other_store_draft.status_code == 200, other_store_draft.text
+    assert client.get(other_store_draft_path, headers=other_store_headers).json()["backendId"] == (
+        other_store_draft.json()["backendId"]
+    )
 
 
 def test_unassigned_accountant_can_see_and_start_global_accounting_queue(

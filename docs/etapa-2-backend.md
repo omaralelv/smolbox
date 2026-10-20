@@ -396,8 +396,11 @@ Endpoints:
 
 ```text
 GET  /api/v1/frontend/context/me
+GET  /api/v1/frontend/stores/active/me
 GET  /api/v1/frontend/bandeja/me
 GET  /api/v1/frontend/solicitudes/{request_id_o_folio}/me
+GET  /api/v1/frontend/solicitudes/tienda/{store_id}/borrador/me
+POST /api/v1/frontend/solicitudes/tienda/{store_id}/borrador/me
 POST /api/v1/frontend/solicitudes/me
 POST /api/v1/frontend/solicitudes/{request_id_o_folio}/gastos/me
 ```
@@ -412,6 +415,13 @@ Reglas:
 - la bandeja ya viene filtrada por rol y tienda asignada;
 - `availableActions` contiene las acciones tecnicas disponibles;
 - `actionLabels` contiene el texto listo para pintar botones sin inventar reglas en frontend.
+- `stores/active/me` es exclusivo de Admin y devuelve tiendas con una asignacion a un usuario
+  de tienda cuyo estatus `is_active` es verdadero.
+- el borrador por tienda solo es accesible para Admin en tiendas activas o para usuarios de tienda
+  con asignacion activa; GET devuelve `null` si no hay solicitud abierta y POST devuelve la
+  solicitud abierta existente o crea una en estado `draft`.
+- las solicitudes abiertas en `draft` o `correction_required` son reutilizadas por tienda para
+  permitir continuar el trabajo guardado desde otra sesion o equipo.
 
 ## Pagos de tesoreria
 
