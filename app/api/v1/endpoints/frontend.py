@@ -1956,10 +1956,16 @@ def _frontend_accounting_queue_status(
     queue_status = request.accounting_queue_status
     if queue_status is None:
         return None
+    if current_user.role == UserRole.admin:
+        return (
+            AccountingQueueStatus.single.value
+            if queue_status == AccountingQueueStatus.taken
+            else queue_status.value
+        )
     if queue_status != AccountingQueueStatus.taken:
         return queue_status.value
     if (
-        current_user.role in {UserRole.accountant, UserRole.admin}
+        current_user.role == UserRole.accountant
         and request.accounting_queue_taken_by_user_id != current_user.id
     ):
         return "taken_other"

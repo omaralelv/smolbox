@@ -1917,6 +1917,33 @@ def test_accounting_queue_status_is_single_until_accountant_opens_request(
     assert detail.json()["backendStatus"] == "submitted"
     assert detail.json()["accountingQueueStatus"] == "taken"
 
+    _create_user(client, "admin", "frontend.single.admin@example.com")
+    admin_headers = _auth_headers(client, "frontend.single.admin@example.com")
+    admin_queue = client.get("/api/v1/frontend/bandeja/me", headers=admin_headers)
+    assert admin_queue.status_code == 200, admin_queue.text
+    assert admin_queue.json()[0]["accountingQueueStatus"] == "single"
+
+    admin_detail = client.get(
+        f"/api/v1/frontend/solicitudes/{base_records['request_id']}/me",
+        headers=admin_headers,
+    )
+    assert admin_detail.status_code == 200, admin_detail.text
+    assert admin_detail.json()["accountingQueueStatus"] == "single"
+
+    admin_request_detail = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/detail/me",
+        headers=admin_headers,
+    )
+    assert admin_request_detail.status_code == 200, admin_request_detail.text
+    assert admin_request_detail.json()["accounting_queue_status"] == "taken"
+
+    accountant_queue_after_admin_open = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=accountant_headers,
+    )
+    assert accountant_queue_after_admin_open.status_code == 200, accountant_queue_after_admin_open.text
+    assert accountant_queue_after_admin_open.json()[0]["accountingQueueStatus"] == "taken"
+
     second_accountant_headers = _auth_headers(
         client,
         "frontend.single.second.accountant@example.com",
@@ -1957,6 +1984,12 @@ def test_admin_opening_submitted_request_does_not_mark_accounting_queue_taken(
     )
 
     admin_user_id = _create_user(client, "admin", "frontend.admin.single@example.com")
+    accountant_user_id = _create_user(
+        client,
+        "accountant",
+        "frontend.admin.single.accountant@example.com",
+    )
+    _assign_user_to_store(client, base_records["store_id"], accountant_user_id, "accountant")
     submitted = _transition(
         client,
         base_records["request_id"],
@@ -1973,6 +2006,28 @@ def test_admin_opening_submitted_request_does_not_mark_accounting_queue_taken(
     )
     assert detail.status_code == 200, detail.text
     assert detail.json()["accountingQueueStatus"] == "single"
+
+    request_detail = client.get(
+        f"/api/v1/reimbursement-requests/{base_records['request_id']}/detail/me",
+        headers=admin_headers,
+    )
+    assert request_detail.status_code == 200, request_detail.text
+    assert request_detail.json()["accounting_queue_status"] == "single"
+
+    admin_queue = client.get("/api/v1/frontend/bandeja/me", headers=admin_headers)
+    assert admin_queue.status_code == 200, admin_queue.text
+    assert admin_queue.json()[0]["accountingQueueStatus"] == "single"
+
+    accountant_headers = _auth_headers(
+        client,
+        "frontend.admin.single.accountant@example.com",
+    )
+    accountant_queue = client.get(
+        "/api/v1/frontend/bandeja/me",
+        headers=accountant_headers,
+    )
+    assert accountant_queue.status_code == 200, accountant_queue.text
+    assert accountant_queue.json()[0]["accountingQueueStatus"] == "single"
 
     audit_events = client.get(
         f"/api/v1/reimbursement-requests/{base_records['request_id']}/audit-events",
