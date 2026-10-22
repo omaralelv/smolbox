@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-27T13:35:00"
+  Moneda="MXN"
+  Total="51.25"
+  MetodoPago="PPD">
+  <cfdi:Emisor Rfc="UVW060606BBB" Nombre="NEXO EMPRESARIAL SA DE CV"/>
+  <cfdi:Receptor Rfc="GGG060606GGG" Nombre="OPERADORA LOGISTICA NACIONAL"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="462F51DF-BF9D-4CB6-B467-A252FD44246F"/>
+  </cfdi:Complemento></cfdi:Comprobante>
