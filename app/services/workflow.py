@@ -284,6 +284,7 @@ def transition_reimbursement_request(
         target_status,
         from_status=current_status,
         summary=summary,
+        actor=actor,
     )
     _stamp_transition(request, target_status, from_status=current_status)
     return current_status, target_status
@@ -339,6 +340,7 @@ def _sync_accounting_queue_status(
     *,
     from_status: ReimbursementRequestStatus,
     summary: ReimbursementValidationSummary,
+    actor: User,
 ) -> None:
     if target_status == ReimbursementRequestStatus.submitted:
         request.accounting_queue_status = (
@@ -358,6 +360,10 @@ def _sync_accounting_queue_status(
         if from_status == ReimbursementRequestStatus.accounting_manager_review:
             request.accounting_queue_status = AccountingQueueStatus.single
             request.accounting_queue_taken_by_user_id = None
+        elif actor.role == UserRole.admin:
+            # Starting a review as admin must not claim it or replace an existing owner.
+            if request.accounting_queue_status is None:
+                request.accounting_queue_status = AccountingQueueStatus.single
         else:
             request.accounting_queue_status = AccountingQueueStatus.taken
         return

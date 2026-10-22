@@ -5,7 +5,11 @@ from uuid import uuid4
 import pytest
 
 from app.models.expense import Expense, ExpenseStatus
-from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.reimbursement_request import (
+    AccountingQueueStatus,
+    ReimbursementRequest,
+    ReimbursementRequestStatus,
+)
 from app.models.user import User, UserRole
 from app.schemas.reimbursement_request import (
     ReimbursementValidationIssue,
@@ -51,6 +55,80 @@ def _no_payable_summary() -> ReimbursementValidationSummary:
     summary.rejected_expense_ids = [uuid4()]
     summary.ready_for_authorization_approval = False
     return summary
+
+
+@pytest.mark.parametrize("initial_status", [
+    ReimbursementRequestStatus.submitted, ReimbursementRequestStatus.authorized,
+])
+@pytest.mark.parametrize("queue_status,has_owner", [
+    (None, False), (AccountingQueueStatus.single, False),
+    (AccountingQueueStatus.taken, True), (AccountingQueueStatus.taken, False),
+])
+def test_admin_starting_accounting_review_does_not_claim_or_repair_existing_ownership(
+    initial_status, queue_status, has_owner,
+) -> None:
+    owner_id = uuid4() if has_owner else None
+    request = ReimbursementRequest(
+        status=initial_status,
+        accounting_queue_status=queue_status,
+        accounting_queue_taken_by_user_id=owner_id,
+    )
+    admin = User(id=uuid4(), role=UserRole.admin, is_active=True)
+
+    transition_reimbursement_request(
+        request, actor=admin, target_status=ReimbursementRequestStatus.under_accounting_review,
+        summary=_summary(),
+    )
+
+    assert request.status == ReimbursementRequestStatus.under_accounting_review
+    assert request.accounting_queue_status == (queue_status or AccountingQueueStatus.single)
+    assert request.accounting_queue_taken_by_user_id == owner_id
+
+
+@pytest.mark.parametrize("role", [UserRole.admin, UserRole.accounting_manager])
+def test_return_to_accounting_keeps_the_existing_release_rule(role) -> None:
+    request = ReimbursementRequest(
+        status=ReimbursementRequestStatus.accounting_manager_review,
+        accounting_queue_status=AccountingQueueStatus.taken,
+        accounting_queue_taken_by_user_id=uuid4(),
+    )
+    transition_reimbursement_request(
+        request, actor=User(id=uuid4(), role=role, is_active=True),
+        target_status=ReimbursementRequestStatus.under_accounting_review, summary=_summary(),
+    )
+    assert request.accounting_queue_status == AccountingQueueStatus.single
+    assert request.accounting_queue_taken_by_user_id is None
+
+
+def test_admin_leaving_accounting_review_still_clears_the_queue_classification() -> None:
+    request = ReimbursementRequest(
+        status=ReimbursementRequestStatus.under_accounting_review,
+        accounting_queue_status=AccountingQueueStatus.taken,
+        accounting_queue_taken_by_user_id=uuid4(),
+    )
+    transition_reimbursement_request(
+        request, actor=User(id=uuid4(), role=UserRole.admin, is_active=True),
+        target_status=ReimbursementRequestStatus.accounting_reviewed, summary=_summary(),
+    )
+    assert request.accounting_queue_status is None
+    assert request.accounting_queue_taken_by_user_id is None
+
+
+def test_admin_cannot_skip_pending_authorizations_by_starting_accounting_review() -> None:
+    request = ReimbursementRequest(
+        status=ReimbursementRequestStatus.submitted,
+        accounting_queue_status=None,
+    )
+    summary = _summary()
+    summary.missing_authorization_expense_ids = [uuid4()]
+    with pytest.raises(WorkflowTransitionError, match="still needs authorization"):
+        transition_reimbursement_request(
+            request, actor=User(id=uuid4(), role=UserRole.admin, is_active=True),
+            target_status=ReimbursementRequestStatus.under_accounting_review, summary=summary,
+        )
+    assert request.status == ReimbursementRequestStatus.submitted
+    assert request.accounting_queue_status is None
+    assert request.accounting_queue_taken_by_user_id is None
 
 
 def test_store_user_can_submit_ready_request() -> None:

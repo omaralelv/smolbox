@@ -14,6 +14,7 @@ import {
 import { resumirGastos } from '../lib/expenseSummary';
 import { accountingReadinessBlockers } from '../lib/reimbursementValidation';
 import { obtenerAlertaDevolucionPersistida } from '../lib/reimbursementReturnAlert';
+import { accionInicialPorRol, accionRevisionDisponible } from '../lib/requestReview';
 
 function Acumulado( {currentRole} ) {
 
@@ -26,6 +27,7 @@ function Acumulado( {currentRole} ) {
     // 1. RECUPERAR LA SOLICITUD ENVIADA DESDE LA BANDEJA
     const [solicitudActual, setSolicitudActual] = useState(location.state?.solicitud || null);
     const [subiendoReembolso, setSubiendoReembolso] = useState(false);
+    const [iniciandoRevision, setIniciandoRevision] = useState(false);
     const solicitudFolio = location.state?.solicitudFolio || 'Solicitud T-001';
     const solicitudSeleccionada = solicitudActual || location.state?.solicitud || null;
     const solicitudBackendId = solicitudSeleccionada?.backendId || solicitudSeleccionada?.reimbursementRequestId || solicitudSeleccionada?.id;
@@ -198,6 +200,21 @@ function Acumulado( {currentRole} ) {
     const totalMonto = resumenGastos.reduce((acc, curr) => acc + curr.monto, 0).toFixed(2);
 
 
+
+    async function iniciarRevisionAdmin() {
+        const accion = accionRevisionDisponible(solicitudSeleccionada);
+        if (currentRole !== 'admin' || !solicitudBackendId || !accion || iniciandoRevision) return;
+
+        setIniciandoRevision(true);
+        try {
+            await executeRequestAction(solicitudBackendId, accion);
+            setSolicitudActual(await getFrontendSolicitud(solicitudBackendId));
+        } catch (error) {
+            alert(apiErrorMessage(error));
+        } finally {
+            setIniciandoRevision(false);
+        }
+    }
 
     async function ejecutarAcciones(acciones, mensajeExito, motivo=null) {
         if (!solicitudBackendId) return;
@@ -637,6 +654,15 @@ function Acumulado( {currentRole} ) {
 
                 return (
                         <>
+                        {role === 'admin' && accionRevisionDisponible(solicitudSeleccionada) && (
+                            <button
+                                type="button"
+                                data-audit-action={accionRevisionDisponible(solicitudSeleccionada)}
+                                style={iniciandoRevision ? styles.btnOutlineDisabled : styles.btnOutline}
+                                onClick={iniciarRevisionAdmin}
+                                disabled={iniciandoRevision}
+                            >Iniciar revisión</button>
+                        )}
                         <button
                             style={puedeConfirmarPago ? styles.btnOutlineDisabled : styles.btnOutline}
                             onClick={!puedeConfirmarPago ? () => abrirModalDevolucion('return_to_accounting') : undefined}
@@ -1336,33 +1362,6 @@ function valorFiscalOculto(value) {
     if (value === null || value === undefined || value === '') return null;
     const numero = Number(value);
     return Number.isNaN(numero) ? null : numero;
-}
-
-function accionInicialPorRol(currentRole, solicitud) {
-    const rol = String(currentRole || '').toLowerCase().trim();
-    const status = solicitud?.backendStatus || solicitud?.backend_status;
-
-    if (rol === 'admin') {
-        return [
-            'start_authorization_review',
-            'start_accounting_review',
-            'start_accounting_manager_review',
-            'start_treasury_review',
-        ].find((accion) => solicitud?.availableActions?.includes(accion)) || null;
-    }
-    if (rol === 'supervisor' && status === 'submitted') {
-        return 'start_authorization_review';
-    }
-    if (rol === 'contabilidad' && ['submitted', 'authorized'].includes(status)) {
-        return 'start_accounting_review';
-    }
-    if (rol === 'gerencia' && status === 'accounting_reviewed') {
-        return 'start_accounting_manager_review';
-    }
-    if (rol === 'tesoreria' && status === 'accounting_manager_approved') {
-        return 'start_treasury_review';
-    }
-    return null;
 }
 
 function esArchivoExcel(file) {

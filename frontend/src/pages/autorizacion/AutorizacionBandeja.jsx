@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Drawer from '../../components/shared/Drawer';
 import { VISIBILIDAD } from '../../components/shared/roles';
 import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGasto, mensajeErrorHistorial, observacionInicialDesdeGasto, puedeAgregarObservacion } from '../../lib/observationHistory';
+import { permiteAvanceAutorizacionAlCargar } from '../../lib/requestReview';
 
 import {
     addExpenseObservation,
@@ -88,7 +89,7 @@ function AutorizacionBandeja( { currentRole } ) {
         const solicitudes = solicitudInicialBackendId
             ? [await getFrontendSolicitud(solicitudInicialBackendId)]
             : await getFrontendBandeja();
-        const solicitudesActualizadas = await avanzarSolicitudesConAutorizacionCompleta(solicitudes);
+        const solicitudesActualizadas = await avanzarSolicitudesConAutorizacionCompleta(solicitudes, rol);
 
         const nuevosGastos = solicitudesActualizadas.flatMap(gastosAutorizacionDesdeSolicitud);
         setGastos(nuevosGastos);
@@ -154,7 +155,7 @@ function AutorizacionBandeja( { currentRole } ) {
                 const solicitudes = solicitudInicialBackendId
                     ? [await getFrontendSolicitud(solicitudInicialBackendId)]
                     : await getFrontendBandeja();
-                const solicitudesActualizadas = await avanzarSolicitudesConAutorizacionCompleta(solicitudes);
+                const solicitudesActualizadas = await avanzarSolicitudesConAutorizacionCompleta(solicitudes, rol);
 
                 if (!activo) return;
                 setGastos(solicitudesActualizadas.flatMap(gastosAutorizacionDesdeSolicitud));
@@ -168,7 +169,7 @@ function AutorizacionBandeja( { currentRole } ) {
         return () => {
             activo = false;
         };
-    }, [navigate, solicitudInicialBackendId]);
+    }, [navigate, solicitudInicialBackendId, rol]);
 
 
     // Función para cambiar el estatus al dar clic en los botones
@@ -1009,7 +1010,8 @@ async function avanzarSolicitudSiAutorizacionCompleta(requestId) {
     }
 }
 
-async function avanzarSolicitudesConAutorizacionCompleta(solicitudes) {
+async function avanzarSolicitudesConAutorizacionCompleta(solicitudes, currentRole) {
+    if (!permiteAvanceAutorizacionAlCargar(currentRole)) return solicitudes || [];
     return Promise.all((solicitudes || []).map(async (solicitud) => {
         const requestId = solicitud?.backendId || solicitud?.backend_id;
         const status = solicitud?.backendStatus || solicitud?.backend_status;
