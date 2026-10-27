@@ -21,12 +21,12 @@ import { combinarHistorialObservaciones, historialDesdeEventos, historialParaGas
 
 const CATEGORIAS_GASTO = [
     "Agua", "Alimentos", "Artículos de Limpieza", "Bolsas", "Energía Eléctrica", "Equipo de Cómputo Menor", "Equipo Menor", "Extintores y Protección Civil",
-    "Gasolina", "Hospedaje", "Insumos", "Licencias y Permisos", "Mantenimiento Equipo de Cómputo", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad",
+    "Gasolina", "Hospedaje", "Insumos", "Licencias y Permisos", "Medicamentos", "No Deducibles", "Papelería", "Paquetería y Mensajería", "Pasajes y Taxis", "Publicidad",
     "Recolección de Basura", "Servicio de Agua", "Teléfono", "Trasportación", "Otros"
 ];
 
 const CATEGORIAS_IVA_CERO = new Set([
-    "agua",
+    "agua", 
     "hospedaje",
     "no deducibles",
     "no deducible",
