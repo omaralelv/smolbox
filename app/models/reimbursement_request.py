@@ -132,6 +132,8 @@ class ReimbursementRequest(Base):
         onupdate=func.now(),
     )
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     authorization_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accounting_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accounting_manager_reviewed_at: Mapped[datetime | None] = mapped_column(

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendHistorico } from '../lib/api';
+import { requestAgeDisplay } from '../lib/requestAge';
 import {
     normalizarFechaSolicitud,
     obtenerFechaSolicitud,
@@ -164,6 +165,8 @@ function Historico({currentRole}) {
                 </div>
             )}
 
+            <div style={styles.tableScroll} data-request-age-table>
+            <div style={styles.tableContent}>
             {/* ENCABEZADOS DE LA TABLA */}
             <div style={styles.tableHeader}>
                 <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
@@ -174,6 +177,7 @@ function Historico({currentRole}) {
                     </svg>
                 </span>
                 <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
+                <span style={styles.ageColumn}>DÍAS</span>
                 <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
                 <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
                 <span style={{ width: '100px' }}></span>
@@ -188,6 +192,7 @@ function Historico({currentRole}) {
                     </div>
                 ) : (solicitudesFiltradas.map((sol) => {
                     const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
+                    const age = requestAgeDisplay(sol);
                     return (
                         <div
                             key={sol.id}
@@ -195,7 +200,7 @@ function Historico({currentRole}) {
                             data-audit-request-id={sol.backendId || sol.backend_id || undefined}
                         >
                             {/* 1. Nombre / ID Solicitud */}
-                            <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
+                            <span style={{ flex: 1.5, minWidth: 0, overflowWrap: 'anywhere', textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
                                 {sol.id}
                             </span>
 
@@ -207,6 +212,10 @@ function Historico({currentRole}) {
                             {/* 3. Fecha de Envío */}
                             <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
                                 {sol.fecha || new Date().toLocaleDateString()}
+                            </span>
+                            <span style={styles.ageColumn} title={age.title}
+                                aria-label={age.title} data-request-age={sol.backendId || sol.id}>
+                                {age.label}
                             </span>
 
                             {/* 4. Monto Total */}
@@ -235,6 +244,8 @@ function Historico({currentRole}) {
                 })
             )}
             </div>
+            </div>
+            </div>
 
         </div>
     );
@@ -247,7 +258,8 @@ const styles = {
         margin: '0 auto',
         padding: '30px 20px',
         textAlign: 'left',
-        width: '95%'
+        width: '95%',
+        boxSizing: 'border-box'
     },
 
     filtersRow: {
@@ -307,6 +319,9 @@ const styles = {
         cursor: 'pointer',
     },
 
+    tableScroll: { width: '100%', overflowX: 'auto', paddingBottom: '6px' },
+    tableContent: { minWidth: '820px' },
+    ageColumn: { flex: '0 0 88px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' },
     tableHeader: {
         display: 'flex',
         alignItems: 'center',
@@ -314,7 +329,7 @@ const styles = {
         fontSize: '13px',
         fontWeight: '700',
         color: '#000000',
-        letterSpacing: '0.5px',
+        letterSpacing: 0,
     },
     listContainer: {
         display: 'flex',

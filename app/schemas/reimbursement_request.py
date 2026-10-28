@@ -64,6 +64,8 @@ class ReimbursementRequestRead(ReimbursementRequestBase):
     id: UUID
     status: ReimbursementRequestStatus
     submitted_at: datetime | None = None
+    first_submitted_at: datetime | None = None
+    rejected_at: datetime | None = None
     authorization_reviewed_at: datetime | None = None
     accounting_reviewed_at: datetime | None = None
     accounting_manager_reviewed_at: datetime | None = None

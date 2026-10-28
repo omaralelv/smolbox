@@ -298,10 +298,13 @@ def _stamp_transition(
 ) -> None:
     now = datetime.now(UTC)
     if target_status == ReimbursementRequestStatus.submitted:
+        if from_status == ReimbursementRequestStatus.draft and request.first_submitted_at is None:
+            request.first_submitted_at = now
         request.submitted_at = now
     elif target_status == ReimbursementRequestStatus.authorized:
         request.authorization_reviewed_at = now
     elif target_status == ReimbursementRequestStatus.rejected:
+        request.rejected_at = now
         if from_status == ReimbursementRequestStatus.authorization_review:
             request.authorization_reviewed_at = now
         elif from_status == ReimbursementRequestStatus.accounting_manager_review:

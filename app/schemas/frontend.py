@@ -203,6 +203,10 @@ class FrontendSolicitudRead(BaseModel):
     fecha_formateada: str = Field(alias="fechaFormateada")
     status: str
     backend_status: str = Field(alias="backendStatus")
+    first_submitted_at: datetime | None = Field(default=None, alias="firstSubmittedAt")
+    age_stopped_at: datetime | None = Field(default=None, alias="ageStoppedAt")
+    age_calculated_at: datetime | None = Field(default=None, alias="ageCalculatedAt")
+    elapsed_days: int | None = Field(default=None, ge=0, alias="elapsedDays")
     correction_return_status: str | None = Field(
         default=None,
         alias="correctionReturnStatus",

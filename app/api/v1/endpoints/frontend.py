@@ -84,6 +84,7 @@ from app.services.reimbursement_validation import (
     calculate_active_expense_total,
     summarize_reimbursement_request,
 )
+from app.services.request_age import request_age
 from app.services.request_expense_artifacts import (
     current_reimbursement_excel_attachment,
     invalidate_request_expense_artifacts,
@@ -227,6 +228,7 @@ def list_frontend_work_queue(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[FrontendSolicitudRead]:
+    age_now = datetime.now(UTC)
     statement = _request_detail_statement().order_by(ReimbursementRequest.created_at.desc())
     if current_user.role == UserRole.store:
         statement = statement.where(ReimbursementRequest.status.in_(STORE_MONITORING_STATUSES))
@@ -240,7 +242,7 @@ def list_frontend_work_queue(
             )
         )
         requests = list(db.scalars(statement.limit(200)))
-        return [_request_payload(request, current_user, db) for request in requests]
+        return [_request_payload(request, current_user, db, age_now=age_now) for request in requests]
 
     if current_user.role == UserRole.admin:
         statement = statement.where(
@@ -249,7 +251,7 @@ def list_frontend_work_queue(
             )
         )
         requests = list(db.scalars(statement.limit(200)))
-        return [_request_payload(request, current_user, db) for request in requests]
+        return [_request_payload(request, current_user, db, age_now=age_now) for request in requests]
 
     statuses = ROLE_QUEUE_STATUSES.get(current_user.role, set())
     if not statuses:
@@ -272,7 +274,7 @@ def list_frontend_work_queue(
         for request in db.scalars(statement.limit(200))
         if _request_is_visible_for_role(request, current_user, db)
     ]
-    return [_request_payload(request, current_user, db) for request in requests]
+    return [_request_payload(request, current_user, db, age_now=age_now) for request in requests]
 
 
 @router.get("/historico/me", response_model=list[FrontendSolicitudRead])
@@ -280,6 +282,7 @@ def list_frontend_historical_requests(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> list[FrontendSolicitudRead]:
+    age_now = datetime.now(UTC)
     statement = (
         _request_detail_statement()
         .where(ReimbursementRequest.status.in_(HISTORICAL_STATUSES))
@@ -297,7 +300,7 @@ def list_frontend_historical_requests(
         )
 
     requests = list(db.scalars(statement.limit(200)))
-    return [_request_payload(request, current_user, db) for request in requests]
+    return [_request_payload(request, current_user, db, age_now=age_now) for request in requests]
 
 
 @router.get(
@@ -1690,6 +1693,8 @@ def _request_payload(
     request: ReimbursementRequest,
     current_user: User,
     db: Session,
+    *,
+    age_now: datetime | None = None,
 ) -> FrontendSolicitudRead:
     summary = summarize_reimbursement_request(request)
     actions = available_actions_for_request(request, actor=current_user, summary=summary)
@@ -1698,6 +1703,7 @@ def _request_payload(
     calculated_total = _money(summary.calculated_total)
     reported_total = _money(request.reported_total) if request.reported_total is not None else None
     reembolso_attachment = current_reimbursement_excel_attachment(db, request)
+    age = request_age(request, now=age_now)
     return FrontendSolicitudRead(
         id=folio,
         backend_id=request.id,
@@ -1707,6 +1713,10 @@ def _request_payload(
         fecha_formateada=display_date.strftime("%d%m%Y"),
         status=_frontend_request_status(request.status),
         backend_status=request.status.value,
+        first_submitted_at=age.first_submitted_at,
+        age_stopped_at=age.stopped_at,
+        age_calculated_at=age.calculated_at,
+        elapsed_days=age.elapsed_days,
         correction_return_status=(
             request.correction_return_status.value
             if request.correction_return_status

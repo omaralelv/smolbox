@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { currentToken, getFrontendBandeja } from '../lib/api';
+import { requestAgeDisplay, shouldRefreshRequestAges } from '../lib/requestAge';
 import {
     obtenerAlertaDevolucionPersistida,
     obtenerPrioridadBandeja,
@@ -114,6 +115,8 @@ function Bandeja({currentRole}) {
 
     useEffect(() => {
         let activo = true;
+        let refreshing = false;
+        let ageClock = null;
 
         if (!currentToken()) {
             navigate('/login');
@@ -122,24 +125,49 @@ function Bandeja({currentRole}) {
             };
         }
 
-        getFrontendBandeja()
-            .then((datos) => {
+        async function cargarBandeja() {
+            if (!activo || refreshing) return;
+            refreshing = true;
+            try {
+                const datos = await getFrontendBandeja();
                 if (!activo) return;
                 const monitoreo = Array.isArray(datos)
                     ? datos.filter(esSolicitudDeMonitoreo)
                     : [];
+                ageClock = {
+                    serverTime: monitoreo.find((item) => item.ageCalculatedAt)?.ageCalculatedAt,
+                    receivedAt: performance.now(),
+                };
                 setSolicitudes(monitoreo);
                 localStorage.setItem(BANDEJA_CACHE_KEY, JSON.stringify(monitoreo));
-            })
-            .catch(() => {
+            } catch {
                 if (!activo) return;
                 const guardadas = localStorage.getItem(BANDEJA_CACHE_KEY);
                 const listaFallback = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
                 setSolicitudes(listaFallback.filter(esSolicitudDeMonitoreo));
-            });
+            } finally {
+                refreshing = false;
+            }
+        }
+
+        cargarBandeja();
+        const timer = window.setInterval(() => {
+            if (ageClock && document.visibilityState === 'visible'
+                && shouldRefreshRequestAges(ageClock.serverTime, performance.now() - ageClock.receivedAt)) {
+                cargarBandeja();
+            }
+        }, 60_000);
+        const alVolver = () => {
+            if (document.visibilityState === 'visible') cargarBandeja();
+        };
+        window.addEventListener('focus', alVolver);
+        document.addEventListener('visibilitychange', alVolver);
 
         return () => {
             activo = false;
+            window.clearInterval(timer);
+            window.removeEventListener('focus', alVolver);
+            document.removeEventListener('visibilitychange', alVolver);
         };
     }, [currentRole, navigate]);
 
@@ -285,6 +313,8 @@ function Bandeja({currentRole}) {
                 </div>
             )}
 
+        <div style={styles.tableScroll} data-request-age-table>
+        <div style={styles.tableContent}>
         {/* ENCABEZADOS DE LA TABLA */}
         <div style={styles.tableHeader}>
             <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
@@ -295,6 +325,7 @@ function Bandeja({currentRole}) {
                 </svg>
             </span>
             <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
+            <span style={styles.ageColumn}>DÍAS</span>
             <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
             <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
             <span style={{ width: '100px' }}></span>
@@ -384,6 +415,7 @@ function Bandeja({currentRole}) {
                     };
 
                     const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
+                    const age = requestAgeDisplay(sol);
                     
                     return (
                         <div
@@ -392,7 +424,7 @@ function Bandeja({currentRole}) {
                             data-audit-request-id={sol.backendId || sol.backend_id || undefined}
                         >
                             {/* 1. Nombre / ID Solicitud */}
-                            <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
+                            <span style={{ flex: 1.5, minWidth: 0, overflowWrap: 'anywhere', textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
                                 {sol.id}
                             </span>
 
@@ -404,6 +436,10 @@ function Bandeja({currentRole}) {
                             {/* 3. Fecha de Envío */}
                             <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
                                 {sol.fecha || new Date().toLocaleDateString()}
+                            </span>
+                            <span style={styles.ageColumn} title={age.title}
+                                aria-label={age.title} data-request-age={sol.backendId || sol.id}>
+                                {age.label}
                             </span>
 
                             {/* 4. Monto Total */}
@@ -437,6 +473,8 @@ function Bandeja({currentRole}) {
 
                 )}
             </div>
+        </div>
+        </div>
 
         </div>
     );
@@ -449,7 +487,8 @@ const styles = {
         margin: '0 auto',
         padding: '30px 20px',
         textAlign: 'left',
-        width: '95%'
+        width: '95%',
+        boxSizing: 'border-box'
     },
     filtersRow: {
         display: 'flex',
@@ -507,6 +546,9 @@ const styles = {
         cursor: 'pointer',
     },
 
+    tableScroll: { width: '100%', overflowX: 'auto', paddingBottom: '6px' },
+    tableContent: { minWidth: '820px' },
+    ageColumn: { flex: '0 0 88px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' },
     tableHeader: {
         display: 'flex',
         alignItems: 'center',
@@ -514,7 +556,7 @@ const styles = {
         fontSize: '13px',
         fontWeight: '700',
         color: '#000000',
-        letterSpacing: '0.5px',
+        letterSpacing: 0,
     },
     listContainer: {
         display: 'flex',
