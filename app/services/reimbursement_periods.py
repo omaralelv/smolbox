@@ -125,7 +125,7 @@ def outside_period_message(starts_on: date | None) -> str:
     message = "El gasto está fuera de periodo."
     if starts_on is None:
         return message
-    return f"{message}\nEl periodo actualmente comienza el {starts_on.isoformat()}."
+    return f"{message}\nContacta a tu Supervisor y a la Contadora Juanita para revisar si tu gasto procede.\n\nEl periodo actual inicia el {starts_on.isoformat()}."
 
 
 def validate_expense_date_for_reimbursement(
@@ -235,9 +235,7 @@ def obtener_contexto_periodo_reembolso(
 
     if corte_inicial is None:
         raise ValueError(
-            "La tienda no tiene una solicitud anterior ni "
-            "un corte inicial configurado. Configura primero "
-            "su historial de caja chica."
+            "La tienda no tiene una solicitud anterior ni un corte inicial configurado."
         )
 
     inicio_actual = corte_inicial.ends_on + timedelta(days=1)

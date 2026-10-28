@@ -67,7 +67,7 @@ function storeLocalSession(token) {
 
 function storeCognitoSession(session, fallbackRefreshToken = currentRefreshToken()) {
     if (!session?.idToken) {
-        throw new Error('Cognito no devolvió una sesión válida.');
+        throw new Error('Sesión Inválida Cognito.');
     }
 
     localStorage.setItem(TOKEN_KEY, session.idToken);
@@ -585,7 +585,7 @@ function friendlyErrorMessage(message) {
         || normalized.includes('expenses can only be authorized during authorization review')
         || normalized.includes('expenses can only be rejected during authorization review')
     ) {
-        return 'La solicitud ya no está en revisión de autorización. Actualiza la pantalla para ver el estado actual.';
+        return 'La solicitud ya no está pendiente de autorización. Actualiza la pantalla para ver los gastos pendientes.';
     }
 
     if (
@@ -615,7 +615,7 @@ function friendlyErrorMessage(message) {
         || normalized.includes('folio fiscal no tiene formato')
         || normalized.includes('input should be a valid uuid')
     ) {
-        return 'El folio fiscal no tiene formato válido. Captúralo manualmente con el formato 12345678-ABCD-1234-ABCD-1234567890AB y vuelve a confirmar.';
+        return 'Captura manualmente el Folio Fiscal y presiona Confirmar.';
     }
 
     if (
@@ -625,7 +625,7 @@ function friendlyErrorMessage(message) {
         || normalized.includes('unsupported document')
     ) {
         return [
-            'No se pudo leer el documento con OCR.',
+            'No se pudo leer el documento.',
             'El archivo cargado no tiene un formato compatible o no puede ser procesado.',
             'Por favor, carga nuevamente el archivo en formato PDF válido.',
         ].join('\n');

@@ -501,7 +501,7 @@ function AnadirGasto() {
         const facturaEsPdf = tipoDocumento === 'factura' && esPdf(facturaFile);
 
         if (tipoDocumento === 'factura' && facturaEsXml && !folioValidado) {
-            const mensaje = "Por favor, confirma el Folio Fiscal antes de validar.";
+            const mensaje = "Confirma el Folio Fiscal antes de validar.";
             auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
@@ -526,13 +526,13 @@ function AnadirGasto() {
                     ...loadDraftGastos(storeId),
                     crearGastoParaValidacion({ categoria, monto, folio, fecha, observaciones, cfdiParsed, facturaFile, valeFile }),
                 ]);
-                setMensajeValidacion(mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
+                setMensajeValidacion(mensajeConAdvertencias('El gasto está listo para añadirse.\n', advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
                 setGastoValidado(true);
 
                 setGastoHaSidoValidadoAlMenosUnaVez(true);
 
-                auditValidation('validation_completed', mensajeConAdvertencias('Factura validada. El gasto está listo para añadirse.', advertencias));
+                auditValidation('validation_completed', mensajeConAdvertencias('El gasto está listo para añadirse.\n', advertencias));
             } else if (facturaEsPdf) {
                 await captureAudit.flush();
                 const ocrParsed = await leerFacturaPdfConOcr(facturaFile, ocrFactura, captureAudit.id);
@@ -579,8 +579,8 @@ function AnadirGasto() {
                 }
                 const folioDetectado = uuidOcr || 'No detectado';
                 const mensajeBase = ocrParsed.fueReutilizado
-                    ? `Extracción de texto finalizada. Folio sugerido: ${folioDetectado}. Revisa que el Folio coincida con tu factura y presiona "Confirmar" para guardarlo.`
-                    : `Extracción de texto finalizada. Folio sugerido: ${folioDetectado}. Revisa que el Folio coincida con tu factura y presiona "Confirmar" para guardarlo.`;
+                    ? `Folio sugerido: ${folioDetectado}.\nRevisa que coincida con tu factura y presiona "Confirmar".`
+                    : `Folio sugerido: ${folioDetectado}.\nRevisa que coincida con tu factura y presiona "Confirmar".`;
                 setMensajeValidacion(mensajeConAdvertencias(mensajeBase, advertencias));
                 setEstadoValidacion(estadoParaAdvertencias(advertencias));
                 setGastoValidado(true);
@@ -623,7 +623,7 @@ function AnadirGasto() {
         const facturaEsXml = tipoDocumento === 'factura' && esXml(facturaFile);
         const facturaEsPdf = tipoDocumento === 'factura' && esPdf(facturaFile);
         if (tipoDocumento === 'factura' && facturaEsXml && !folioValidado) {
-            const mensaje = 'Confirma el Folio Fiscal antes de añadir el gasto.';
+            const mensaje = 'Confirma el Folio Fiscal para continuar.';
             auditValidation('validation_failed', mensaje);
             setEstadoValidacion('error');
             setMensajeValidacion(mensaje);
@@ -656,7 +656,7 @@ function AnadirGasto() {
         } else if (facturaEsPdf) {
             try {
                 if (!ocrCoincideConArchivoActual(ocrParsed, facturaFile)) {
-                    const mensaje = 'Primero presiona "Validar Gasto" para leer la factura PDF con OCR.';
+                    const mensaje = 'Presiona "Validar Gasto".';
                     setEstadoValidacion('error');
                     setMensajeValidacion(mensaje);
                     alert(mensaje);
@@ -692,7 +692,7 @@ function AnadirGasto() {
 
             try {
                 if (!ocrCoincideConArchivoActual(ocrParsed, archivoDocumento)) {
-                    const mensaje = `Primero presiona "Validar Gasto" para leer el ${etiquetaMinuscula} con OCR.`;
+                    const mensaje = `Presiona "Validar Gasto".`;
                     setEstadoValidacion('error');
                     setMensajeValidacion(mensaje);
                     alert(mensaje);
@@ -709,7 +709,7 @@ function AnadirGasto() {
         }
 
 
-        console.log("📝 TEXTO CAPTURADO EN EL INPUT:", observaciones);
+        //console.log("TEXTO CAPTURADO EN EL INPUT:", observaciones);
 
 
         // 1. Creamos el objeto con la misma estructura que espera tu lista
@@ -1124,7 +1124,7 @@ function AnadirGasto() {
                 <label style={styles.obsLabel}>Observaciones</label>
                 <textarea 
                     style={styles.textarea}
-                    placeholder="Escribe aquí notas adicionales sobre este reembolso..."
+                    placeholder="Escribe aquí notas adicionales sobre este gasto que creas necesarias..."
                     value={observaciones} 
                     onChange={(e) => {
                         auditFieldSoon('observations', e.target.value);
@@ -1647,7 +1647,7 @@ function mensajeCfdiBackendInvalido(gasto, resultado) {
 
     return [
         `La factura del gasto "${gasto.nombre}" no es válida.`,
-        errores.length ? errores.join('\n') : 'Revisa que el total, moneda, UUID y RFC coincidan.',
+        errores.length ? errores.join('\n') : 'Revisa que el total, UUID y RFC coincidan.',
     ].join('\n');
 }
 
@@ -1662,7 +1662,7 @@ function validarCfdiXmlRequerido(file) {
     }
 
     if (!esXml(file) && !esPdf(file)) {
-        return 'La factura debe ser un archivo válido.';
+        return 'La factura debe ser PDF.';
     }
 
     return null;
@@ -1678,7 +1678,7 @@ function validarDocumentoRequerido(tipoDocumento, archivos) {
         return `Debes cargar el ${tipoDocumento} antes de añadir el gasto.`;
     }
     if (!esPdf(documento)) {
-        return `El ${tipoDocumento} debe ser un archivo PDF.`;
+        return `El ${tipoDocumento} debe ser PDF.`;
     }
 
     return null;
@@ -1734,19 +1734,19 @@ async function validarCfdiAntesDeAnadir(
     const uuidCapturado = normalizarUuidFiscalValido(folioCapturado);
 
     if (!parsed.uuid) {
-        errores.push('- La factura no trae UUID fiscal.\n');
+        errores.push('- La factura no trae Folio Fiscal.\n');
     } else if (!uuidXml) {
-        errores.push('- La factura trae un UUID fiscal con formato inválido.\n');
+        errores.push('- La factura trae un Folio Fiscal con formato inválido.\n');
     }
 
     if (uuidCapturado && uuidXml && uuidCapturado !== uuidXml) {
-        advertencias.push(`- Que el folio capturado (${uuidCapturado}) coincida con el folio fiscal de la factura (${uuidXml}). Se guardará el folio capturado.\n`);
+        advertencias.push(`- Que el Folio (${uuidCapturado}) coincida con el folio fiscal de la factura (${uuidXml}).\n`);
     }
 
     if (totalCfdi === null || Number.isNaN(totalCfdi)) {
-        advertencias.push('- Que el monto ingresado coincida con la factura. Se guardará el monto capturado.\n');
+        advertencias.push('- Que el Monto ingresado coincida con la factura.\n');
     } else if (redondearMonto(totalCfdi) !== redondearMonto(montoGasto)) {
-        advertencias.push(`- Que el total de la factura (${formatoMonto(totalCfdi)}) coincida con el monto ingresado (${formatoMonto(montoGasto)}). Se guardará el monto capturado.\n`);
+        advertencias.push(`- Que el Monto (${formatoMonto(totalCfdi)}) coincida con el monto ingresado (${formatoMonto(montoGasto)}).\n`);
     }
 
     if (parsed.currency && parsed.currency.toUpperCase() !== 'MXN') {
@@ -1754,27 +1754,27 @@ async function validarCfdiAntesDeAnadir(
     }
 
     if (!fechaGasto) {
-        errores.push('- Corrobora que la fecha ingresada esté en formato DD/MM/AAAA.\n');
+        errores.push('- La fecha ingresada debe tener formato: DD/MM/AAAA.\n');
     } else if (!fechaCfdi) {
-        advertencias.push('- Que la fecha ingresada coincida con la factura. Se guardará la fecha capturada.\n');
+        advertencias.push('- Que la Fecha coincida con la factura.\n');
     } else if (fechaCfdi !== fechaGasto) {
-        advertencias.push(`- Que la fecha de la factura (${formatoFecha(fechaCfdi)}) coincida con la fecha ingresada (${formatoFecha(fechaGasto)}). Se guardará la fecha capturada.\n`);
+        advertencias.push(`- Que la Fecha de la factura (${formatoFecha(fechaCfdi)}) coincida con la ingresada (${formatoFecha(fechaGasto)}).\n`);
     }
 
     if (uuidXml) {
         if (uuidYaExisteEnSolicitud(uuidXml, storeId)) {
-            errores.push('- El UUID fiscal de la factura ya está registrado en otro gasto de esta solicitud.\n');
+            errores.push('- El Folio Fiscal ya está registrado en otro gasto de esta solicitud.\n');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(uuidXml);
             if (!disponibilidad.is_available) {
-                errores.push('- El UUID fiscal de la factura ya está registrado en otro gasto.\n');
+                errores.push('- El Folio Fiscal ya fue registrado en otro gasto.\n');
             }
         }
     }
 
     if (errores.length) {
         throw new Error([
-            `La factura del gasto no coincide con el gasto capturado:\n`,
+            //`La factura del gasto no coincide con el gasto capturado:\n`,
             ...errores,
         ].join('\n'));
     }
@@ -1821,23 +1821,23 @@ async function validarResultadoFacturaPdf(
     const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
 
     if (totalOcr === null || Number.isNaN(totalOcr)) {
-        advertencias.push('- Que el monto ingresado coincida con la factura, se guardará el monto capturado.\n');
+        advertencias.push('- Que el Monto coincida con la factura.\n');
     } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
-        advertencias.push(`- Que el total de la factura (${formatoMonto(totalOcr)}) coincida con el monto ingresado (${formatoMonto(montoGasto)}).\n`);
+        advertencias.push(`- Que el Monto de la factura (${formatoMonto(totalOcr)}) coincida con el ingresado (${formatoMonto(montoGasto)}).\n`);
     }
 
     if (!fechaGasto) {
-        errores.push('- Corrobora que la fecha ingresada esté en formato DD/MM/AAAA.\n');
+        errores.push('- La Fecha ingresada debe tener formato: DD/MM/AAAA.\n');
     } else if (!fechaOcr) {
-        advertencias.push('- Que la fecha ingresada coincida con la factura, se guardará la fecha capturada.\n');
+        advertencias.push('- Que la Fecha coincida con la factura.\n');
     } else if (fechaOcr !== fechaGasto) {
-        advertencias.push(`- Que la fecha de la factura (${formatoFecha(fechaOcr)}) coincida con la fecha ingresada (${formatoFecha(fechaGasto)}).\n`);
+        advertencias.push(`- Que la Fecha de la factura (${formatoFecha(fechaOcr)}) coincida con la ingresada (${formatoFecha(fechaGasto)}).\n`);
     }
 
     if (uuidOcrTexto && !uuid) {
-        advertencias.push('- Que el folio fiscal coincida con la factura. Captúralo manualmente y presiona "Confirmar".');
+        advertencias.push('- Captura manualmente el Folio Fiscal y presiona "Confirmar".');
     } else if (!uuid) {
-        advertencias.push('- Que el folio fiscal coincida con la factura. Captúralo manualmente y presiona "Confirmar".');
+        advertencias.push('- Captura manualmente el Folio Fiscal y presiona "Confirmar".');
     }
 
     if (folioCapturadoTexto && !esPlaceholderFolio(folioCapturadoTexto) && !uuidCapturado) {
@@ -1846,18 +1846,18 @@ async function validarResultadoFacturaPdf(
 
     if (uuidParaGuardar) {
         if (uuidYaExisteEnSolicitud(uuidParaGuardar, storeId)) {
-            errores.push('- El folio fiscal del PDF ya está agregado en otro gasto de esta solicitud.\n');
+            errores.push('- El Folio Fiscal ya está registrado en otro gasto de esta solicitud.\n');
         } else {
             const disponibilidad = await checkCfdiUuidAvailability(uuidParaGuardar);
             if (!disponibilidad.is_available) {
-                errores.push('- El folio fiscal del PDF ya está registrado en otro gasto.\n');
+                errores.push('- El Folio Fiscal ya está registrado en otro gasto.\n');
             }
         }
     }
 
     if (errores.length) {
         throw new Error([
-            `La factura PDF del gasto no coincide con el gasto capturado:\n`,
+            //`La factura PDF del gasto no coincide con el gasto capturado:\n`,
             ...errores,
         ].join('\n'));
     }
@@ -1877,22 +1877,22 @@ function validarResultadoDocumentoSimpleOcr(parsed, monto, fecha, etiquetaDocume
     const fechaOcr = normalizarFechaCfdi(parsed.extracted_date);
 
     if (totalOcr === null || Number.isNaN(totalOcr)) {
-        advertencias.push(`- Que el total en el ${etiqueta} coincida con el dato ingresado. Se guardará el monto capturado por el usuario.\n`);
+        advertencias.push(`- Que el total en el ${etiqueta} coincida con el dato ingresado.\n`);
     } else if (redondearMonto(totalOcr) !== redondearMonto(montoGasto)) {
-        advertencias.push(`- Que el total del ${etiqueta} (${formatoMonto(totalOcr)}) coincida con el monto ingresado (${formatoMonto(montoGasto)}). Se guardará el monto capturado.\n`);
+        advertencias.push(`- Que el total del ${etiqueta} (${formatoMonto(totalOcr)}) coincida con el monto ingresado (${formatoMonto(montoGasto)}).\n`);
     }
 
     if (!fechaGasto) {
-        errores.push('- Revisa que esté en formato DD/MM/AAAA.\n');
+        errores.push('- La Fecha ingresada debe tener formato: DD/MM/AAAA\n');
     } else if (!fechaOcr) {
-        advertencias.push(`- Que la fecha en el ${etiqueta} coincida con el dato ingresado. Se guardará la fecha capturado por el usuario.\n`);
+        advertencias.push(`- Que la fecha en el ${etiqueta} coincida con la ingresada.\n`);
     } else if (fechaOcr !== fechaGasto) {
-        advertencias.push(`- Que la fecha del ${etiqueta} (${formatoFecha(fechaOcr)}) coincida con la fecha ingresada (${formatoFecha(fechaGasto)}). Se guardará la fecha capturada.\n`);
+        advertencias.push(`- Que la fecha del ${etiqueta} (${formatoFecha(fechaOcr)}) coincida con la ingresada (${formatoFecha(fechaGasto)}).\n`);
     }
 
     if (errores.length) {
         throw new Error([
-            `El ${etiqueta} no coincide con el gasto capturado:\n`,
+            //`El ${etiqueta} no coincide con el gasto capturado:\n`,
             ...errores,
         ].join('\n'));
     }
@@ -1916,18 +1916,18 @@ function resultadoMontoDocumentoSimpleOcr(parsed, monto) {
 function mensajeBaseDocumentoSimpleOcr(etiquetaMinuscula, resultadoMonto, fueReutilizado) {
     if (resultadoMonto === 'no_detectado') {
         return fueReutilizado
-            ? `Extracción realizada para este ${etiquetaMinuscula}.  Se usará el monto capturado, verifica el dato antes de añadir.`
-            : `Extracción completada para el ${etiquetaMinuscula}.  Se usará el monto capturado, verifica el dato antes de añadir.`;
+            ? `Revisa que el Monto sea correcto antes de añadir.`
+            : `Revisa que el Monto sea correcto antes de añadir.`;
     }
     if (resultadoMonto === 'diferente') {
         return fueReutilizado
-            ? `Extracción realizada para este ${etiquetaMinuscula}. Antes de añadir; revisa el dato capturado.`
-            : `Extracción completada para el ${etiquetaMinuscula}. Antes de añadir; revisa el dato capturado.`;
+            ? `Revisa que la Fecha sea correcta antes de añadir.`
+            : `Revisa que la Fecha sea correcta antes de añadir.`;
     }
 
     return fueReutilizado
-        ? `Extracción realizada para este ${etiquetaMinuscula}. Los datos ingresados coinciden.`
-        : `Extracción completada para el ${etiquetaMinuscula}. Los datos ingresados coinciden.`;
+        ? `Los datos ingresados coinciden.`
+        : `Los datos ingresados coinciden.`;
 }
 
 function esErrorDeLecturaOcr(mensaje) {
@@ -2023,17 +2023,17 @@ function validarSolicitudDespuesDeAnadir(gastos) {
 
     const sinEvidenciaValida = activos.filter((gasto) => !gastoTieneEvidenciaValida(gasto));
     if (sinEvidenciaValida.length) {
-        errores.push(`Todos los gastos activos deben tener un comprobante válido. Falta evidencia válida en ${sinEvidenciaValida.length} gasto(s).`);
+        errores.push(`Falta evidencia válida en ${sinEvidenciaValida.length} gasto(s).`);
     }
 
     const cfdisDuplicados = obtenerCfdisDuplicados(activos);
     if (cfdisDuplicados.length) {
-        errores.push(`No debe haber CFDI duplicado. UUID repetido: ${cfdisDuplicados.join(', ')}.`);
+        errores.push(`Folio Fiscal duplicado: ${cfdisDuplicados.join(', ')}.`);
     }
 
     if (errores.length) {
         throw new Error([
-            'No se puede añadir el gasto porque la solicitud quedaría con errores:',
+            'No se puede añadir el gasto:',
             ...errores,
         ].join('\n'));
     }
@@ -2128,11 +2128,11 @@ function normalizarUuidFiscalValido(value) {
 
 function esPlaceholderFolio(value) {
     const texto = normalizarUuidLocal(value);
-    return texto === 'N/A' || texto === 'OCR PENDIENTE';
+    return texto === 'N/A' || texto === 'VALIDACIÓN PENDIENTE';
 }
 
 function mensajeFolioFiscalManual() {
-    return 'El folio fiscal no tiene formato válido. Captúralo manualmente con el formato 12345678-ABCD-1234-ABCD-1234567890AB y vuelve a confirmar.';
+    return 'Captura manualmente el Folio Fiscal y presiona Confirmar.';
 }
 
 function montoParaValidacion(value) {
@@ -2146,7 +2146,7 @@ function mensajeConAdvertencias(mensaje, advertencias = []) {
     return [
         mensaje,
         '',
-        'Antes de Añadir el Gasto se sugiere verificar:\n',
+        'Antes de Añadir el Gasto verifica:\n',
         ...advertencias,
     ].join('\n');
 }
