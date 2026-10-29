@@ -11,6 +11,8 @@ import Login from '../pages/Login';
 import RecoverPassword from '../pages/RecoverPassword';
 import ConfirmPasswordReset from '../pages/ConfirmPasswordReset';
 import Historico from '../pages/Historico';
+import SolExtemp from '../pages/contabilidad/SolExtemp';
+import AnadirExtemp from '../pages/contabilidad/AnadirExtemp';
 import AutorizacionBandeja from '../pages/autorizacion/AutorizacionBandeja';
 import Usuarios from '../pages/admin/Usuarios';
 import { currentToken } from '../lib/api';
@@ -51,7 +53,11 @@ function AppRouter({ currentRole }) {
             <Route path="/detalle" element={<RequireSession><Detalle currentRole={currentRole} /></RequireSession>}/>
             <Route path="/dashboard" element={<RequireSession><Dashboard currentRole={currentRole} /></RequireSession>} />
             <Route path="/bitacora" element={<RequireSession><Bitacora /></RequireSession>} />
+
             <Route path="/historico" element={<RequireSession><Historico currentRole={currentRole} /></RequireSession>}/>
+            <Route path="/solicitud/extemporanea" element={<RequireSession><SolExtemp currentRole={currentRole} extemporaneo={true} /></RequireSession>} />
+            <Route path="/gasto/extemporaneo" element={<RequireSession><AnadirExtemp /></RequireSession>} />
+            
             <Route path="/usuarios" element={<RequireSession><Usuarios /></RequireSession>} />
 
         </Routes>

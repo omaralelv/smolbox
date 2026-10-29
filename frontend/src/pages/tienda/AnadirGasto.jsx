@@ -901,7 +901,7 @@ function AnadirGasto() {
             
                 <div style={styles.formGrid}>
                     <div style={styles.inputGroup}>
-                        <label style={styles.label}>Fecha de la Factura *</label>
+                        <label style={styles.label}>Fecha del Comprobante *</label>
                         <input type="text" value={fecha} onChange={(e) => {
                             auditFieldSoon('date', e.target.value);
                             setFecha(e.target.value);

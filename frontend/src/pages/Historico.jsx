@@ -30,6 +30,9 @@ function Historico({currentRole}) {
     const navigate = useNavigate();
     const [filtroTienda, setFiltroTienda] = useState('todas');
     const [filtroFecha, setFiltroFecha] = useState('');
+
+    const [filtroExtemporaneo, setFiltroExtemporaneo] = useState('todas'); // 'todas' | 'extemporaneas' | 'normales'
+
     const [solicitudes, setSolicitudes] = useState(() => {
         const guardadas = localStorage.getItem(HISTORICO_CACHE_KEY) || localStorage.getItem(BANDEJA_CACHE_KEY);
         const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
@@ -84,9 +87,26 @@ function Historico({currentRole}) {
     // Filtrado seguro de históricas + filtro por tienda seleccionada
     const solicitudesHistoricas = solicitudesDelDia.filter(esSolicitudHistorica);
 
-    const solicitudesFiltradas = filtroTienda === 'todas'
-        ? solicitudesHistoricas
-        : solicitudesHistoricas.filter((sol) => obtenerTienda(sol) === filtroTienda);
+    //const solicitudesFiltradas = filtroTienda === 'todas'
+    //    ? solicitudesHistoricas
+    //    : solicitudesHistoricas.filter((sol) => obtenerTienda(sol) === filtroTienda);
+
+    const solicitudesFiltradas = solicitudesHistoricas.filter((sol) => {
+        const coincideTienda = filtroTienda === 'todas' || obtenerTienda(sol) === filtroTienda;
+        
+        // =========================================================================================
+        // 🌟🌟🌟 LÓGICA DE FILTRADO PARA EXTEMPORÁNEAS 🌟🌟🌟
+        // =========================================================================================
+        const esExt = Boolean(sol.esExtemporaneo || sol.es_extemporaneo);
+        let coincideExtemporaneo = true;
+        if (filtroExtemporaneo === 'extemporaneas') {
+            coincideExtemporaneo = esExt;
+        } else if (filtroExtemporaneo === 'normales') {
+            coincideExtemporaneo = !esExt;
+        }
+
+        return coincideTienda && coincideExtemporaneo;
+    });
 
 
   // Función para asignar colores exactos a cada Badge
@@ -103,70 +123,100 @@ function Historico({currentRole}) {
         };
     };
 
-    
+    const rolActualLimpio = String(currentRole || '').toLowerCase().trim();
+    const mostrarBotonExtemporaneo = ['admin', 'contabilidad'].includes(rolActualLimpio);
     
     return (
         <div style={styles.container}>
 
-            {/* FILTRO DE TIENDA */}
-            {puedeFiltrarSolicitudes(currentRole) && (
-                <div style={styles.filtersRow}>
-                    {(filtroFecha || filtroTienda !== 'todas') && (
+            <div style={styles.topActionsRow}>
+                <div>
+                    {mostrarBotonExtemporaneo && (
                         <button
                             type="button"
-                            onClick={() => {
-                                setFiltroFecha('');
-                                setFiltroTienda('todas');
-                            }}
-                            style={styles.clearDateFilter}
+                            onClick={() => navigate('/solicitud/extemporanea', { state: { extemporaneo: true } })}
+                            style={styles.btnAñadirExtemporaneo}
                         >
-                            Quitar filtros
+                            + Solicitud Extemporánea
                         </button>
                     )}
-                    <label style={styles.filterLabel}>
-                        Fecha Envío
-                        <input
-                            type="date"
-                            value={filtroFecha}
-                            onClick={(event) => event.target.showPicker && event.target.showPicker()}
-                            onChange={(event) => {
-                                const nuevaFecha = event.target.value;
-                                setFiltroFecha(nuevaFecha);
-                                if (
-                                    nuevaFecha
-                                    &&
-                                    filtroTienda !== 'todas'
-                                    && !solicitudes.some((solicitud) => (
-                                        normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === nuevaFecha
-                                        && obtenerTienda(solicitud) === filtroTienda
-                                    ))
-                                ) {
-                                    setFiltroTienda('todas');
-                                }
-                            }}
-                            style={styles.selectCal}
-                        />
-                    </label>
-                    <label style={styles.filterLabel}>
-                        Tienda
-                        <select
-                            value={filtroTienda}
-                            onChange={(event) => setFiltroTienda(event.target.value)}
-                            style={styles.filterSelect}
-                        >
-                            <option value="todas">Todas</option>
-                            {tiendasDisponibles.map((tienda) => (
-                                <option key={tienda} value={tienda}>
-                                    {tienda}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
                 </div>
-            )}
+
+                {/* FILTRO DE TIENDA */}
+                {puedeFiltrarSolicitudes(currentRole) && (
+                    <div style={styles.filtersRow}>
+                        {(filtroFecha || filtroTienda !== 'todas') && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFiltroFecha('');
+                                    setFiltroTienda('todas');
+                                }}
+                                style={styles.clearDateFilter}
+                            >
+                                Quitar filtros
+                            </button>
+                        )}
+                        <label style={styles.filterLabel}>
+                            Fecha Envío
+                            <input
+                                type="date"
+                                value={filtroFecha}
+                                onClick={(event) => event.target.showPicker && event.target.showPicker()}
+                                onChange={(event) => {
+                                    const nuevaFecha = event.target.value;
+                                    setFiltroFecha(nuevaFecha);
+                                    if (
+                                        nuevaFecha
+                                        &&
+                                        filtroTienda !== 'todas'
+                                        && !solicitudes.some((solicitud) => (
+                                            normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === nuevaFecha
+                                            && obtenerTienda(solicitud) === filtroTienda
+                                        ))
+                                    ) {
+                                        setFiltroTienda('todas');
+                                    }
+                                }}
+                                style={styles.selectCal}
+                            />
+                        </label>
+
+                        <label style={styles.filterLabel}>
+                            Tienda
+                            <select
+                                value={filtroTienda}
+                                onChange={(event) => setFiltroTienda(event.target.value)}
+                                style={styles.filterSelect}
+                            >
+                                <option value="todas">Todas</option>
+                                {tiendasDisponibles.map((tienda) => (
+                                    <option key={tienda} value={tienda}>
+                                        {tienda}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label style={styles.filterLabel}>
+                            Tipo
+                            <select
+                                value={filtroExtemporaneo}
+                                onChange={(event) => setFiltroExtemporaneo(event.target.value)}
+                                style={styles.filterSelect}
+                            >
+                                <option value="todas">Todas</option>
+                                <option value="extemporaneas">Solo Extemporáneas</option>
+                                <option value="normales">Solo Normales</option>
+                            </select>
+                        </label>
+                    </div>
+                )}
+            </div>
 
             <div style={styles.tableScroll} data-request-age-table>
             <div style={styles.tableContent}>
+
             {/* ENCABEZADOS DE LA TABLA */}
             <div style={styles.tableHeader}>
                 <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
@@ -178,6 +228,7 @@ function Historico({currentRole}) {
                 </span>
                 <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
                 <span style={styles.ageColumn}>DÍAS</span>
+                <span style={{ flex: 1, textAlign: 'center' }}>¿EXTEMPORÁNEO?</span>
                 <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
                 <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
                 <span style={{ width: '100px' }}></span>
@@ -192,6 +243,7 @@ function Historico({currentRole}) {
                     </div>
                 ) : (solicitudesFiltradas.map((sol) => {
                     const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
+                    const esExt = Boolean(sol.esExtemporaneo || sol.es_extemporaneo);
                     const age = requestAgeDisplay(sol);
                     return (
                         <div
@@ -213,24 +265,36 @@ function Historico({currentRole}) {
                             <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
                                 {sol.fecha || new Date().toLocaleDateString()}
                             </span>
-                            <span style={styles.ageColumn} title={age.title}
+
+                            {/*<span style={styles.ageColumn} title={age.title}
                                 aria-label={age.title} data-request-age={sol.backendId || sol.id}>
                                 {age.label}
+                            </span>*/}
+
+                            {/* 4. Días desde Envío hasta Pago */}
+                            <span style={styles.ageColumn} title={esExt ? 'No aplica temporalidad' : age.title}
+                                aria-label={age.title} data-request-age={sol.backendId || sol.id}>
+                                {esExt ? '-' : age.label}
                             </span>
 
-                            {/* 4. Monto Total */}
+                            {/* 5. ¿Extemporáneo? */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#666', fontWeight: esExt ? '700' : 'normal' }}>
+                                {esExt ? 'Extemporánea' : ''}
+                            </span>
+
+                            {/* 6. Monto Total */}
                             <span style={{ flex: 1, textAlign: 'center', color: '#333', fontWeight: '700' }}>
                                 {formatearMonto(montoTotal)}
                             </span>
 
-                            {/* 5. Pill / Badge de Estatus */}
+                            {/* 7. Pill / Badge de Estatus */}
                             <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
                                 <span style={{ ...styles.statusBadge, ...getBadgeStyle(sol.status || sol.estatus) }}>
                                     {sol.status}
                                 </span>
                             </div>
 
-                            {/* 6. Botón / Acción Abrir */}
+                            {/* 8. Botón / Acción Abrir */}
                             <div style={{ width: '100px', textAlign: 'center' }}>
                                 <button 
                                     style={styles.abrirBtn}
@@ -260,6 +324,27 @@ const styles = {
         textAlign: 'left',
         width: '95%',
         boxSizing: 'border-box'
+    },
+
+    topActionsRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '16px',
+        marginBottom: '25px',
+    },
+
+    btnAñadirExtemporaneo: {
+        backgroundColor: 'var(--sb-sendBtnBg)',
+        color: '#ffffff',
+        border: 'none',
+        borderRadius: '20px',
+        padding: '10px 15px',
+        fontSize: '14px',
+        fontWeight: '700',
+        cursor: 'pointer',
+        boxShadow: 'var(--shadow)',
     },
 
     filtersRow: {
