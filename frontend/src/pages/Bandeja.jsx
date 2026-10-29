@@ -1,0 +1,608 @@
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { currentToken, getFrontendBandeja } from '../lib/api';
+import { requestAgeDisplay, shouldRefreshRequestAges } from '../lib/requestAge';
+import {
+    obtenerAlertaDevolucionPersistida,
+    obtenerPrioridadBandeja,
+} from '../lib/reimbursementReturnAlert';
+import {
+    normalizarFechaSolicitud,
+    obtenerFechaSolicitud,
+    puedeFiltrarSolicitudes,
+} from '../lib/requestFilters';
+
+const BANDEJA_CACHE_KEY = 'bandejaSolicitudes';
+
+const SOLICITUDES_BASE = [
+    { id: 'Solicitud 3', tienda: 'T-001', fecha: '12/08/2026', status: 'Aprobada' },
+    { id: 'Solicitud 2', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' },
+    { id: 'Solicitud 1', tienda: 'T-001', fecha: '10/08/2026', status: 'Pagada' }
+];
+
+
+function formatearMonto(monto) {
+    const valor = Number(monto) || 0;
+    return new Intl.NumberFormat('es-MX', {
+        style: 'currency',
+        currency: 'MXN',
+    }).format(valor);
+}
+
+function obtenerEstadoAlerta(solicitud, currentRole) {
+    const role = String(currentRole || '').toLowerCase().trim();
+    const solicitudBackendId = solicitud?.backendId || solicitud?.reimbursementRequestId || solicitud?.id;
+    //if (!solicitudBackendId) return { esDevuelto: false, esResuelto: false };
+    const queueStatus = solicitud?.accountingQueueStatus || solicitud?.accounting_queue_status || 'single';
+
+    // Recuperar motivos/devuelto guardados en localStorage
+    let motivosPorRol = {};
+    let devueltoPor = '';
+    let devueltoPorOriginal = '';
+
+    if(solicitudBackendId) {
+        // Recuperar información guardada por Acumulado.jsx
+        const motivosPorRolRaw = localStorage.getItem(`motivos_map_${solicitudBackendId}`);
+        motivosPorRol = motivosPorRolRaw ? JSON.parse(motivosPorRolRaw) : {};
+        
+        devueltoPor = localStorage.getItem(`devuelto_por_${solicitudBackendId}`) || solicitud?.devueltoPor || '';
+        devueltoPorOriginal = localStorage.getItem(`devuelto_por_orig_${solicitudBackendId}`) || solicitud?.devueltoPorOriginal || devueltoPor;
+    }
+    
+    const currentBackendStatus = solicitud?.backendStatus || solicitud?.backend_status || '';
+    const alertaPersistida = obtenerAlertaDevolucionPersistida(solicitud, role);
+
+    // Regla 1: Evaluador de Devuelto (AMARILLO)
+    const esDevueltoBase = Boolean(
+        alertaPersistida.esDevuelto ||
+        (!alertaPersistida.tieneEstadoPersistido &&
+            Object.keys(motivosPorRol).length &&
+            (
+                (role === 'contabilidad' && ['gerencia', 'tesoreria'].includes(devueltoPorOriginal)) ||
+                (role === 'gerencia' && devueltoPor === 'tesoreria')
+            )
+        )
+    );
+
+    // Regla 2: Evaluador de Resuelto (VERDE)
+    const esResueltoBase = Boolean(
+        alertaPersistida.esResuelto ||
+        (!alertaPersistida.tieneEstadoPersistido &&
+            Object.keys(motivosPorRol).length &&
+            (
+                (devueltoPor === 'gerencia' && role === 'gerencia' && ['accounting_reviewed', 'accounting_manager_review'].includes(currentBackendStatus)) ||
+                (devueltoPorOriginal === 'tesoreria' && role === 'tesoreria' && ['accounting_manager_approved', 'treasury_review'].includes(currentBackendStatus))
+            )
+        )
+    );
+
+    // Ocultar banderas si ya avanzó de Tesorería en adelante
+    const ocultarBanner = ['direction_review', 'direction_approved', 'approved_for_payment', 'paid', 'closed', 'rejected'].includes(currentBackendStatus);
+
+    let esDevuelto = !ocultarBanner && esDevueltoBase;
+    let esResuelto = !ocultarBanner && esResueltoBase;
+
+
+    // 🎯 REGLAS EXCLUSIVAS PARA CONTABILIDAD
+    if (role === 'contabilidad' && queueStatus === 'taken' && esDevuelto) {
+        return {
+            esDevuelto: true,
+            esResuelto: false,
+            queueStatus,
+        };
+    }
+
+    return {
+        esDevuelto,
+        esResuelto,
+        queueStatus,
+    };
+}
+
+
+
+function Bandeja({currentRole}) {
+    const navigate = useNavigate();
+    const [filtroTienda, setFiltroTienda] = useState('todas');
+    const [filtroFecha, setFiltroFecha] = useState('');
+    const [solicitudes, setSolicitudes] = useState(() => {
+        const guardadas = localStorage.getItem(BANDEJA_CACHE_KEY);
+        const lista = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
+        return lista.filter(esSolicitudDeMonitoreo);
+    });
+
+
+    useEffect(() => {
+        let activo = true;
+        let refreshing = false;
+        let ageClock = null;
+
+        if (!currentToken()) {
+            navigate('/login');
+            return () => {
+                activo = false;
+            };
+        }
+
+        async function cargarBandeja() {
+            if (!activo || refreshing) return;
+            refreshing = true;
+            try {
+                const datos = await getFrontendBandeja();
+                if (!activo) return;
+                const monitoreo = Array.isArray(datos)
+                    ? datos.filter(esSolicitudDeMonitoreo)
+                    : [];
+                ageClock = {
+                    serverTime: monitoreo.find((item) => item.ageCalculatedAt)?.ageCalculatedAt,
+                    receivedAt: performance.now(),
+                };
+                setSolicitudes(monitoreo);
+                localStorage.setItem(BANDEJA_CACHE_KEY, JSON.stringify(monitoreo));
+            } catch {
+                if (!activo) return;
+                const guardadas = localStorage.getItem(BANDEJA_CACHE_KEY);
+                const listaFallback = guardadas ? JSON.parse(guardadas) : SOLICITUDES_BASE;
+                setSolicitudes(listaFallback.filter(esSolicitudDeMonitoreo));
+            } finally {
+                refreshing = false;
+            }
+        }
+
+        cargarBandeja();
+        const timer = window.setInterval(() => {
+            if (ageClock && document.visibilityState === 'visible'
+                && shouldRefreshRequestAges(ageClock.serverTime, performance.now() - ageClock.receivedAt)) {
+                cargarBandeja();
+            }
+        }, 60_000);
+        const alVolver = () => {
+            if (document.visibilityState === 'visible') cargarBandeja();
+        };
+        window.addEventListener('focus', alVolver);
+        document.addEventListener('visibilitychange', alVolver);
+
+        return () => {
+            activo = false;
+            window.clearInterval(timer);
+            window.removeEventListener('focus', alVolver);
+            document.removeEventListener('visibilitychange', alVolver);
+        };
+    }, [currentRole, navigate]);
+
+
+    const obtenerTienda = (solicitud) => solicitud.tienda || 'T-001';
+
+    const solicitudesDelDia = filtroFecha
+        ? solicitudes.filter((solicitud) => normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === filtroFecha)
+        : solicitudes;
+
+    const tiendasDisponibles = Array.from(
+        new Set(solicitudesDelDia.map((solicitud) => obtenerTienda(solicitud)))
+    ).sort();
+
+    const baseFiltrada = filtroTienda === 'todas'
+        ? solicitudesDelDia
+        : solicitudesDelDia.filter((solicitud) => obtenerTienda(solicitud) === filtroTienda);
+
+
+
+    // Función auxiliar para parsear fechas "DD/MM/YYYY" o ISO "YYYY-MM-DD" a timestamp
+    const parseFecha = (fechaStr) => {
+        if (!fechaStr) return 0;
+        if (fechaStr.includes('/')) {
+            const [dia, mes, anio] = fechaStr.split('/');
+            return new Date(`${anio}-${mes}-${dia}`).getTime() || 0;
+        }
+        return new Date(fechaStr).getTime() || 0;
+    };
+    
+    const esGerencia = String(currentRole || '').toLowerCase().trim() === 'gerencia';
+    const obtenerPrioridad = (solicitud, alerta) => {
+        if (!esGerencia) return obtenerPrioridadBandeja(currentRole, alerta);
+        if (alerta.esDevuelto) return 1;
+        if (alerta.esResuelto) return 2;
+
+        const backendStatus = String(solicitud?.backendStatus || solicitud?.backend_status || '').toLowerCase();
+        return backendStatus === 'direction_approved' ? 3 : 4;
+    };
+
+    // Ordenar con las alertas primero y aplicar prioridades específicas por rol.
+    const solicitudesFiltradas = [...baseFiltrada].sort((a, b) => {
+        const alertaA = obtenerEstadoAlerta(a, currentRole);
+        const alertaB = obtenerEstadoAlerta(b, currentRole);
+        const pesoA = obtenerPrioridad(a, alertaA);
+        const pesoB = obtenerPrioridad(b, alertaB);
+
+        // 2. Si pertenecen a grupos/prioridades distintas, ordena por su peso
+        if (pesoA !== pesoB) {
+            return pesoA - pesoB;
+        }
+
+        // 3. Desempate CRONOLÓGICO dentro del mismo grupo (De más reciente a más antigua)
+        const fechaA = parseFecha(a.fecha || a.createdAt || a.fechaEnvio);
+        const fechaB = parseFecha(b.fecha || b.createdAt || b.fechaEnvio);
+
+        return fechaB - fechaA; // Orden descendente (B - A)
+    });
+
+  // Función para asignar colores exactos a cada Badge
+    const getBadgeStyle = (status) => {
+    switch (status) {
+        case 'Aprobada':
+            return {
+                backgroundColor: 'var(--sb-aprobadaBg, #e6f7ff)',
+                color: 'var(--text-aprobada, #1890ff)'
+            };
+        case 'Pagada':
+            return {
+                backgroundColor: 'var(--sb-pagadaBg, #e6ffe6)',
+                color: 'var(--text-pagada, #52c41a)'
+            };
+        case 'En revisión':
+        default:
+            return {
+                backgroundColor: 'var(--sb-revisionBg, #f2f2f2)',
+                color: 'var(--text-revision, #777777)'
+            };
+        case 'Rechazada':
+            return{
+                backgroundColor: 'var(--sb-denegadaBg)',
+                color: 'var(--text-denegada)',
+            };
+    }
+    };
+
+    return (
+    <div style={styles.container}>
+            {puedeFiltrarSolicitudes(currentRole) && (
+                <div style={styles.filtersRow}>
+                    {(filtroFecha || filtroTienda !== 'todas') && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFiltroFecha('');
+                                setFiltroTienda('todas');
+                            }}
+                            style={styles.clearDateFilter}
+                        >
+                            Quitar Filtros
+                        </button>
+                    )}
+                    <label style={styles.filterLabel}>
+                        Fecha Envío
+                        <input
+                            type="date"
+                            value={filtroFecha}
+                            onClick={(event) => event.target.showPicker && event.target.showPicker()}
+                            onChange={(event) => {
+                                const nuevaFecha = event.target.value;
+                                setFiltroFecha(nuevaFecha);
+                                if (
+                                    nuevaFecha
+                                    &&
+                                    filtroTienda !== 'todas'
+                                    && !solicitudes.some((solicitud) => (
+                                        normalizarFechaSolicitud(obtenerFechaSolicitud(solicitud)) === nuevaFecha
+                                        && obtenerTienda(solicitud) === filtroTienda
+                                    ))
+                                ) {
+                                    setFiltroTienda('todas');
+                                }
+                            }}
+                            style={styles.selectCal}
+
+                        />
+                    </label>
+                    <label style={styles.filterLabel}>
+                        Tienda
+                        <select
+                            value={filtroTienda}
+                            onChange={(event) => setFiltroTienda(event.target.value)}
+                            style={styles.filterSelect}
+                        >
+                            <option value="todas">Todas</option>
+                            {tiendasDisponibles.map((tienda) => (
+                                <option key={tienda} value={tienda}>
+                                    {tienda}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+            )}
+
+        <div style={styles.tableScroll} data-request-age-table>
+        <div style={styles.tableContent}>
+        {/* ENCABEZADOS DE LA TABLA */}
+        <div style={styles.tableHeader}>
+            <span style={{ flex: 1.5, textAlign: 'left', paddingLeft: '50px' }}></span>
+            <span style={{ flex: 1, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '9px' }}>
+                TIENDA 
+                <svg width="12" height="12" viewBox="0 0 25 24" fill="currentColor">
+                    <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+                </svg>
+            </span>
+            <span style={{ flex: 1, textAlign: 'center' }}>FECHA ENVÍO</span>
+            <span style={styles.ageColumn}>DÍAS</span>
+            <span style={{ flex: 1, textAlign: 'center' }}>MONTO</span>
+            <span style={{ flex: 1, textAlign: 'center' }}>ESTATUS</span>
+            <span style={{ width: '100px' }}></span>
+        </div>
+
+
+        {/* LISTA DE FILAS DE SOLICITUDES */}
+            <div style={styles.listContainer}>
+                {solicitudesFiltradas.length === 0 ? (
+                    <div style={styles.emptyState}>
+                        No hay solicitudes para los filtros seleccionados.
+                    </div>
+                ) : (solicitudesFiltradas.map((sol) => {
+                    const { esDevuelto, esResuelto, queueStatus } = obtenerEstadoAlerta(sol, currentRole);
+                    const role = String(currentRole || '').toLowerCase().trim();
+
+                    // Definición de estilos condicionales para la fila
+                    let rowStyle = { ...styles.row };
+                    let textoEstatus = sol.status;
+                    let badgeStyleOverride = {};
+
+                    // 1. REGLA: Devuelta (Amarillo) - Prevalece si es devuelta y tomada por mí
+                    if (esDevuelto) {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#fffbe6', // Fondo amarillo
+                            borderColor: '#fac61d',     // Borde amarillo
+                        };
+                        textoEstatus = 'Devuelta';
+                        badgeStyleOverride = {
+                            backgroundColor: '#ffe693',
+                            color: '#c17a00',
+                            fontWeight: 'bold',
+                        };
+                    } 
+
+                    // 2. REGLA: Resuelta (Verde)
+                    else if (esResuelto) {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#f4ffec', // Fondo verde
+                            borderColor: '#66d809',     // Borde verde
+                        };
+                        textoEstatus = 'Resuelta';
+                        badgeStyleOverride = {
+                            backgroundColor: '#cffeb8',
+                            color: '#2e9a00',
+                            fontWeight: 'bold',
+                        };
+                    }
+
+                    // 3. REGLA CONTABILIDAD: Taken por otro contador (Grisáceo Opaco)
+                    else if (role === 'contabilidad' && queueStatus === 'taken_other') {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#f1e9e9', // Gris suave opaco
+                            borderColor: '#ceb8b8',
+                            color: '#e7d8d8',
+                            opacity: 0.6,            // Baja opacidad para dar a entender que está ocupado
+                        };
+                        textoEstatus = 'Ajeno';
+                        badgeStyleOverride = {
+                            backgroundColor: '#957878',
+                            color: '#ede2e2',
+                            fontWeight: 'bold',
+                        };
+                    }
+
+                    // 4. REGLA CONTABILIDAD: Taken por el perfil activo (Rosa Pastel)
+                    else if (role === 'contabilidad' && queueStatus === 'taken') {
+                        rowStyle = {
+                            ...styles.row,
+                            backgroundColor: '#fff5f6', // Rosa pastel delicado
+                            borderColor: '#f38c98',     // Borde rosa suave
+
+                            
+                            
+                        };
+                        textoEstatus = 'Propio';
+                        badgeStyleOverride = {
+                            backgroundColor: '#ffdaf9',
+                            color: '#af1e9e',
+                            fontWeight: 'bold',
+
+                            
+                        }
+                    };
+
+                    const montoTotal = sol.totalAmount ?? sol.total_amount ?? sol.monto ?? sol.montoTotal ?? 0;
+                    const age = requestAgeDisplay(sol);
+                    
+                    return (
+                        <div
+                            key={sol.id}
+                            style={rowStyle}
+                            data-audit-request-id={sol.backendId || sol.backend_id || undefined}
+                        >
+                            {/* 1. Nombre / ID Solicitud */}
+                            <span style={{ flex: 1.5, minWidth: 0, overflowWrap: 'anywhere', textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
+                                {sol.id}
+                            </span>
+
+                            {/* 2. Tienda */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
+                                {obtenerTienda(sol)}
+                            </span>
+
+                            {/* 3. Fecha de Envío */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#444' }}>
+                                {sol.fecha || new Date().toLocaleDateString()}
+                            </span>
+                            <span style={styles.ageColumn} title={age.title}
+                                aria-label={age.title} data-request-age={sol.backendId || sol.id}>
+                                {age.label}
+                            </span>
+
+                            {/* 4. Monto Total */}
+                            <span style={{ flex: 1, textAlign: 'center', color: '#333', fontWeight: '700' }}>
+                                {formatearMonto(montoTotal)}
+                            </span>
+
+                            {/* 5. Pill / Badge de Estatus */}
+                            <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                                <span style={{ 
+                                    ...styles.statusBadge, 
+                                    ...getBadgeStyle(sol.status),
+                                    ...badgeStyleOverride 
+                                }}>
+                                    {textoEstatus}
+                                </span>
+                            </div>
+
+                            {/* 5. Botón Abrir */}
+                            <div style={{ width: '100px', textAlign: 'center' }}>
+                                <button 
+                                    style={styles.abrirBtn}
+                                    onClick={() => navigate('/acumulado', { state: { solicitud: sol } })}
+                                >
+                                    Abrir
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })
+
+                )}
+            </div>
+        </div>
+        </div>
+
+        </div>
+    );
+}
+
+// 🎨 ESTILOS ALINEADOS A LA NUEVA MAQUETA
+const styles = {
+    container: {
+        maxWidth: '1450px',
+        margin: '0 auto',
+        padding: '30px 20px',
+        textAlign: 'left',
+        width: '95%',
+        boxSizing: 'border-box'
+    },
+    filtersRow: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        gap: '16px',
+        flexWrap: 'wrap',
+        marginBottom: '16px',
+    },
+    filterLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '13px',
+        fontWeight: '700',
+        color: '#333',
+    },
+    filterSelect: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '8px',
+        backgroundColor: '#ffffff',
+        color: '#333',
+        fontSize: '13px',
+        padding: '7px 10px',
+        minWidth: '120px',
+    },
+
+    selectCal: {
+        minWidth: '100px',
+        height: '35px',
+        border: '1px solid var(--border, #f3c6cc)',
+        borderRadius: '8px',
+        background: '#fff',
+        color: '#333',
+        padding: '0 12px',
+        fontSize: '14px',
+
+        // Forzar el tema claro para el calendario desplegable nativo
+        colorScheme: 'light',
+
+        // Cambiar el color de acento/selección (puedes usar el rosa corporativo o el tono que gustes)
+        accentColor: 'var(--sb-sendBtnBg)',
+
+        cursor: 'pointer',
+    },
+
+    clearDateFilter: {
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '20px',
+        backgroundColor: 'var(--sb-sendBtnBg)',
+        color: '#ffffff',
+        padding: '7px 10px',
+        fontSize: '13px',
+        fontWeight: '700',
+        cursor: 'pointer',
+    },
+
+    tableScroll: { width: '100%', overflowX: 'auto', paddingBottom: '6px' },
+    tableContent: { minWidth: '820px' },
+    ageColumn: { flex: '0 0 88px', textAlign: 'center', fontVariantNumeric: 'tabular-nums' },
+    tableHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 10px 12px 10px',
+        fontSize: '13px',
+        fontWeight: '700',
+        color: '#000000',
+        letterSpacing: 0,
+    },
+    listContainer: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+    },
+    row: {
+        display: 'flex',
+        alignItems: 'center',
+        backgroundColor: '#ffffff',
+        border: '1px solid var(--sb-btnBorder)',
+        borderRadius: '10px',
+        padding: '7px 10px',
+        fontSize: '13px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+    },
+    statusBadge: {
+        padding: '4px 0px',
+        borderRadius: '12px',
+        fontSize: '13px',
+        fontWeight: '400',
+        display: 'inline-block',
+        minWidth: '82px',
+        textAlign: 'center',
+    },
+    abrirBtn: {
+        backgroundColor: 'transparent',
+        border: 'none',
+        color: 'var(--text-WBtn)',
+        fontWeight: 'bold',
+        fontSize: '13px',
+        cursor: 'pointer',
+    },
+    emptyState: {
+        textAlign: 'center',
+        padding: '20px',
+        color: '#666',
+        fontSize: '13px',
+    }
+};
+
+export default Bandeja;
+
+function esSolicitudDeMonitoreo(solicitud) {
+    const status = String(solicitud?.status || solicitud?.estatus || '').toLowerCase();
+    const backendStatus = String(solicitud?.backendStatus || solicitud?.backend_status || '').toLowerCase();
+    return !['pagada', 'rechazada'].includes(status)
+        && !['paid', 'closed', 'rejected'].includes(backendStatus);
+}

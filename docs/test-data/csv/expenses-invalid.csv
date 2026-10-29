@@ -1,0 +1,5 @@
+proveedor,importe,fecha,categoria,descripcion,rfc_proveedor,moneda,requiere_autorizacion
+Sin Fecha,250.00,,papeleria,Falta la fecha,SFE010101HH1,MXN,false
+Monto Invalido,no-es-numero,2026-08-16,operacion,Importe no numerico,MIN010101II1,MXN,false
+Fuera Periodo,300.00,2026-09-03,transporte,Fecha fuera de agosto,FPE010101JJ1,MXN,true
+
