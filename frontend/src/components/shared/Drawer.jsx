@@ -134,6 +134,7 @@ export default function Drawer({
                             return (
                                 <div 
                                     key={obs.id} 
+                                    data-observation-id={obs.id}
                                     style={{
                                         ...styles.mensajeWrapper,
                                         alignItems: esMio ? 'flex-end' : 'flex-start'
@@ -676,6 +677,9 @@ const styles = {
         fontSize: '10px',
         color: '#6b7280',
         marginBottom: '2px',
+        maxWidth: '100%',
+        overflowWrap: 'anywhere',
+        lineHeight: '1.4',
     },
 
     

@@ -8,6 +8,41 @@ function event(id, message = 'Comentario posterior', payload = {}) {
         created_at: '2026-08-08T10:00:00Z', event_payload: { actor_role: 'authorizer', ...payload } };
 }
 
+test('shows two names for the same role without changing text, permissions or deduplication', () => {
+    const events = [
+        event('ana', 'Igual', { actor_role: 'accountant', actor_name: 'Ana Lopez' }),
+        event('luis', 'Igual', { actor_role: 'accountant', actor_name: 'Luis Garcia' }),
+    ];
+    const history = combinarHistorialObservaciones([], historialDesdeEventos([...events, events[0]]));
+    assert.deepEqual(history.map((note) => note.autor), ['Ana Lopez (CONTABILIDAD)', 'Luis Garcia (CONTABILIDAD)']);
+    assert.ok(history.every((note) => note.rol === 'contabilidad' && note.visibilidad === 'INTERNO' && note.texto === 'Igual'));
+    assert.deepEqual(historialParaGasto(history, { backendId: 'expense-1' }, 'tienda'), []);
+    assert.equal(historialParaGasto(history, { backendId: 'expense-1' }, 'contabilidad').length, 2);
+});
+
+test('prefers the captured author name, with the server lookup as a legacy fallback', () => {
+    const history = historialDesdeEventos([
+        { ...event('saved', 'Nuevo', { actor_name: 'Nombre original' }), actor_name: 'Nombre cambiado' },
+        { ...event('legacy'), actor_name: 'Nombre anterior disponible' },
+    ]);
+    assert.equal(history.find((note) => note.id === 'saved').autor, 'Nombre original (SUPERVISOR)');
+    assert.equal(history.find((note) => note.id === 'legacy').autor, 'Nombre anterior disponible (SUPERVISOR)');
+});
+
+test('does not invent missing authors or trust browser-provided author metadata', () => {
+    const history = historialDesdeEventos([
+        { ...event('unknown', 'Sin autor', { frontend_author: 'Nombre falso', actor_name: ' ' }), actor_type: 'user' },
+        { ...event('system', 'Automatico'), actor_type: 'system' },
+        { ...event('without-role'), event_payload: {}, actor_type: 'user' },
+    ]);
+    assert.equal(history.find((note) => note.id === 'unknown').autor, 'Usuario no disponible (SUPERVISOR)');
+    assert.equal(history.find((note) => note.id === 'system').autor, 'SISTEMA');
+    assert.equal(history.find((note) => note.id === 'without-role').autor, 'Usuario no disponible');
+    const removal = historialDesdeEventos([{ ...event('removed', 'Motivo', { actor_role: 'store', actor_name: 'Ana' }), action: 'expense_removed_from_request' }]);
+    assert.equal(removal[0].autor, 'Ana (TIENDA)');
+    assert.equal(removal[0].texto, 'Gasto eliminado por TIENDA. Motivo: "Motivo"');
+});
+
 test('preserves the initial note when another observation or edit exists for the expense', () => {
     const history = historialDesdeEventos([event('later'), { ...event('edit'), action: 'expense_review_updated' }]);
     assert.deepEqual(combinarHistorialObservaciones([initial], history).map((note) => note.id), ['init-obs-expense-1', 'edit', 'later']);
@@ -65,8 +100,8 @@ test('automatic partition descriptions are system records dated by creation, not
 
 test('partition history identifies inherited notes without mixing siblings or leaking private notes', () => {
     const history = historialDesdeEventos([
-        { ...event('parent'), expense_id: 'parent' },
-        { ...event('child'), expense_id: 'child' },
+        { ...event('parent', 'Original', { actor_name: 'Autora original' }), expense_id: 'parent' },
+        { ...event('child', 'Particion', { actor_name: 'Autora particion' }), expense_id: 'child' },
         { ...event('sibling'), expense_id: 'sibling' },
         { ...event('private', 'Internal note', { actor_role: 'accountant' }), expense_id: 'parent' },
     ]);
@@ -75,6 +110,9 @@ test('partition history identifies inherited notes without mixing siblings or le
         ['child', 'Esta partici\u00f3n'], ['parent', 'Gasto original'],
     ]);
     assert.equal(historialParaGasto(history, expense, 'tesoreria').length, 3);
+    assert.deepEqual(historialParaGasto(history, expense, 'tienda').map((note) => note.autor), [
+        'Autora particion (SUPERVISOR)', 'Autora original (SUPERVISOR)',
+    ]);
     assert.deepEqual(historialParaGasto(history, null, 'admin'), []);
 });
 

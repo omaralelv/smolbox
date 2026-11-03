@@ -293,7 +293,11 @@ def test_invalid_partition_is_atomic(partition_flow, invalid_parts):
     events_before = len(flow.events())
     result = flow.split(invalid_parts)
     assert result.status_code == 422, result.text
-    assert flow.detail() == before
+    after = flow.detail()
+    # The calculation timestamp changes on every read, not the request's stored data.
+    assert {key: value for key, value in after.items() if key != "ageCalculatedAt"} == {
+        key: value for key, value in before.items() if key != "ageCalculatedAt"
+    }
     assert len(flow.events()) == events_before
 
 
@@ -428,6 +432,10 @@ def test_comments_survive_partition_count_changes_cancellation_and_recreation(pa
     assert len(notes) == 5  # Three previous comments, the new one, and the store's initial note.
     assert len({e["id"] for e in notes}) == 5
     assert sum(e["expense_archived"] for e in notes) == 3
+    with flow.sessions() as db:
+        authors = {str(user.id): user.full_name for user in db.scalars(select(User))}
+    assert all(note["actor_name"] == authors[note["actor_user_id"]] for note in notes)
+    assert all(note["event_payload"]["actor_name"] == note["actor_name"] for note in notes)
     assert flow.detail()["montoTotal"] == 1500
 
 

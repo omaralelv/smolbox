@@ -40,9 +40,13 @@ export function historialDesdeEventos(events = []) {
         if (!ACTIONS.has(event.action) || !expenseId || !event.message) return null;
         const backendRole = String(payload.actor_role || event.actor_role || '').toLowerCase().trim();
         const role = ROLES[backendRole] || backendRole || 'sistema';
-        const author = role.toUpperCase();
+        const roleLabel = role.toUpperCase();
+        const name = String(payload.actor_name || '').trim() || String(event.actor_name || '').trim();
+        const systemEvent = event.actor_type === 'system' || ['system', 'sistema'].includes(backendRole);
+        const author = systemEvent ? 'SISTEMA'
+            : `${name || 'Usuario no disponible'}${backendRole ? ` (${roleLabel})` : ''}`;
         let text = event.message;
-        if (event.action === 'expense_removed_from_request') text = `Gasto eliminado por ${author}. Motivo: "${text}"`;
+        if (event.action === 'expense_removed_from_request') text = `Gasto eliminado por ${roleLabel}. Motivo: "${text}"`;
         if (event.action === 'expense_authorization_rejected') text = `Gasto no autorizado. Motivo: "${text}"`;
         const timestamp = Number(payload.fecha_timestamp || payload.fechaTimestamp || 0);
         const date = event.created_at || event.createdAt;

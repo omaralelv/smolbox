@@ -642,6 +642,7 @@ def _reject_expense_with_actor(
             message=reason,
             event_payload={
                 "actor_role": actor.role.value,
+                "actor_name": actor.full_name,
                 "reported_total": str(reimbursement_request.reported_total),
                 "authenticated": require_store_assignment,
             },
@@ -707,6 +708,7 @@ def _add_observation_with_actor(
             message=note,
             event_payload={
                 "actor_role": actor.role.value,
+                "actor_name": actor.full_name,
                 "request_status": reimbursement_request.status.value,
                 "authenticated": require_store_assignment,
                 "event_id": str(event_id) if event_id else None,
@@ -819,6 +821,7 @@ def _review_update_expense_with_actor(
             message=event_message,
             event_payload={
                 "actor_role": actor.role.value,
+                "actor_name": actor.full_name,
                 "request_status": reimbursement_request.status.value,
                 "changed_fields": changed_fields,
                 "previous_values": changed_previous_values,
@@ -1030,6 +1033,7 @@ def _remove_expense_with_actor(
             message=reason,
             event_payload={
                 "actor_role": actor.role.value,
+                "actor_name": actor.full_name,
                 "request_status": request_status_before_removal.value,
                 "original_amount": str(original_amount),
                 "original_currency": original_currency,

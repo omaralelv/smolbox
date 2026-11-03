@@ -10,11 +10,15 @@ const warning = 'No se pudieron actualizar las observaciones. Se conserva el his
 const savedWarning = 'La observaci\u00f3n se guard\u00f3, pero no se pudo actualizar el historial. Reintenta la consulta; no es necesario enviarla otra vez.';
 
 async function openHistory(role, { storeDraft = false, failInitially = false, persistedInitial = false,
-    partition = false, canComment, requestStatus, pauseSave = false, failSave = false } = {}) {
+    partition = false, canComment, requestStatus, pauseSave = false, failSave = false, longAuthor = false } = {}) {
     const requestId = randomUUID();
     const expenseId = randomUUID();
+    const store = { id: randomUUID(), code: 'T001', name: 'Centro' };
     const authorizer = role === 'supervisor';
     const parentId = partition ? randomUUID() : null;
+    const supervisorIds = [randomUUID(), randomUUID()];
+    const supervisorNames = [longAuthor ? 'NombreExtremadamenteLargo'.repeat(12).slice(0, 255) : 'Ana Lopez', 'Luis Garcia'];
+    const currentAuthor = `Usuario ${role}`;
     const backendRole = { tienda: 'store', supervisor: 'authorizer', contabilidad: 'accountant', gerencia: 'accounting_manager',
         tesoreria: 'treasury', direccion: 'director', admin: 'admin' }[role];
     const writable = canComment ?? (storeDraft || ['supervisor', 'contabilidad', 'admin'].includes(role));
@@ -35,14 +39,21 @@ async function openHistory(role, { storeDraft = false, failInitially = false, pe
         id: `event-${String(index).padStart(3, '0')}`, expense_id: expenseId,
         message: `SUPERVISOR NOTE ${String(index).padStart(3, '0')}`,
         action: 'expense_observation_added', created_at: new Date(Date.UTC(2026, 7, 8, 10, 0, index)).toISOString(),
-        event_payload: { actor_role: 'authorizer' },
+        actor_type: 'user', actor_user_id: supervisorIds[index % 2],
+        actor_name: index % 2 ? supervisorNames[1] : 'Nombre actualizado',
+        event_payload: { actor_role: 'authorizer', ...(index % 2 ? {} : { actor_name: supervisorNames[0] }) },
     })).reverse();
+    events.push({ id: 'missing-author', expense_id: expenseId, message: 'LEGACY WITHOUT AUTHOR',
+        action: 'expense_observation_added', actor_type: 'user',
+        created_at: '2026-08-08T10:05:00Z', event_payload: { actor_role: 'authorizer' } });
     if (partition) events.push({
         id: 'parent-note', expense_id: parentId, message: initialText,
-        action: 'expense_observation_added', created_at: '2026-10-15T17:13:00Z', event_payload: { actor_role: 'store' },
+        action: 'expense_observation_added', actor_name: 'Autora del gasto original',
+        created_at: '2026-10-15T17:13:00Z', event_payload: { actor_role: 'store' },
     });
     if (persistedInitial) events.push({
         id: 'initial-event', expense_id: expenseId, message: initialText,
+        actor_name: 'Autora de la nota inicial',
         action: 'expense_observation_added', created_at: '2026-08-07T10:00:00Z',
         event_payload: { actor_role: 'store', is_initial_observation: true },
     });
@@ -74,7 +85,8 @@ async function openHistory(role, { storeDraft = false, failInitially = false, pe
         let data = {};
         let status = 200;
         if (path.endsWith('/health')) data = { version: 'test' };
-        else if (path.endsWith('/frontend/context/me')) data = { currentRole: role, tienda: 'T001' };
+        else if (path.endsWith('/frontend/context/me')) data = { currentRole: role, tienda: 'T001', stores: [store], activeStore: store };
+        else if (path.endsWith(`/solicitudes/tienda/${store.id}/borrador/me`)) data = requestData;
         else if (path.endsWith('/frontend/bandeja/me')) data = [requestData];
         else if (path.endsWith('/frontend/historico/me')) data = [];
         else if (path.endsWith(`/solicitudes/${requestId}/me`)) data = requestData;
@@ -97,7 +109,8 @@ async function openHistory(role, { storeDraft = false, failInitially = false, pe
                 events.unshift({
                 id: randomUUID(), expense_id: expenseId, message: posts.at(-1).note,
                 action: 'expense_observation_added', created_at: '2026-10-15T18:14:00Z',
-                event_payload: { actor_role: backendRole },
+                actor_type: 'user', actor_name: currentAuthor,
+                event_payload: { actor_role: backendRole, actor_name: currentAuthor },
                 });
                 data = { id: expenseId, review_note: posts.at(-1).note };
             }
@@ -105,12 +118,14 @@ async function openHistory(role, { storeDraft = false, failInitially = false, pe
         await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
     });
     const page = await context.newPage();
+    page.setDefaultTimeout(12_000);
     page.on('pageerror', (error) => failures.push(error.message));
     page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); });
     await page.goto(`${baseURL}${storeDraft ? '/solicitud/nueva' : authorizer ? '/autorizacion' : '/detalle'}`);
     await page.getByRole('button', { name: 'Observaciones', exact: true }).first().click();
     await page.getByText(description, { exact: true }).waitFor();
-    return { context, page, reads, posts, failures, dialogs, saveStarted, releaseSave, writable, failAt: (offset) => { failingOffset = offset; } };
+    return { context, page, reads, posts, failures, dialogs, saveStarted, releaseSave, writable, supervisorNames, currentAuthor,
+        failAt: (offset) => { failingOffset = offset; } };
 }
 
 async function expectCompleteHistory(form) {
@@ -118,6 +133,11 @@ async function expectCompleteHistory(form) {
     await form.page.getByText('SUPERVISOR NOTE 224', { exact: true }).waitFor();
     assert.equal(await form.page.getByText(/^SUPERVISOR NOTE \d{3}$/).count(), 225);
     assert.equal(await form.page.getByText(initialText, { exact: true }).count(), 1);
+    for (const [index, name] of form.supervisorNames.entries()) {
+        const note = form.page.getByText(`SUPERVISOR NOTE 00${index}`, { exact: true }).locator('..');
+        assert.ok((await note.innerText()).includes(`${name} (SUPERVISOR)`));
+    }
+    assert.ok((await form.page.getByText('LEGACY WITHOUT AUTHOR', { exact: true }).locator('..').innerText()).includes('Usuario no disponible (SUPERVISOR)'));
     assert.ok(form.reads.includes(200), 'automatically requests the second page');
     assert.deepEqual(form.failures, []);
 }
@@ -180,7 +200,9 @@ try {
         assert.equal(form.posts.length, 1, `${role} double click sends only one write`);
         assert.equal(await editor.isDisabled(), true);
         form.releaseSave();
-        await form.page.getByText('COMMENT SAVED ONCE', { exact: true }).waitFor();
+        const savedRecord = form.page.locator('[data-observation-id]').filter({ has: form.page.getByText('COMMENT SAVED ONCE', { exact: true }) });
+        await savedRecord.getByText(new RegExp(`^${form.currentAuthor} \\(`)).waitFor();
+        assert.ok((await savedRecord.innerText()).includes(form.currentAuthor));
         assert.equal(form.posts.length, 1);
         assert.equal(await form.page.getByText('COMMENT SAVED ONCE', { exact: true }).count(), 1);
         assert.deepEqual(form.dialogs, []);
@@ -208,6 +230,7 @@ try {
     assert.ok((await systemRecord.innerText()).includes('Registro autom\u00e1tico'));
     assert.ok(!(await systemRecord.innerText()).includes('TIENDA'));
     assert.ok((await partition.page.getByText(initialText, { exact: true }).locator('..').innerText()).includes('Gasto original'));
+    assert.ok((await partition.page.getByText(initialText, { exact: true }).locator('..').innerText()).includes('Autora del gasto original (TIENDA)'));
     assert.ok((await partition.page.getByText('SUPERVISOR NOTE 000', { exact: true }).locator('..').innerText()).includes('Esta partici\u00f3n'));
     await systemRecord.scrollIntoViewIfNeeded();
     await partition.page.screenshot({ path: '/tmp/smolbox-partition-observation-origins.png', fullPage: true });
@@ -217,7 +240,22 @@ try {
     await expectCompleteHistory(paid);
     assert.equal(await paid.page.getByPlaceholder('Nueva observaci\u00f3n...').count(), 0, 'paid history remains readable without a send form');
     await paid.context.close();
-    console.log('Browser checks passed: complete history, seven roles, store draft permissions, readonly states, partition origins and dates, single-flight writes, failed writes and saved-but-refresh-failed recovery.');
+
+    const longAuthor = await openHistory('supervisor', { longAuthor: true });
+    await expectCompleteHistory(longAuthor);
+    const namedRecord = longAuthor.page.getByText('SUPERVISOR NOTE 000', { exact: true }).locator('..');
+    for (const [name, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
+        await longAuthor.page.setViewportSize(viewport);
+        await namedRecord.scrollIntoViewIfNeeded();
+        assert.equal(await namedRecord.locator('span').first().evaluate((label) => (
+            label.scrollWidth <= label.clientWidth + 1
+            && label.getBoundingClientRect().right <= label.parentElement.getBoundingClientRect().right + 1
+        )), true, `author label fits on ${name}`);
+        await longAuthor.page.screenshot({ path: `/tmp/smolbox-observation-authors-${name}.png`, fullPage: true });
+    }
+    assert.deepEqual(longAuthor.failures, []);
+    await longAuthor.context.close();
+    console.log('Browser checks passed: author names, same-role users, legacy fallback, long names, complete history, seven roles, partition origins, single-flight writes and recovery.');
 } finally {
     await browser.close();
 }

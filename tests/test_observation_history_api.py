@@ -11,10 +11,10 @@ from app.models.user import User
 from app.services.expense_observations import can_add_expense_observation
 
 
-def _actor(client, base_records, role, *, assigned=True):
-    email = f"observations-{role}@example.com"
+def _actor(client, base_records, role, *, assigned=True, suffix="", name=None):
+    email = f"observations-{role}{suffix}@example.com"
     created = client.post("/api/v1/users/", json={
-        "email": email, "full_name": f"Observations {role}", "role": role, "password": "secret-password",
+        "email": email, "full_name": name or f"Observations {role}", "role": role, "password": "secret-password",
     })
     assert created.status_code == 201, created.text
     user_id = created.json()["id"]
@@ -152,6 +152,8 @@ def test_initial_note_is_persisted_once_and_remains_public(client, base_records)
     assert len(history.json()) == 1
     assert history.json()[0]["message"] == "Original store note"
     assert history.json()[0]["event_payload"]["is_initial_observation"] is True
+    assert history.json()[0]["actor_name"] == "Observations store"
+    assert history.json()[0]["event_payload"]["actor_name"] == "Observations store"
 
 
 def test_imported_initial_note_is_not_added_twice(client, base_records):
@@ -165,6 +167,75 @@ def test_imported_initial_note_is_not_added_twice(client, base_records):
     assert history.status_code == 200
     assert len(history.json()) == 1
     assert history.json()[0]["event_payload"]["is_initial_observation"] is True
+    assert history.json()[0]["actor_name"] == "Audit reader"
+    assert history.json()[0]["event_payload"]["actor_name"] == "Audit reader"
+
+
+def test_same_role_authors_are_distinct_authenticated_and_do_not_change_privacy(
+    client, base_records, session_factory,
+):
+    expense = create_expense(client, base_records)
+    authors = [
+        (*_actor(client, base_records, "accountant", suffix="-ana", name="Ana Lopez", assigned=False), "Ana Lopez"),
+        (*_actor(client, base_records, "accountant", suffix="-luis", name="Luis Garcia", assigned=False), "Luis Garcia"),
+    ]
+    _, store_headers = _actor(client, base_records, "store")
+    reader = authenticated_audit_headers(client)
+    with session_factory() as db:
+        db.get(ReimbursementRequest, UUID(base_records["request_id"])).status = ReimbursementRequestStatus.under_accounting_review
+        db.commit()
+    event_id = str(uuid4())
+    for author_id, headers, _ in authors:
+        payload = {"note": "Mismo comentario", "eventId": event_id,
+                   "actor_name": "Nombre falso", "actor_role": "store", "actor_user_id": authors[0][0]}
+        for _ in range(2):
+            response = client.post(f"/api/v1/expenses/{expense['id']}/observation/me", headers=headers, json=payload)
+            assert response.status_code == 200, response.text
+    history = client.get(_path(base_records), headers=reader, params={"observations_only": True}).json()
+    assert len(history) == len({row["id"] for row in history}) == 2
+    assert {row["actor_user_id"]: row["actor_name"] for row in history} == {author_id: name for author_id, _, name in authors}
+    assert all(row["actor_role"] == row["event_payload"]["actor_role"] == "accountant" for row in history)
+    assert all(row["actor_name"] == row["event_payload"]["actor_name"] for row in history)
+    assert client.get(_path(base_records), headers=store_headers, params={"observations_only": True}).json() == []
+    daily = client.get("/api/v1/frontend/audit-events/me", headers=reader,
+                       params={"day": datetime.now(UTC).date().isoformat(), "utc_offset_minutes": 0}).json()
+    assert {row["actor_name"] for row in daily if row["action"] == "expense_observation_added"} == {"Ana Lopez", "Luis Garcia"}
+
+
+def test_author_snapshot_survives_rename_and_deletion_while_legacy_names_use_lookup(
+    client, base_records, session_factory,
+):
+    expense = create_expense(client, base_records)
+    writer_id, writer = _actor(client, base_records, "accountant", assigned=False, name="Nombre original")
+    reader = authenticated_audit_headers(client)
+    with session_factory() as db:
+        db.get(ReimbursementRequest, UUID(base_records["request_id"])).status = ReimbursementRequestStatus.under_accounting_review
+        db.commit()
+    response = client.post(f"/api/v1/expenses/{expense['id']}/observation/me", headers=writer, json={"note": "Nuevo comentario"})
+    assert response.status_code == 200, response.text
+    with session_factory() as db:
+        db.add(AuditLog(
+            reimbursement_request_id=UUID(base_records["request_id"]), expense_id=UUID(expense["id"]),
+            actor_user_id=UUID(writer_id), actor_type=AuditActorType.user,
+            action="expense_observation_added", message="Comentario antiguo", event_payload={"actor_role": "accountant"},
+        ))
+        db.get(User, UUID(writer_id)).full_name = "Nombre actualizado"
+        db.commit()
+    history = client.get(_path(base_records), headers=reader, params={"observations_only": True}).json()
+    assert {row["message"]: row["actor_name"] for row in history} == {
+        "Nuevo comentario": "Nombre original", "Comentario antiguo": "Nombre actualizado",
+    }
+    removed = client.request("DELETE", f"/api/v1/users/{writer_id}", json={"reason": "Prueba de autor eliminado"})
+    assert removed.status_code == 204, removed.text
+    history = client.get(_path(base_records), headers=reader, params={"observations_only": True}).json()
+    assert len(history) == 2
+    assert {row["message"]: row["actor_name"] for row in history} == {
+        "Nuevo comentario": "Nombre original", "Comentario antiguo": None,
+    }
+    assert all(row["actor_user_id"] is None and row["actor_role"] == "accountant" for row in history)
+    daily = client.get("/api/v1/frontend/audit-events/me", headers=reader,
+                       params={"day": datetime.now(UTC).date().isoformat(), "utc_offset_minutes": 0}).json()
+    assert next(row for row in daily if row["message"] == "Nuevo comentario")["actor_name"] == "Nombre original"
 
 
 @pytest.mark.parametrize("request_status", ["draft", "correction_required"])
@@ -285,6 +356,8 @@ def test_partition_payload_has_real_creation_time_and_comments_keep_their_expens
     assert {row["message"]: row["expense_id"] for row in notes if row["action"] == "expense_observation_added"} == {
         "Original comment": expense["id"], "Partition comment": child["backendId"],
     }
+    assert all(row["actor_name"] == "Observations store" for row in notes if row["action"] == "expense_observation_added")
+    assert next(row for row in notes if row["action"] == "expense_partitioned")["event_payload"]["actor_name"] == "Audit reader"
 
 
 def test_comment_retries_are_idempotent_but_identical_intentional_comments_are_kept(client, base_records):

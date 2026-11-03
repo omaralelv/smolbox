@@ -1118,6 +1118,7 @@ def delete_frontend_draft_expense(
             message=removal_reason,
             event_payload={
                 "actor_role": current_user.role.value,
+                "actor_name": current_user.full_name,
                 "request_status": request.status.value,
                 "previous_expense_status": previous_expense_status.value,
                 "reported_total": str(request.reported_total),
@@ -1256,6 +1257,7 @@ def partition_frontend_expense(
             message=partition_message,
             event_payload={
                 "actor_role": current_user.role.value,
+                "actor_name": current_user.full_name,
                 "request_status": request.status.value,
                 "parent_expense_id": str(expense.id),
                 "parent_expense_name": _expense_display_name(expense),
@@ -1332,6 +1334,7 @@ def cancel_frontend_expense_partition(
             ),
             event_payload={
                 "actor_role": current_user.role.value,
+                "actor_name": current_user.full_name,
                 "request_status": request.status.value,
                 "parent_expense_id": str(expense.id),
                 "parent_expense_name": _expense_display_name(expense),
@@ -1475,7 +1478,7 @@ def list_frontend_audit_events(
             **AuditLogRead.model_validate(event).model_dump(),
             store_code=_frontend_store_code(store) if store else (event.event_payload or {}).get("store_code"),
             request_folio=request.folio if request else (event.event_payload or {}).get("request_folio"),
-            actor_name=actor.full_name if actor else (event.event_payload or {}).get("actor_name"),
+            actor_name=(event.event_payload or {}).get("actor_name") or (actor.full_name if actor else None),
             actor_role=actor.role.value if actor else (event.event_payload or {}).get("actor_role"),
         )
         for event, request, store, actor in results
@@ -2345,6 +2348,7 @@ def _add_frontend_observation_events(
             message=note,
             event_payload={
                 "actor_role": actor.role.value,
+                "actor_name": actor.full_name,
                 "request_status": request.status.value,
                 "source": "frontend_draft",
                 "frontend_role": observation.rol,
@@ -2371,6 +2375,7 @@ def _add_frontend_observation_events(
             message=initial_note,
             event_payload={
                 "actor_role": actor.role.value,
+                "actor_name": actor.full_name,
                 "request_status": request.status.value,
                 "source": "expense_initial_observation",
                 "is_initial_observation": True,
