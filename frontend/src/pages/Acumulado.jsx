@@ -654,15 +654,6 @@ function Acumulado( {currentRole} ) {
 
                 return (
                         <>
-                        {role === 'admin' && accionRevisionDisponible(solicitudSeleccionada) && (
-                            <button
-                                type="button"
-                                data-audit-action={accionRevisionDisponible(solicitudSeleccionada)}
-                                style={iniciandoRevision ? styles.btnOutlineDisabled : styles.btnOutline}
-                                onClick={iniciarRevisionAdmin}
-                                disabled={iniciandoRevision}
-                            >Iniciar revisión</button>
-                        )}
                         <button
                             style={puedeConfirmarPago ? styles.btnOutlineDisabled : styles.btnOutline}
                             onClick={!puedeConfirmarPago ? () => abrirModalDevolucion('return_to_accounting') : undefined}
@@ -702,7 +693,7 @@ function Acumulado( {currentRole} ) {
                                 'Solicitud enviada a gerencia.'
                             )}
                             disabled={!puedeEnviarGerencia}
-                        >Enviar a Gerencia</button>
+                            >Enviar a Gerencia</button>
                         
                         <button
                             style={puedeConfirmarPago ? styles.btnFilledCoralDisabled : styles.btnFilledCoral}
@@ -711,10 +702,20 @@ function Acumulado( {currentRole} ) {
                                 'Solicitud enviada a tesorería.'
                             ) : undefined}
                             disabled={puedeConfirmarPago}
-                        >
+                            >
                             Enviar a Tesorería
                         </button>
 
+                        {role === 'admin' && accionRevisionDisponible(solicitudSeleccionada) && (
+                            <button
+                                type="button"
+                                data-audit-action={accionRevisionDisponible(solicitudSeleccionada)}
+                                style={iniciandoRevision ? styles.btnOutlineDisabled : styles.btnOutline}
+                                onClick={iniciarRevisionAdmin}
+                                disabled={iniciandoRevision}
+                            >Iniciar revisión</button>
+                        )}
+                        
                         <button
                             style={{
                                 ...(puedeConfirmarPago ? styles.btnBlueDisabled : styles.btnBlue),
