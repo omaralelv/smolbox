@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID, uuid4
@@ -10,12 +10,14 @@ from test_cfdi_api import _cfdi_xml
 from test_textract_ocr import _scanned_pdf
 
 from app.models.audit_log import AuditLog
-from app.models.expense import Expense
-from app.models.historical_request import HistoricalAttachment
+from app.models.expense import Expense, ExpenseStatus
+from app.models.historical_request import HistoricalAttachment, HistoricalRequest
 from app.models.payment import Payment
-from app.models.reimbursement_request import ReimbursementRequest
-from app.models.store import StoreUserAssignment
+from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.models.store import Store, StoreUserAssignment
+from app.models.store_spending_baseline import StoreSpendingBaseline
 from app.models.user import UserRole
+from app.services.historical_requests import next_historical_folio
 from app.services.textract_ocr import TextractOcrResult, TextractOcrService
 
 ROOT = "/api/v1/frontend/extemporaneos"
@@ -303,7 +305,21 @@ def test_dashboard_counts_only_registered_nonremoved_expenses_by_document_year(
     client,
     scenario,
     monkeypatch,
+    session_factory,
 ):
+    with session_factory() as db:
+        normal = db.get(ReimbursementRequest, UUID(scenario["request_id"]))
+        normal.status = ReimbursementRequestStatus.paid
+        db.add(Expense(
+            period_id=normal.period_id, reimbursement_request_id=normal.id,
+            merchant="Normal", amount=Decimal("100.00"),
+            spent_on=date(2026, 8, 7), status=ExpenseStatus.approved,
+        ))
+        db.add(StoreSpendingBaseline(
+            store_id=normal.store_id, fiscal_year=2026, historical_amount=Decimal("50.00"),
+            baseline_as_of=date(2026, 1, 1),
+        ))
+        db.commit()
     request = draft(client, scenario)
     request, _ = expense(
         client, scenario, request["backendId"], amount="20.00", spent_on="2026-01-15"
@@ -332,12 +348,116 @@ def test_dashboard_counts_only_registered_nonremoved_expenses_by_document_year(
     last = next(row for row in after["rows"] if row["storeId"] == scenario["store_id"])
     assert last["values"]["2026"] - first["values"]["2026"] == 20
     assert last["values"]["2025"] - first["values"]["2025"] == 30
+    assert last["normalValues"] == first["normalValues"]
+    assert last["normalValues"]["2026"] == 150
+    assert first["extemporaneousValues"]["2026"] == 0  # Drafts are never included.
+    assert last["extemporaneousValues"]["2026"] == 20  # Removed expenses are excluded.
+    assert last["extemporaneousValues"]["2025"] == 30
+    for row in after["rows"]:
+        for year in map(str, after["years"]):
+            assert row["values"][year] == row["normalValues"][year] + row["extemporaneousValues"][year]
     assert (
         client.get(
             "/api/v1/frontend/gerencia/productividad/me", headers=scenario["admin_headers"]
         ).json()
         == productivity
     )
+
+
+def test_registered_folios_follow_store_and_local_day_without_changing_normal_requests(
+    client, scenario, session_factory, monkeypatch,
+):
+    class Clock(datetime):
+        instant = datetime(2026, 11, 3, 5, 59, tzinfo=UTC)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.instant.astimezone(tz) if tz else cls.instant.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.api.v1.endpoints.historical_requests.datetime", Clock)
+    with session_factory() as db:
+        normal = db.get(ReimbursementRequest, UUID(scenario["request_id"]))
+        normal.folio = "T001-0211202699"
+        db.commit()
+        before = snapshot(db, scenario)
+
+    def create_paid(context):
+        request = draft(client, context)
+        request, _ = expense(client, context, request["backendId"])
+        document(client, context, request["gastos"][0]["backendId"], monkeypatch)
+        return register(client, context, request)
+
+    first = create_paid(scenario)
+    assert first["folio"] == "E-T001-021120261"
+    assert register(client, scenario, first)["folio"] == first["folio"]
+    assert create_paid(scenario)["folio"] == "E-T001-021120262"
+    admin_context = {**scenario, "headers": scenario["admin_headers"]}
+    assert create_paid(admin_context)["folio"] == "E-T001-021120263"
+    other_store = client.post("/api/v1/stores/", json={"code": "T002", "name": "Otra"}).json()
+    with session_factory() as db:
+        db.add(StoreUserAssignment(
+            store_id=UUID(other_store["id"]), user_id=UUID(scenario["store_user"]), role=UserRole.store,
+        ))
+        db.commit()
+    assert create_paid({**scenario, "store_id": other_store["id"]})["folio"] == "E-T002-021120261"
+    Clock.instant = datetime(2026, 11, 3, 6, 0, tzinfo=UTC)
+    assert create_paid(scenario)["folio"] == "E-T001-031120261"
+    with session_factory() as db:
+        assert snapshot(db, scenario) == before
+
+
+def test_folio_consecutive_uses_highest_number_not_count_or_uuid(client, scenario, session_factory):
+    day = datetime(2026, 11, 3, 18, tzinfo=UTC)
+    with session_factory() as db:
+        store = db.get(Store, UUID(scenario["store_id"]))
+        for suffix in ("9", "11", f"-{uuid4().hex.upper()}"):
+            db.add(HistoricalRequest(
+                store_id=store.id, created_by_user_id=UUID(scenario["actor"]),
+                status="paid", registered_at=day, folio=f"E-T001-03112026{suffix}",
+            ))
+        db.commit()
+        assert next_historical_folio(db, store, day.date()) == "E-T001-0311202612"
+        renamed = Store(code="RENAMED", name="Otra tienda")
+        db.add(renamed)
+        db.flush()
+        db.add(HistoricalRequest(
+            store_id=renamed.id, created_by_user_id=UUID(scenario["actor"]),
+            status="paid", registered_at=day, folio="E-T001-0311202614",
+        ))
+        db.commit()
+        assert next_historical_folio(db, store, day.date()) == "E-T001-0311202615"
+
+
+def test_folio_collision_rolls_back_registration_and_can_be_retried(client, scenario, monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 3, 18, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr("app.api.v1.endpoints.historical_requests.datetime", Clock)
+
+    def prepared_request():
+        request = draft(client, scenario)
+        request, _ = expense(client, scenario, request["backendId"])
+        document(client, scenario, request["gastos"][0]["backendId"], monkeypatch)
+        return request
+
+    first = register(client, scenario, prepared_request())
+    second = prepared_request()
+    with monkeypatch.context() as patch:
+        patch.setattr("app.api.v1.endpoints.historical_requests.next_historical_folio", lambda *args: first["folio"])
+        conflict = client.post(
+            f"{ROOT}/{second['backendId']}/register/me", headers=scenario["headers"],
+            json={"expectedExpenseIds": [item["backendId"] for item in second["gastos"]]},
+        )
+    assert conflict.status_code == 409
+    after = client.get(f"{ROOT}/{second['backendId']}/me", headers=scenario["headers"]).json()
+    assert after["backendStatus"] == "historical_draft"
+    events = client.get(f"{ROOT}/{second['backendId']}/events/me", headers=scenario["headers"]).json()
+    assert not any(event["action"] == "historical_request_registered" for event in events)
+    final = register(client, scenario, second)
+    assert final["folio"] == f"{first['folio'][:-1]}2"
+    assert register(client, scenario, final)["folio"] == final["folio"]
 
 
 def test_audit_capture_is_immediate_idempotent_and_observations_are_private(

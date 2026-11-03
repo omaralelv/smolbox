@@ -9,6 +9,7 @@ import {
     getTreasuryDashboard,
     getTreasuryProductivityDashboard,
 } from '../lib/api';
+import { filterSpendingRows, hasSpendingBreakdown } from '../lib/dashboardSpending';
 
 function Dashboard({ currentRole }) {
     const role = String(currentRole || '').toLowerCase().trim();
@@ -30,6 +31,7 @@ function TreasuryBudgetDashboard() {
     const navigate = useNavigate();
     const [dashboard, setDashboard] = useState(null);
     const [selectedStoreId, setSelectedStoreId] = useState('all');
+    const [selectedExpenseType, setSelectedExpenseType] = useState('all');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -64,10 +66,10 @@ function TreasuryBudgetDashboard() {
 
     const years = useMemo(() => dashboard?.years || [], [dashboard]);
     const rows = useMemo(() => dashboard?.rows || [], [dashboard]);
-    const visibleRows = useMemo(() => {
-        if (selectedStoreId === 'all') return rows;
-        return rows.filter((row) => String(row.storeId) === selectedStoreId);
-    }, [rows, selectedStoreId]);
+    const supportsExpenseTypes = hasSpendingBreakdown(rows, years);
+    const expenseType = supportsExpenseTypes ? selectedExpenseType : 'all';
+    const visibleRows = useMemo(() => filterSpendingRows(rows, selectedStoreId, expenseType),
+        [rows, selectedStoreId, expenseType]);
 
     const totalsByYear = useMemo(() => (
         years.map((year) => ({
@@ -98,20 +100,36 @@ function TreasuryBudgetDashboard() {
             <h1 style={styles.title}>Análisis de Presupuestos</h1>
 
             <div style={styles.filterRow}>
-                <label htmlFor="store-filter" style={styles.filterLabel}>Tienda: </label>
-                <select
-                    id="store-filter"
-                    value={selectedStoreId}
-                    onChange={(event) => setSelectedStoreId(event.target.value)}
-                    style={styles.select}
-                >
-                    <option value="all">Todas</option>
-                    {(dashboard?.stores || []).map((store) => (
-                        <option key={store.id} value={store.id}>
-                            {store.code} - {store.name}
-                        </option>
-                    ))}
-                </select>
+                <div style={styles.filterControl}>
+                    <label htmlFor="store-filter" style={styles.filterLabel}>Tienda: </label>
+                    <select
+                        id="store-filter"
+                        value={selectedStoreId}
+                        onChange={(event) => setSelectedStoreId(event.target.value)}
+                        style={styles.select}
+                    >
+                        <option value="all">Todas</option>
+                        {(dashboard?.stores || []).map((store) => (
+                            <option key={store.id} value={store.id}>
+                                {store.code} - {store.name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div style={styles.filterControl}>
+                    <label htmlFor="expense-type-filter" style={styles.filterLabel}>Tipo de solicitud:</label>
+                    <select
+                        id="expense-type-filter"
+                        value={expenseType}
+                        disabled={!supportsExpenseTypes}
+                        onChange={(event) => setSelectedExpenseType(event.target.value)}
+                        style={styles.select}
+                    >
+                        <option value="all">Todas</option>
+                        <option value="normal">Normales</option>
+                        <option value="extemporaneous">Extemporáneas</option>
+                    </select>
+                </div>
             </div>
 
             <section style={styles.section}>
@@ -777,6 +795,13 @@ const styles = {
     filterLabel: {
         fontSize: '17px',
         fontWeight: '700',
+    },
+    filterControl: {
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '10px',
+        maxWidth: '100%',
     },
     periodControls: {
         display: 'flex',

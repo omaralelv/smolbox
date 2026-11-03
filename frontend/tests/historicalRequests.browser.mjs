@@ -19,8 +19,8 @@ async function scenario(role) {
     const events = [];
     const store = { id: storeId, code: 'T001', name: 'Centro', gerente: 'Gerente', cuentaBancaria: '123', estadoRegion: 'Centro' };
     const payload = () => ({
-        id: paid ? 'E-T001-03112026-TEST' : 'E-BORRADOR', backendId: requestId,
-        folio: paid ? 'E-T001-03112026-TEST' : 'Borrador extemporáneo', tienda: 'T001',
+        id: paid ? 'E-T001-031120261' : 'E-BORRADOR', backendId: requestId,
+        folio: paid ? 'E-T001-031120261' : 'Borrador extemporáneo', tienda: 'T001',
         fecha: '03/11/2026', backendStatus: paid ? 'historical_paid' : 'historical_draft',
         status: paid ? 'Pagada' : 'Borrador', esExtemporaneo: true,
         montoTotal: expense ? 20 : 0, calculatedTotal: expense ? 20 : 0, availableActions: [],

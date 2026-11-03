@@ -32,6 +32,8 @@ class FrontendTreasuryDashboardRowRead(BaseModel):
     store_code: str = Field(alias="storeCode")
     store_name: str = Field(alias="storeName")
     values: dict[int, float]
+    normal_values: dict[int, float] = Field(default_factory=dict, alias="normalValues")
+    extemporaneous_values: dict[int, float] = Field(default_factory=dict, alias="extemporaneousValues")
 
 
 class FrontendTreasuryDashboardRead(BaseModel):

@@ -19,7 +19,10 @@ adicional existente. Las reglas de autorizacion del flujo normal no se ejecutan
 para estos registros informativos.
 
 Al enviar se verifica que la lista de gastos no haya cambiado y que todos
-tengan evidencia validada. El servidor asigna un folio unico `E-...` y guarda
+tengan evidencia validada. El servidor asigna un folio unico de tienda, fecha
+de registro (zona de Mexico) y consecutivo: `E-FE003-031120261`,
+`E-FE003-031120262`, etc. El contador es por tienda y dia, separado del normal;
+al reintentar una solicitud ya registrada se conserva su folio. Se guarda
 el archivo historico con estado `paid`, presentado como **Pagada** y con la
 columna **Extemporaneo**. DIAS muestra `-`. No es un pago procesado por Smolbox.
 No se crean registros Payment ni correos de pago.
@@ -53,6 +56,13 @@ borradores. Los indicadores de productividad de Contabilidad, Gerencia y
 Tesoreria mantienen sus consultas y no cuentan estas capturas como revisiones,
 autorizaciones o pagos realizados dentro del flujo.
 
+El filtro Tipo de solicitud del dashboard permite Todas, Normales y Extemporaneas,
+combinado con el de tienda. Cambia indicadores, grafica y tabla usando un mismo
+desglose recibido del backend, sin recargar los catalogos al cambiar el filtro.
+Normales incluye los acumulados importados sin marca individual; Extemporaneas
+solo suma gastos del archivo extemporaneo registrado. La API conserva `values`
+con el total y agrega `normalValues` y `extemporaneousValues` por tienda/anio.
+
 Los acumulados historicos importados previamente son cantidades agregadas,
 sin folios individuales para conciliarlos. Si un comprobante ya estaba incluido
 en uno de esos acumulados, debe conciliarse antes de volver a sumarlo como
@@ -69,6 +79,14 @@ Respaldar la base de datos y los archivos antes de actualizar. La migracion
 No modifica registros anteriores. Su reversa elimina las tablas del archivo
 extemporaneo; no debe ejecutarse despues de capturar datos sin respaldo.
 
+La siguiente migracion `20261103_0028` transforma los folios extemporaneos antiguos
+con UUID al nuevo formato. Asigna los consecutivos por orden de registro,
+conserva la tienda y fecha del folio anterior, respeta los numeros ya existentes,
+y registra el folio anterior y nuevo en
+bitacora sin borrar eventos previos. No cambia folios normales, gastos, estados,
+comprobantes ni totales. Su reversa restaura solo los folios transformados y
+conserva el registro de auditoria. Detener el backend anterior al migrar.
+
 Desde la carpeta del proyecto:
 
 ```powershell
@@ -78,7 +96,7 @@ docker compose exec api alembic current
 ```
 
 El contenedor ya ejecuta las migraciones al iniciar. La revision esperada es
-`20261103_0027 (head)`. Para backend sin Docker, detener el proceso anterior,
+`20261103_0028 (head)`. Para backend sin Docker, detener el proceso anterior,
 ejecutar `alembic upgrade head` y volver a iniciarlo.
 
 Actualizar tambien el frontend. Si se publica con IIS, ejecutar en `frontend`:
@@ -120,3 +138,14 @@ pago y workflow aprobo 110 pruebas. Las 54 pruebas unitarias del frontend,
 compilacion y pruebas de navegador de extemporaneos y revision neutral de Admin
 tambien aprobaron. El navegador verifico adicionalmente la captura normal con
 el formulario compartido, sin llamadas al archivo extemporaneo.
+
+La actualizacion del consecutivo y filtro incluye pruebas de secuencia con
+varios usuarios, tiendas, cambio de dia en Mexico, numeros de dos digitos y
+recuperacion ante folio duplicado. La migracion se verifica con folios anteriores,
+numeros ya reservados, reversa y auditoria conservada. El navegador prueba ambos
+filtros combinados, indicadores, grafica, tabla, compatibilidad con el backend
+anterior y vistas de escritorio/movil. No se migro la VM desde este entorno.
+Resultado: 114 pruebas de backend, 57 unitarias de frontend, compilacion y
+recorridos de navegador de captura y filtros aprobados. Permanece la regla de
+lint preexistente sobre setState dentro del efecto de productividad; no se
+modifico ese flujo. La migracion de datos se probo en SQLite, no en PostgreSQL.

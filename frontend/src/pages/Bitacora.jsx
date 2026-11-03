@@ -489,6 +489,8 @@ function actionLabel(action, toStatus) {
     const labels = {
         historical_request_created: 'Captura extemporánea iniciada',
         historical_request_registered: 'Extemporánea registrada en Histórico',
+        historical_folio_updated: 'Folio extemporáneo actualizado',
+        historical_folio_restored: 'Folio extemporáneo restaurado',
         historical_expense_created: 'Gasto extemporáneo cargado',
         historical_expense_removed: 'Gasto extemporáneo eliminado',
         historical_document_uploaded: 'Comprobante extemporáneo validado',
@@ -549,7 +551,7 @@ function actionLabel(action, toStatus) {
 function actionGroup(action) {
     if (action.startsWith('historical_capture_')) return actionGroup(action.replace('historical_capture_', 'expense_capture_'));
     if (['historical_request_created', 'historical_request_registered', 'historical_expense_created'].includes(action)) return 'carga';
-    if (action === 'historical_expense_removed') return 'edicion';
+    if (['historical_expense_removed', 'historical_folio_updated', 'historical_folio_restored'].includes(action)) return 'edicion';
     if (action.startsWith('historical_document_') || action === 'historical_zip_downloaded') return 'documento';
     if (action === 'expense_capture_click') return 'click';
     if (action === 'expense_capture_field_changed') return 'edicion';

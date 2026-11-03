@@ -397,6 +397,10 @@ def get_treasury_dashboard(
         store.id: {year: Decimal("0.00") for year in years}
         for store in stores
     }
+    archived_values_by_store = {
+        store.id: {year: Decimal("0.00") for year in years}
+        for store in stores
+    }
 
     if store_ids:
         baseline_rows = db.execute(
@@ -442,7 +446,7 @@ def get_treasury_dashboard(
             HistoricalRequest.store_id.in_(store_ids), archived_year.in_(years),
         ).group_by(HistoricalRequest.store_id, archived_year))
         for store_id, fiscal_year, archived_amount in archived_rows:
-            values_by_store[store_id][int(fiscal_year)] += _money(archived_amount)
+            archived_values_by_store[store_id][int(fiscal_year)] += _money(archived_amount)
 
     return FrontendTreasuryDashboardRead(
         years=years,
@@ -460,8 +464,14 @@ def get_treasury_dashboard(
                 store_code=_frontend_store_code(store),
                 store_name=store.name,
                 values={
-                    year: float(_money(values_by_store[store.id][year]))
+                    year: float(_money(
+                        values_by_store[store.id][year] + archived_values_by_store[store.id][year]
+                    ))
                     for year in years
+                },
+                normal_values={year: float(_money(values_by_store[store.id][year])) for year in years},
+                extemporaneous_values={
+                    year: float(_money(archived_values_by_store[store.id][year])) for year in years
                 },
             )
             for store in stores

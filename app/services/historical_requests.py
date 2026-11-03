@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -17,6 +17,31 @@ from app.schemas.frontend import FrontendGastoRead, FrontendSolicitudRead, Front
 EDIT_ROLES = {UserRole.admin, UserRole.accountant}
 GLOBAL_READ_ROLES = EDIT_ROLES | {UserRole.accounting_manager, UserRole.treasury, UserRole.director}
 MEXICO = ZoneInfo("America/Mexico_City")
+
+
+def next_historical_folio(db: Session, store: Store, registered_on: date) -> str:
+    # Serialize registrations by store; normal reimbursement counters are not read or changed.
+    locked_store = db.execute(
+        select(Store)
+        .where(Store.id == store.id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).scalar_one()
+    prefix = f"E-{locked_store.code}-{registered_on:%d%m%Y}"
+    folios = db.scalars(
+        select(HistoricalRequest.folio).where(
+            HistoricalRequest.folio.startswith(prefix, autoescape=True),
+        )
+    )
+    highest = max(
+        (
+            int(folio.removeprefix(prefix))
+            for folio in folios
+            if folio and folio.removeprefix(prefix).isdecimal()
+        ),
+        default=0,
+    )
+    return f"{prefix}{highest + 1}"
 
 
 def ensure_editor(actor: User) -> None:

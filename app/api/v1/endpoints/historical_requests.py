@@ -44,6 +44,7 @@ from app.services.historical_requests import (
     event_payload,
     get_expense,
     get_request,
+    next_historical_folio,
     request_payload,
     request_statement,
     store_payload,
@@ -268,9 +269,11 @@ def register(
             duplicate, validation = _find_duplicate_cfdi_uuid(db, expense.cfdi_uuid)
             if duplicate != expense.id or validation is not None:
                 raise HTTPException(409, "El Folio Fiscal ya está registrado en otro gasto.")
-    request.registered_at = datetime.now(UTC)
+    registered_at = datetime.now(UTC)
+    folio = next_historical_folio(db, request.store, registered_at.astimezone(MEXICO).date())
+    request.registered_at = registered_at
     request.status = "paid"
-    request.folio = f"E-{request.store.code}-{request.registered_at.astimezone(MEXICO):%d%m%Y}-{request.id.hex.upper()}"
+    request.folio = folio
     audit_event(
         db,
         request,
@@ -282,7 +285,16 @@ def register(
             "expense_count": len(expenses),
         },
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        if constraint != "historical_requests_folio_key" and "historical_requests.folio" not in str(exc.orig):
+            raise
+        raise HTTPException(
+            409, "El folio cambió durante el registro. Reintenta enviar la solicitud."
+        ) from exc
     return request_payload(request, actor)
 
 
