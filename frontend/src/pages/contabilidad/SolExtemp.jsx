@@ -132,7 +132,7 @@ function SolExtemp({ currentRole }) {
     const [stores, setStores] = useState([]);
 
     const [selectedStoreId, setSelectedStoreId] = useState(
-        () => rol === 'admin'
+        () => (rol === 'admin' || rol === 'contabilidad')
             ? location.state?.selectedStoreId || localStorage.getItem('solicitudTiendaActiva') || ''
             : ''
     );
@@ -190,7 +190,7 @@ function SolExtemp({ currentRole }) {
             try {
                 let tiendas;
                 let tiendaInicial;
-                if (rol === 'admin') {
+                if (rol === 'admin' || rol === 'contabilidad') {
                     tiendas = await listActiveFrontendStores();
                     const tiendaPreferida = location.state?.selectedStoreId
                         || localStorage.getItem('solicitudTiendaActiva');
@@ -532,7 +532,7 @@ function SolExtemp({ currentRole }) {
             {/* TÍTULO Y BOTÓN DE AÑADIR */}
             <div style={styles.titleRow}>
                 <h2 style={styles.mainTitle}>Solicitud Extemporánea</h2>
-                {rol === 'admin' && (
+                {(rol === 'admin' || rol === 'contabilidad') && (
                     <div style={styles.storeFilterGroup}>
                         <label style={styles.label} htmlFor="solicitud-store-select">Tienda activa</label>
                         <select
