@@ -145,12 +145,13 @@ function Historico({currentRole}) {
                 {/* FILTRO DE TIENDA */}
                 {puedeFiltrarSolicitudes(currentRole) && (
                     <div style={styles.filtersRow}>
-                        {(filtroFecha || filtroTienda !== 'todas') && (
+                        {(filtroFecha || filtroTienda !== 'todas' || filtroExtemporaneo !== 'todas') && (
                             <button
                                 type="button"
                                 onClick={() => {
                                     setFiltroFecha('');
                                     setFiltroTienda('todas');
+                                    setFiltroExtemporaneo('todas');
                                 }}
                                 style={styles.clearDateFilter}
                             >
@@ -249,7 +250,8 @@ function Historico({currentRole}) {
                         <div
                             key={sol.id}
                             style={styles.row}
-                            data-audit-request-id={sol.backendId || sol.backend_id || undefined}
+                            data-audit-request-id={esExt ? undefined : sol.backendId || sol.backend_id || undefined}
+                            data-audit-historical-id={esExt ? sol.backendId : undefined}
                         >
                             {/* 1. Nombre / ID Solicitud */}
                             <span style={{ flex: 1.5, minWidth: 0, overflowWrap: 'anywhere', textAlign: 'left', paddingLeft: '30px', fontWeight: '500', color: '#333' }}>
@@ -266,20 +268,15 @@ function Historico({currentRole}) {
                                 {sol.fecha || new Date().toLocaleDateString()}
                             </span>
 
-                            {/*<span style={styles.ageColumn} title={age.title}
-                                aria-label={age.title} data-request-age={sol.backendId || sol.id}>
-                                {age.label}
-                            </span>*/}
-
                             {/* 4. Días desde Envío hasta Pago */}
                             <span style={styles.ageColumn} title={esExt ? 'No aplica temporalidad' : age.title}
-                                aria-label={age.title} data-request-age={sol.backendId || sol.id}>
+                                aria-label={esExt ? 'No aplica temporalidad' : age.title} data-request-age={sol.backendId || sol.id}>
                                 {esExt ? '-' : age.label}
                             </span>
 
                             {/* 5. ¿Extemporáneo? */}
                             <span style={{ flex: 1, textAlign: 'center', color: '#666', fontWeight: esExt ? '700' : 'normal' }}>
-                                {esExt ? 'Extemporánea' : ''}
+                                {esExt ? 'Extemporáneo' : ''}
                             </span>
 
                             {/* 6. Monto Total */}
@@ -298,7 +295,7 @@ function Historico({currentRole}) {
                             <div style={{ width: '100px', textAlign: 'center' }}>
                                 <button 
                                     style={styles.abrirBtn}
-                                    onClick={() => navigate('/acumulado', { state: { solicitud: sol } })}
+                                    onClick={() => navigate(esExt ? `/historico/extemporanea/${sol.backendId}` : '/acumulado', { state: { solicitud: sol } })}
                                 >
                                     Abrir
                                 </button>

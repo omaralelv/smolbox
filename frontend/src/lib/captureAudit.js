@@ -1,13 +1,20 @@
-import { recordExpenseCaptureEvent, startExpenseCapture } from './api';
+import { ensureHistoricalDraft, recordHistoricalEvent, recordExpenseCaptureEvent, startExpenseCapture } from './api';
 import { createCaptureAuditQueue, newAuditId } from './captureAuditQueue';
 
 const captures = new Map();
 
-export function createCaptureAudit(requestId = null) {
+export function createCaptureAudit(requestId = null, historicalStoreId = null) {
     const id = newAuditId();
+    let historicalRequestId;
     const queue = createCaptureAuditQueue({
-        start: () => startExpenseCapture({ captureId: id, requestId }),
-        send: (payload) => recordExpenseCaptureEvent(id, payload),
+        start: async () => {
+            if (!historicalStoreId) return startExpenseCapture({ captureId: id, requestId });
+            const draft = await ensureHistoricalDraft(historicalStoreId);
+            historicalRequestId = draft.backendId;
+        },
+        send: (payload) => historicalStoreId
+            ? recordHistoricalEvent(historicalRequestId, { ...payload, captureId: id })
+            : recordExpenseCaptureEvent(id, payload),
     });
     const audit = {
         id,

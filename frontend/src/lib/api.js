@@ -204,6 +204,68 @@ export async function getFrontendHistorico() {
     return request('/frontend/historico/me');
 }
 
+const HISTORICAL_API = '/frontend/extemporaneos';
+
+export function listHistoricalStores() {
+    return request(`${HISTORICAL_API}/stores/me`);
+}
+
+export function ensureHistoricalDraft(storeId) {
+    return request(`${HISTORICAL_API}/stores/${encodeURIComponent(storeId)}/draft/me`, { method: 'POST', body: {} });
+}
+
+export function getHistoricalRequest(requestId) {
+    return request(`${HISTORICAL_API}/${encodeURIComponent(requestId)}/me`);
+}
+
+export function addHistoricalExpense(requestId, payload) {
+    return request(`${HISTORICAL_API}/${encodeURIComponent(requestId)}/expenses/me`, { method: 'POST', body: payload });
+}
+
+export function checkHistoricalUuid(uuid, clientId) {
+    return request(`${HISTORICAL_API}/uuid/${encodeURIComponent(uuid)}/availability/me?client_id=${encodeURIComponent(clientId)}`);
+}
+
+export function deleteHistoricalExpense(expenseId) {
+    return request(`${HISTORICAL_API}/expenses/${encodeURIComponent(expenseId)}/me`, { method: 'DELETE' });
+}
+
+export function registerHistoricalRequest(requestId, expectedExpenseIds) {
+    return request(`${HISTORICAL_API}/${encodeURIComponent(requestId)}/register/me`, {
+        method: 'POST', body: { expectedExpenseIds },
+    });
+}
+
+export function uploadHistoricalDocument(expenseId, file, ocrPreviewToken) {
+    const body = new FormData();
+    body.append('file', file);
+    if (ocrPreviewToken) body.append('ocr_preview_token', ocrPreviewToken);
+    return request(`${HISTORICAL_API}/expenses/${encodeURIComponent(expenseId)}/attachments/me`, { method: 'POST', body });
+}
+
+export function recordHistoricalEvent(requestId, payload) {
+    return request(`${HISTORICAL_API}/${encodeURIComponent(requestId)}/events/me`, { method: 'POST', body: payload });
+}
+
+export async function getHistoricalEvents(requestId) {
+    const events = [];
+    for (let offset = 0; ; offset += 200) {
+        const page = await request(`${HISTORICAL_API}/${encodeURIComponent(requestId)}/events/me?offset=${offset}&limit=200`);
+        events.push(...page);
+        if (page.length < 200) return events;
+    }
+}
+
+export function addHistoricalObservation(expenseId, note, eventId) {
+    return request(`${HISTORICAL_API}/expenses/${encodeURIComponent(expenseId)}/observations/me`, {
+        method: 'POST', body: { note, eventId },
+    });
+}
+
+export function historicalZipUrl(requestId) {
+    return `/api/v1${HISTORICAL_API}/${encodeURIComponent(requestId)}/invoices.zip/me`;
+}
+
 export async function getTreasuryDashboard() {
     return request('/frontend/tesoreria/dashboard/me');
 }

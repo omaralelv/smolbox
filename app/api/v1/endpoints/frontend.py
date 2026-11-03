@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.expense import Expense, ExpenseStatus
+from app.models.historical_request import HistoricalExpense, HistoricalRequest
 from app.models.period import Period, PeriodStatus
 from app.models.reimbursement_request import (
     AccountingQueueStatus,
@@ -57,6 +58,7 @@ from app.services.authorization_areas import (
     get_or_create_authorization_area,
     request_is_visible_to_authorizer,
 )
+from app.services.cfdi_validator import normalize_cfdi_uuid
 from app.services.expense_authorization_rules import (
     category_requires_manual_authorization_area,
     resolve_expense_authorization,
@@ -69,7 +71,10 @@ from app.services.expense_capture_audit import (
     link_capture_to_expense,
 )
 from app.services.expense_observations import can_add_expense_observation
+from app.services.fiscal_uuid_lock import lock_fiscal_uuid
 from app.services.frontend_actions import ACTION_LABELS, available_actions_for_request
+from app.services.historical_requests import request_payload as historical_payload
+from app.services.historical_requests import visible_request_ids
 from app.services.observation_history import public_audit_event_condition
 from app.services.permissions import user_can_transition_store_request, user_has_store_assignment
 from app.services.reimbursement_periods import (
@@ -300,7 +305,12 @@ def list_frontend_historical_requests(
         )
 
     requests = list(db.scalars(statement.limit(200)))
-    return [_request_payload(request, current_user, db, age_now=age_now) for request in requests]
+    archived = list(db.scalars(visible_request_ids(current_user, db).order_by(
+        HistoricalRequest.registered_at.desc(), HistoricalRequest.id.desc(),
+    ).limit(200)))
+    rows = [_request_payload(request, current_user, db, age_now=age_now) for request in requests]
+    rows.extend(historical_payload(request, current_user) for request in archived)
+    return sorted(rows, key=lambda row: row.fecha_formateada[4:] + row.fecha_formateada[2:4] + row.fecha_formateada[:2], reverse=True)
 
 
 @router.get(
@@ -422,6 +432,17 @@ def get_treasury_dashboard(
         )
         for store_id, fiscal_year, approved_amount in approved_rows:
             values_by_store[store_id][int(fiscal_year)] += _money(approved_amount)
+
+        archived_year = func.extract("year", HistoricalExpense.spent_on)
+        archived_rows = db.execute(select(
+            HistoricalRequest.store_id, archived_year,
+            func.coalesce(func.sum(HistoricalExpense.amount), Decimal("0.00")),
+        ).join(HistoricalExpense, HistoricalExpense.request_id == HistoricalRequest.id).where(
+            HistoricalRequest.status == "paid", HistoricalExpense.removed_at.is_(None),
+            HistoricalRequest.store_id.in_(store_ids), archived_year.in_(years),
+        ).group_by(HistoricalRequest.store_id, archived_year))
+        for store_id, fiscal_year, archived_amount in archived_rows:
+            values_by_store[store_id][int(fiscal_year)] += _money(archived_amount)
 
     return FrontendTreasuryDashboardRead(
         years=years,
@@ -1443,7 +1464,7 @@ def list_frontend_audit_events(
         FrontendAuditLogRead(
             **AuditLogRead.model_validate(event).model_dump(),
             store_code=_frontend_store_code(store) if store else (event.event_payload or {}).get("store_code"),
-            request_folio=request.folio if request else None,
+            request_folio=request.folio if request else (event.event_payload or {}).get("request_folio"),
             actor_name=actor.full_name if actor else (event.event_payload or {}).get("actor_name"),
             actor_role=actor.role.value if actor else (event.event_payload or {}).get("actor_role"),
         )
@@ -2173,6 +2194,13 @@ def _expense_from_frontend(
             },
         )
     category = expense_in.categoria or "Gasto General"
+    archived_uuid = normalize_cfdi_uuid(expense_in.cfdi_uuid or expense_in.folio)
+    if archived_uuid:
+        lock_fiscal_uuid(db, archived_uuid)
+    if archived_uuid and db.scalar(select(HistoricalExpense.id).where(
+        HistoricalExpense.cfdi_uuid == archived_uuid, HistoricalExpense.removed_at.is_(None),
+    )) is not None:
+        raise HTTPException(409, "El Folio Fiscal ya está registrado en un gasto extemporáneo.")
     merchant = expense_in.merchant or expense_in.proveedor or f"Gasto - {category}"
     amount = _money(expense_in.monto)
     store_code = _request_store_code(request, db)

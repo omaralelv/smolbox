@@ -15,6 +15,7 @@ from app.models import (  # noqa: F401
     category_authorization_rule,
     cfdi_validation,
     expense,
+    historical_request,
     ocr_extraction,
     payment,
     period,

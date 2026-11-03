@@ -108,7 +108,7 @@ function Bitacora() {
                 const auditEvents = await getFrontendAuditEvents(selectedDate);
                 const normalizedEvents = auditEvents
                     .map((event) => normalizeAuditEvent(event, {
-                        backendId: event.reimbursement_request_id,
+                        backendId: event.reimbursement_request_id || event.event_payload?.historical_request_id,
                         folio: event.request_folio,
                         tienda: event.store_code,
                     }))
@@ -487,6 +487,13 @@ function compareAuditEvents(a, b) {
 
 function actionLabel(action, toStatus) {
     const labels = {
+        historical_request_created: 'Captura extemporánea iniciada',
+        historical_request_registered: 'Extemporánea registrada en Histórico',
+        historical_expense_created: 'Gasto extemporáneo cargado',
+        historical_expense_removed: 'Gasto extemporáneo eliminado',
+        historical_document_uploaded: 'Comprobante extemporáneo validado',
+        historical_document_viewed: 'Comprobante extemporáneo consultado',
+        historical_zip_downloaded: 'Comprobantes extemporáneos descargados',
         accounting_request_taken: 'Solicitud tomada',
         automated_review_completed: 'Validación automática',
         button_selected: 'Botón seleccionado',
@@ -535,10 +542,15 @@ function actionLabel(action, toStatus) {
     if (action === 'request_status_changed') {
         return toStatus ? `Cambio a ${statusLabel(toStatus)}` : 'Cambio de estatus';
     }
+    if (action.startsWith('historical_capture_')) return actionLabel(action.replace('historical_capture_', 'expense_capture_'), toStatus);
     return labels[action] || humanize(action);
 }
 
 function actionGroup(action) {
+    if (action.startsWith('historical_capture_')) return actionGroup(action.replace('historical_capture_', 'expense_capture_'));
+    if (['historical_request_created', 'historical_request_registered', 'historical_expense_created'].includes(action)) return 'carga';
+    if (action === 'historical_expense_removed') return 'edicion';
+    if (action.startsWith('historical_document_') || action === 'historical_zip_downloaded') return 'documento';
     if (action === 'expense_capture_click') return 'click';
     if (action === 'expense_capture_field_changed') return 'edicion';
     if (action === 'expense_capture_file_selected') return 'documento';

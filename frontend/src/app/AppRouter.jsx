@@ -56,6 +56,7 @@ function AppRouter({ currentRole }) {
 
             <Route path="/historico" element={<RequireSession><Historico currentRole={currentRole} /></RequireSession>}/>
             <Route path="/solicitud/extemporanea" element={<RequireSession><SolExtemp currentRole={currentRole} extemporaneo={true} /></RequireSession>} />
+            <Route path="/historico/extemporanea/:requestId" element={<RequireSession><SolExtemp currentRole={currentRole} /></RequireSession>} />
             <Route path="/gasto/extemporaneo" element={<RequireSession><AnadirExtemp /></RequireSession>} />
             
             <Route path="/usuarios" element={<RequireSession><Usuarios /></RequireSession>} />

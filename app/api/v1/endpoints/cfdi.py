@@ -17,6 +17,7 @@ from app.models.attachment import Attachment, AttachmentType
 from app.models.audit_log import AuditActorType, AuditLog
 from app.models.cfdi_validation import CfdiValidation
 from app.models.expense import Expense
+from app.models.historical_request import HistoricalExpense
 from app.models.ocr_extraction import OcrExtraction, OcrExtractionStatus
 from app.models.reimbursement_request import ReimbursementRequest
 from app.schemas.cfdi import (
@@ -29,6 +30,7 @@ from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_expense
 from app.services.expense_capture_audit import add_capture_event, get_capture
 from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
+from app.services.fiscal_uuid_lock import lock_fiscal_uuid
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
 from app.services.ocr_receiver import assess_invoice_receiver
 from app.services.ocr_results import extraction_from_ocr_result
@@ -452,6 +454,7 @@ def _find_duplicate_cfdi_uuid(
     *,
     exclude_expense_id: UUID | None = None,
 ) -> tuple[UUID | None, UUID | None]:
+    lock_fiscal_uuid(db, normalized_uuid)
     expense_filters = [Expense.cfdi_uuid == normalized_uuid]
     validation_filters = [CfdiValidation.uuid == normalized_uuid]
     if exclude_expense_id is not None:
@@ -462,6 +465,11 @@ def _find_duplicate_cfdi_uuid(
     duplicate_validation_expense_id = db.scalar(
         select(CfdiValidation.expense_id).where(*validation_filters)
     )
+    if duplicate_expense_id is None:
+        duplicate_expense_id = db.scalar(select(HistoricalExpense.id).where(
+            HistoricalExpense.cfdi_uuid == normalized_uuid,
+            HistoricalExpense.removed_at.is_(None),
+        ))
     return duplicate_expense_id, duplicate_validation_expense_id
 
 

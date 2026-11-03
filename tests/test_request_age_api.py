@@ -10,6 +10,7 @@ from app.api.v1.endpoints import frontend, reimbursement_requests
 from app.models.audit_log import AuditLog
 from app.models.expense import Expense, ExpenseStatus
 from app.models.reimbursement_request import ReimbursementRequest, ReimbursementRequestStatus
+from app.services import request_age as request_age_service
 from app.services import workflow
 
 
@@ -39,6 +40,7 @@ def aged_request(client, base_records, session_factory, monkeypatch):
     monkeypatch.setattr(frontend, "datetime", Clock)
     monkeypatch.setattr(reimbursement_requests, "datetime", Clock)
     monkeypatch.setattr(workflow, "datetime", Clock)
+    monkeypatch.setattr(request_age_service, "datetime", Clock)
     return {**base_records, "expense_id": expense["id"], "headers": headers}
 
 

@@ -153,6 +153,7 @@ class FrontendGastoRead(BaseModel):
 
     id: str
     backend_id: UUID = Field(alias="backendId")
+    capture_id: UUID | None = Field(default=None, alias="captureId")
     nombre: str
     fecha: date
     monto: float
@@ -203,6 +204,7 @@ class FrontendSolicitudRead(BaseModel):
     fecha_formateada: str = Field(alias="fechaFormateada")
     status: str
     backend_status: str = Field(alias="backendStatus")
+    es_extemporaneo: bool = Field(default=False, alias="esExtemporaneo")
     first_submitted_at: datetime | None = Field(default=None, alias="firstSubmittedAt")
     age_stopped_at: datetime | None = Field(default=None, alias="ageStoppedAt")
     age_calculated_at: datetime | None = Field(default=None, alias="ageCalculatedAt")

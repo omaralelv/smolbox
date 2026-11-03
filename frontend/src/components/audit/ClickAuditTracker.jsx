@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 
-import { currentToken, recordFrontendClick } from '../../lib/api';
+import { currentToken, recordFrontendClick, recordHistoricalEvent } from '../../lib/api';
+import { newAuditId } from '../../lib/captureAuditQueue';
 import { recordCaptureClick } from '../../lib/captureAudit';
 
 const CLICKABLE_SELECTOR = [
@@ -40,6 +41,14 @@ function ClickAuditTracker() {
             if (captureId) {
                 const label = readableClickLabel(clickable);
                 if (label) recordCaptureClick(captureId, label);
+                return;
+            }
+
+            const historicalId = clickable.closest('[data-audit-historical-id]')?.getAttribute('data-audit-historical-id');
+            if (historicalId) {
+                recordHistoricalEvent(historicalId, {
+                    eventId: newAuditId(), action: 'click', label: readableClickLabel(clickable),
+                }).catch(() => {});
                 return;
             }
 
