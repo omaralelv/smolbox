@@ -153,7 +153,7 @@ function SolExtemp({ currentRole }) {
     const datosIniciales = {
         fecha: DATOS_INICIALES.fecha,
         tienda: tiendaSeleccionada?.code
-            || (rol === 'admin' ? 'Selecciona una tienda' : DATOS_INICIALES.tienda),
+            || ((rol === 'admin' || rol === 'contabilidad') ? 'Selecciona una tienda' : DATOS_INICIALES.tienda),
         gerente: tiendaSeleccionada?.gerente || DATOS_INICIALES.gerente,
         cuentaBancaria: tiendaSeleccionada?.cuentaBancaria || DATOS_INICIALES.cuentaBancaria,
         estadoRegion: tiendaSeleccionada?.estadoRegion || DATOS_INICIALES.estadoRegion,
@@ -190,7 +190,7 @@ function SolExtemp({ currentRole }) {
             try {
                 let tiendas;
                 let tiendaInicial;
-                if (rol === 'admin' || rol === 'contabilidad') {
+                if (rol === 'admin') {
                     tiendas = await listActiveFrontendStores();
                     const tiendaPreferida = location.state?.selectedStoreId
                         || localStorage.getItem('solicitudTiendaActiva');
@@ -215,7 +215,7 @@ function SolExtemp({ currentRole }) {
                     setDocumentoActivo(null);
                     setObservacionesAbiertas(false);
                     setDraftLoadedStoreId('');
-                    setErrorBorrador(rol === 'admin'
+                    setErrorBorrador((rol === 'admin' || rol === 'contabilidad')
                         ? 'No hay tiendas vinculadas a usuarios activos.'
                         : 'No se encontró una tienda asignada a este usuario.');
                 }
