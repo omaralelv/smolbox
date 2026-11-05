@@ -7,16 +7,33 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import Settings
 
+from datetime import datetime
+
+def format_payment_date(value: str | datetime) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y/%m/%d")
+
+    parsed = datetime.strptime(value.strip(), "%d/%m/%Y %H:%M")
+    return parsed.strftime("%Y/%m/%d")
+
+
 logger = logging.getLogger(__name__)
 
 PAYMENT_TEMPLATE_SUBJECT = "Pago registrado – Solicitud {{request_ref}} – {{amount}} {{currency}}"
 PAYMENT_TEMPLATE_TEXT = (
+    "PAGO REGISTRADO\n"
+    "================\n\n"
     "Hola {{store_name}},\n\n"
-    "Se registró el pago de la solicitud {{request_ref}}.\n"
+    "Se registró el pago de la solicitud {{request_ref}}.\n\n"
     "Monto: {{amount}} {{currency}}\n"
-    "Fecha de pago: {{paid_at}}\n"
-    "Recuerda que siempre podrás revisar tus solicitudes pagadas a través del portal de Smolbox en el apartado de Histórico."
+    "Fecha de pago: {{paid_at}}\n\n"
+    "Recuerda que siempre podrás revisar tus solicitudes pagadas a través del "
+    "portal de Smolbox en el apartado de Histórico.\n\n"
+    "—\n"
+    "Smolbox\n"
+    "https://d3tsr2fqsn79v1.cloudfront.net/Logo%20Smolbox.png"
 )
+
 PAYMENT_TEMPLATE_HTML = (
     "<h1>Pago registrado</h1>"
     "<p>Hola {{store_name}},</p>"
@@ -99,7 +116,7 @@ def send_payment_registered_email(
         "request_ref": request_ref,
         "amount": amount,
         "currency": currency,
-        "paid_at": paid_at,
+        "paid_at": format_payment_date(paid_at),
         "reference": reference or "",
     }
     send_kwargs: dict[str, Any] = {
