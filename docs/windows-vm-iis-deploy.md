@@ -71,11 +71,15 @@ Edita `frontend\.env.production`:
 VITE_API_BASE_URL=http://IP_DE_LA_VM:8000/api/v1
 ```
 
+Usa Node.js 22.13.0 o superior para instalar las dependencias del visor PDF.
+El build incluye el worker, fuentes y mapas del visor; publica toda la carpeta
+`dist`, incluyendo `pdfjs` y el `web.config` actualizado.
+
 Compila:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run build
 cd ..
 ```

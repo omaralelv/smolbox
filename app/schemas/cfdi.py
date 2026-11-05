@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,10 +42,13 @@ class CfdiUuidAvailability(BaseModel):
     existing_validation_expense_id: UUID | None = None
 
 
-class InvoiceFolioPreview(BaseModel):
-    uuid: str
+class InvoiceDocumentHighlight(BaseModel):
+    field: Literal["date", "total", "folio"]
     page: int = Field(ge=1, le=20)
-    image_data_url: str
+    left: float = Field(ge=0, le=1)
+    top: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
 
 
 class InvoiceOcrPreviewResult(BaseModel):
@@ -56,7 +59,7 @@ class InvoiceOcrPreviewResult(BaseModel):
     confidence: Decimal | None = None
     checksum_sha256: str
     verification_token: str
-    folio_preview: InvoiceFolioPreview | None = None
+    document_highlights: list[InvoiceDocumentHighlight] = Field(default_factory=list)
 
 
 class CfdiValidationRead(BaseModel):

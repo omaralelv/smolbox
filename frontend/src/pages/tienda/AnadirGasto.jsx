@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import {
@@ -24,7 +24,9 @@ import { createCaptureAudit } from '../../lib/captureAudit';
 import { categoryRequiresManualAuthorizationArea } from '../../lib/expenseAuthorization';
 import { requiresExpenseConfirmation } from '../../lib/expenseConfirmation';
 import ExpenseConfirmationDialog from '../../components/shared/ExpenseConfirmationDialog';
-import FolioPreview from '../../components/shared/FolioPreview';
+import './AnadirGasto.css';
+
+const PdfDocumentViewer = lazy(() => import('../../components/shared/PdfDocumentViewer'));
 
 function AnadirGasto({ extemporaneo = false }) {
     const navigate = useNavigate();
@@ -140,8 +142,10 @@ function AnadirGasto({ extemporaneo = false }) {
 
 
     const [facturaFile, setFacturaFile] = useState(null);
-    const activeFacturaFile = useRef(null);
-    const [folioPreview, setFolioPreview] = useState(null);
+    const activeDocumentFile = useRef({ file: null, type: 'factura' });
+    const documentRevision = useRef(0);
+    const documentViewer = useRef(null);
+    const [documentPreview, setDocumentPreview] = useState(null);
     const [valeFile, setValeFile] = useState(null);
     const [reciboFile, setReciboFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
@@ -156,6 +160,17 @@ function AnadirGasto({ extemporaneo = false }) {
     const [ocrFactura, setOcrFactura] = useState(null);
     const [ocrVale, setOcrVale] = useState(null);
     const [ocrRecibo, setOcrRecibo] = useState(null);
+    const isCurrentDocument = (file, type) => activeDocumentFile.current.file === file && activeDocumentFile.current.type === type;
+    const selectPreviewDocument = (file, type) => {
+        activeDocumentFile.current = { file, type };
+        documentRevision.current += 1;
+        setDocumentPreview(esPdf(file) ? { file, highlights: [], key: documentRevision.current } : null);
+    };
+    const updateDocumentHighlights = (parsed, file, type) => {
+        if (!isCurrentDocument(file, type) || parsed.fueReutilizado) return;
+        setDocumentPreview((current) => current?.file === file
+            ? { ...current, highlights: parsed.document_highlights || [] } : current);
+    };
     // Cambio dinámico de tipo de documento
     const handleTipoDocumentoChange = (nuevoTipo) => {
         auditField('document_type', nuevoTipo);
@@ -164,10 +179,7 @@ function AnadirGasto({ extemporaneo = false }) {
         setGastoValidado(false);
 
         //Limpiar archivos y OCR de los tipos no seleccionados
-        if (nuevoTipo !== 'factura') {
-            activeFacturaFile.current = null;
-            setFolioPreview(null);
-        }
+        if (nuevoTipo !== tipoDocumento) selectPreviewDocument(null, nuevoTipo);
         if (nuevoTipo === 'factura') {
             setValeFile(null);
             setReciboFile(null);
@@ -301,7 +313,8 @@ function AnadirGasto({ extemporaneo = false }) {
             setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
         }
 
-        const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrVale, file);
+        const ocrDelMismoArchivo = isCurrentDocument(file, 'vale') && ocrCoincideConArchivoActual(ocrVale, file);
+        selectPreviewDocument(file, 'vale');
         setValeFile(file || null);
         setEstadoValidacion(null);
         setMensajeValidacion(file ? 'Vale cargado. Presiona "Validar Gasto" para revisar monto y fecha.' : '');
@@ -319,7 +332,8 @@ function AnadirGasto({ extemporaneo = false }) {
             setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
         }
 
-        const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrRecibo, file);
+        const ocrDelMismoArchivo = isCurrentDocument(file, 'recibo') && ocrCoincideConArchivoActual(ocrRecibo, file);
+        selectPreviewDocument(file, 'recibo');
         setReciboFile(file || null);
         setEstadoValidacion(null);
         setMensajeValidacion(file ? 'Recibo cargado. Presiona "Validar Gasto" para revisar monto y fecha.' : '');
@@ -343,15 +357,14 @@ function AnadirGasto({ extemporaneo = false }) {
     const handleFacturaFileChange = async (file) => {
         auditFile('factura', file);
         setGastoValidado(false);
-        setFolioPreview(null);
 
         if (gastoHaSidoValidadoAlMenosUnaVez) {
             setEstadoValidacion('advertencia');
             setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
         }
 
-        const ocrDelMismoArchivo = activeFacturaFile.current === file && ocrCoincideConArchivoActual(ocrFactura, file);
-        activeFacturaFile.current = file || null;
+        const ocrDelMismoArchivo = isCurrentDocument(file, 'factura') && ocrCoincideConArchivoActual(ocrFactura, file);
+        selectPreviewDocument(file, 'factura');
         setFacturaFile(file || null);
         setEstadoValidacion(null);
         if (!ocrDelMismoArchivo) {
@@ -368,7 +381,7 @@ function AnadirGasto({ extemporaneo = false }) {
         if (!esXml(file) && !esPdf(file)) {
             auditValidation('validation_failed', 'La factura debe ser un archivo válido.');
             setFacturaFile(null);
-            activeFacturaFile.current = null;
+            selectPreviewDocument(null, 'factura');
             setFolio('');
             setFolioValidado(false);
             alert('La factura debe ser un archivo válido.');
@@ -390,6 +403,7 @@ function AnadirGasto({ extemporaneo = false }) {
         try {
             auditValidation('validation_started', 'Lectura de documento XML.');
             const parsed = await parseCfdi(file);
+            if (!isCurrentDocument(file, 'factura')) return;
             setGastoPorConfirmar(null);
             const uuid = normalizarUuidFiscalValido(parsed.uuid);
 
@@ -408,6 +422,7 @@ function AnadirGasto({ extemporaneo = false }) {
         } 
         
         catch (error) {
+            if (!isCurrentDocument(file, 'factura')) return;
             setGastoPorConfirmar(null);
             auditValidation('validation_failed', apiErrorMessage(error));
             setFolio('');
@@ -492,6 +507,8 @@ function AnadirGasto({ extemporaneo = false }) {
             try {
                 await captureAudit.flush();
                 const ocrParsed = await leerDocumentoConOcr(archivoDocumento, ocrDocumento, tipoDocumento, extemporaneo ? null : captureAudit.id);
+                if (!isCurrentDocument(archivoDocumento, tipoDocumento)) return;
+                updateDocumentHighlights(ocrParsed, archivoDocumento, tipoDocumento);
                 const advertencias = validarResultadoDocumentoSimpleOcr(ocrParsed, monto, fecha, etiqueta);
                 const ocrActualizado = datosOcrParaBorrador(ocrParsed, archivoDocumento, { monto });
                 guardarOcrDocumento(tipoDocumento, ocrActualizado);
@@ -510,6 +527,7 @@ function AnadirGasto({ extemporaneo = false }) {
 
                 auditValidation('validation_completed', mensajeConAdvertencias(mensajeBase, advertencias));
             } catch (error) {
+                if (!isCurrentDocument(archivoDocumento, tipoDocumento)) return;
                 const mensaje = apiErrorMessage(error);
                 auditValidation('validation_failed', mensaje);
                 setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
@@ -561,12 +579,8 @@ function AnadirGasto({ extemporaneo = false }) {
             } else if (facturaEsPdf) {
                 await captureAudit.flush();
                 const ocrParsed = await leerFacturaPdfConOcr(facturaFile, ocrFactura, extemporaneo ? null : captureAudit.id);
-                if (activeFacturaFile.current !== facturaFile) return;
-                if (ocrParsed.folio_preview) {
-                    setFolioPreview({ file: facturaFile, data: ocrParsed.folio_preview });
-                } else if (!ocrParsed.fueReutilizado) {
-                    setFolioPreview(null);
-                }
+                if (!isCurrentDocument(facturaFile, 'factura')) return;
+                updateDocumentHighlights(ocrParsed, facturaFile, 'factura');
                 const uuidOcr = normalizarUuidFiscalValido(ocrParsed.suggested_cfdi_uuid);
                 const folioActual = normalizarUuidFiscalValido(folio);
                 const folioParaGuardar = uuidOcr || folioActual;
@@ -591,7 +605,7 @@ function AnadirGasto({ extemporaneo = false }) {
                     monto,
                     folio: folioParaGuardar,
                 });
-                if (activeFacturaFile.current !== facturaFile) return;
+                if (!isCurrentDocument(facturaFile, 'factura')) return;
                 setOcrFactura(ocrActualizado);
                 if (folioParaGuardar) {
                     validarSolicitudDespuesDeAnadir([
@@ -624,7 +638,7 @@ function AnadirGasto({ extemporaneo = false }) {
             }
         } 
         catch (error) {
-            if (facturaEsPdf && activeFacturaFile.current !== facturaFile) return;
+            if (facturaEsPdf && !isCurrentDocument(facturaFile, 'factura')) return;
             const mensaje = apiErrorMessage(error);
             auditValidation('validation_failed', mensaje);
             setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
@@ -907,7 +921,7 @@ function AnadirGasto({ extemporaneo = false }) {
 
 
     return (
-        <div style={styles.container} data-audit-capture-id={captureAudit.id}>
+        <div className="expense-entry-container" style={styles.container} data-audit-capture-id={captureAudit.id}>
         <fieldset disabled={preparandoGasto || guardandoGasto || !storeId} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         
         {/* HEADER DE LA PÁGINA CON BOTÓN CANCELAR */}
@@ -933,12 +947,21 @@ function AnadirGasto({ extemporaneo = false }) {
         </div>
 
         {/* DISEÑO EN DOS COLUMNAS (FORMULARIO E IA) */}
-        <div style={styles.mainGrid}>
+        <div className={`expense-entry-workspace${documentPreview ? ' has-document' : ''}`}>
+            {documentPreview && <aside className="expense-document-pane">
+                <Suspense fallback={<div role="status">Cargando PDF...</div>}>
+                    <PdfDocumentViewer key={documentPreview.key} ref={documentViewer}
+                        auditCaptureId={captureAudit.id}
+                        file={documentPreview.file} highlights={documentPreview.highlights} />
+                </Suspense>
+            </aside>}
+        <div className="expense-entry-editor">
+        <div className="expense-entry-main-grid" style={styles.mainGrid}>
             
             {/* COLUMNA IZQUIERDA: FORMULARIO MANUAL */}
             <div style={styles.formColumn}>
             
-                <div style={styles.formGrid}>
+                <div className="expense-form-grid" style={styles.formGrid}>
                     <div style={styles.inputGroup}>
                         <label style={styles.label}>Fecha del Comprobante *</label>
                         <input type="text" value={fecha} onChange={(e) => {
@@ -952,6 +975,7 @@ function AnadirGasto({ extemporaneo = false }) {
                             }
                         }}
                             onBlur={(e) => auditField('date', e.target.value)}
+                            onFocus={() => documentViewer.current?.focusField('date')}
                             placeholder="DD/MM/AAAA"
                             style={styles.input} />
                     </div>
@@ -968,12 +992,13 @@ function AnadirGasto({ extemporaneo = false }) {
                         <label style={styles.label}>Monto *</label>
                         <input type="number" value={monto} onChange={(e) => handleMontoChange(e.target.value)}
                         onBlur={(e) => auditField('amount', e.target.value)}
+                        onFocus={() => documentViewer.current?.focusField('total')}
                         placeholder="Ej. 123.45"
                         style={styles.input} />
                     </div>
 
                     {/* FOLIO FISCAL OCUPANDO AMBAS COLUMNAS CON BOTÓN DE CONFIRMACIÓN */}
-                    <div style={styles.inputGroupFull}>
+                    <div className="expense-folio-field" style={styles.inputGroupFull}>
                         <label style={styles.label}>
                             Folio Fiscal {tipoDocumento === 'factura' ? '*' : ''}
                         </label>
@@ -983,6 +1008,7 @@ function AnadirGasto({ extemporaneo = false }) {
                                 value={tipoDocumento === 'factura' ? folio : 'N/A'} 
                                 onChange={(e) => handleFolioChange(e.target.value)}
                                 onBlur={(e) => auditField('folio', e.target.value)}
+                                onFocus={() => documentViewer.current?.focusField('folio')}
                                 placeholder="Ej. 12345678-ABCD-1234-ABCD-1234567890AB"
                                 style={{
                                     ...styles.input,
@@ -1003,13 +1029,10 @@ function AnadirGasto({ extemporaneo = false }) {
                                 </button>
                             )}
                         </div>
-                        {tipoDocumento === 'factura' && folioPreview?.file === facturaFile && (
-                            <FolioPreview preview={folioPreview.data} />
-                        )}
                     </div>
 
                     {/* SELECTOR DESPLEGABLE CON HABILITACIÓN CONDICIONAL */}
-                    <div style={styles.inputGroupArea}>
+                    <div className="expense-area-field" style={styles.inputGroupArea}>
                         <label style={{
                             ...styles.label,
                             opacity: muestraAreaAutoriza ? 1 : 0.4
@@ -1042,7 +1065,7 @@ function AnadirGasto({ extemporaneo = false }) {
             
 
             {/* SECCIÓN DE SELECCIÓN Y CARGA DE ARCHIVOS */}
-                    <div style={styles.fileUploadContainer}>
+                    <div className="expense-file-columns" style={styles.fileUploadContainer}>
                         {/* OP Cargar Factura */}
                         <div style={styles.fileBox}>
                             <label style={styles.radioLabel}>
@@ -1179,7 +1202,7 @@ function AnadirGasto({ extemporaneo = false }) {
             </div>
 
             {/* LÍNEA DIVISORA */}
-            <div style={styles.divider}></div>
+            <div className="expense-entry-divider" style={styles.divider}></div>
 
             {/* COLUMNA DERECHA: PANEL DE VALIDACIÓN AUTOMÁTICA */}
             <div style={styles.validationColumn}>
@@ -1204,6 +1227,8 @@ function AnadirGasto({ extemporaneo = false }) {
 
         </div>
 
+        </div>
+        </div>
         {/* FOOTER INFERIOR DE ACCIONES FIJAS */}
         <div style={styles.fixedFooter}>
             <button
@@ -1312,7 +1337,6 @@ function AnadirGasto({ extemporaneo = false }) {
     },
     formGrid: {
         display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
         gap: '15px',
     },
     inputGroup: {
@@ -1331,7 +1355,6 @@ function AnadirGasto({ extemporaneo = false }) {
 
     // 👈 Ocupa ambas columnas del Grid
     inputGroupFull: {
-        gridColumn: 'span 2',
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
@@ -1344,7 +1367,6 @@ function AnadirGasto({ extemporaneo = false }) {
     },
 
     inputGroupArea: {
-        gridColumn: 'span 1', // Área que autoriza ocupa el 33% del ancho (2 de 6 columnas)
         display: 'flex',
         flexDirection: 'column',
         gap: '6px',
@@ -1393,7 +1415,6 @@ function AnadirGasto({ extemporaneo = false }) {
         //marginTop: '10px',
         //flexWrap: 'wrap',
         display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
         gap: '20px',
         alignItems: 'start',
         marginTop: '10px',
@@ -2002,7 +2023,7 @@ function esErrorDeLecturaOcr(mensaje) {
 
 function datosOcrParaBorrador(parsed, file, validacion = {}) {
     const ocrData = { ...parsed };
-    delete ocrData.folio_preview;
+    delete ocrData.document_highlights;
     return {
         ...ocrData,
         fileName: file?.name || '',

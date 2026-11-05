@@ -103,6 +103,7 @@ class TextractOcrResult:
     raw_response: dict[str, Any] | None
     receiver_validation: dict[str, Any] | None = None
     folio_region: FolioRegion | None = None
+    geometry_blocks: tuple[dict[str, Any], ...] = ()
 
 
 class TextractOcrService:
@@ -289,7 +290,7 @@ class TextractOcrService:
             )
         detected = replace(
             detected, extracted_total=None, extracted_date=None,
-            extracted_supplier=None, folio_region=region,
+            extracted_supplier=None, folio_region=region, geometry_blocks=(),
         )
         return _merge_ocr_results(result, detected)
 
@@ -432,7 +433,8 @@ def _parse_analyze_expense_response(
         for field in document.get("SummaryFields") or []:
             value = field.get("ValueDetection") or {}
             blocks.append({"BlockType": "LINE", "Text": value.get("Text"),
-                           "Geometry": value.get("Geometry"), "Page": field.get("PageNumber")})
+                           "Geometry": value.get("Geometry"), "Page": field.get("PageNumber"),
+                           "FieldType": (field.get("Type") or {}).get("Text")})
 
     return TextractOcrResult(
         raw_text=raw_text,
@@ -443,6 +445,7 @@ def _parse_analyze_expense_response(
         confidence=confidence,
         raw_response=response if store_raw_response else None,
         folio_region=locate_folio_region(blocks, suggested_cfdi_uuid, page_number=page_number),
+        geometry_blocks=_preview_geometry_blocks(blocks, page_number),
     )
 
 
@@ -466,6 +469,7 @@ def _parse_detect_document_text_response(
         confidence=_average_confidence(confidences),
         raw_response=response if store_raw_response else None,
         folio_region=locate_folio_region(blocks, _cfdi_uuid_from_text(raw_text), page_number=page_number),
+        geometry_blocks=_preview_geometry_blocks(blocks, page_number),
     )
 
 
@@ -490,6 +494,7 @@ def _merge_ocr_results(
         confidence=primary.confidence if primary.confidence is not None else fallback.confidence,
         raw_response=raw_response,
         folio_region=region,
+        geometry_blocks=(primary.geometry_blocks + fallback.geometry_blocks)[:20_000],
     )
 
 
@@ -511,6 +516,7 @@ def _combine_page_results(results: list[TextractOcrResult]) -> TextractOcrResult
         suggested_cfdi_uuid=folio,
         folio_region=next((item.folio_region for item in results
                            if item.suggested_cfdi_uuid == folio and item.folio_region is not None), None),
+        geometry_blocks=tuple(block for item in results for block in item.geometry_blocks)[:20_000],
         confidence=(sum(confidences) / Decimal(len(confidences))).quantize(Decimal("0.01"))
         if confidences
         else None,
@@ -523,6 +529,18 @@ def _combine_page_results(results: list[TextractOcrResult]) -> TextractOcrResult
 def _join_ocr_text(results: list[TextractOcrResult]) -> str:
     return "\n".join(
         dict.fromkeys(line for result in results for line in result.raw_text.splitlines() if line)
+    )
+
+
+def _preview_geometry_blocks(blocks: list[dict], page_number: int | None) -> tuple[dict, ...]:
+    # Transient positions survive even when storing the raw AWS response is disabled.
+    return tuple(
+        {"Text": block["Text"][:2000], "Geometry": block["Geometry"],
+         "Page": page_number if page_number is not None else block.get("Page"),
+         "FieldType": block.get("FieldType")}
+        for block in blocks[:20_000]
+        if block.get("BlockType") == "LINE" and isinstance(block.get("Text"), str)
+        and isinstance(block.get("Geometry"), dict)
     )
 
 

@@ -1,5 +1,4 @@
 import logging
-from base64 import b64encode
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -26,18 +25,18 @@ from app.schemas.cfdi import (
     CfdiParseResult,
     CfdiUuidAvailability,
     CfdiValidationResult,
-    InvoiceFolioPreview,
+    InvoiceDocumentHighlight,
     InvoiceOcrPreviewResult,
 )
 from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
 from app.services.cfdi_validator import normalize_cfdi_uuid, validate_cfdi_for_expense
+from app.services.document_highlights import build_document_highlights
 from app.services.expense_capture_audit import add_capture_event, get_capture
 from app.services.file_validation import InvalidAttachment, prepare_attachment_for_processing
 from app.services.fiscal_uuid_lock import lock_fiscal_uuid
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
 from app.services.ocr_receiver import assess_invoice_receiver
 from app.services.ocr_results import extraction_from_ocr_result
-from app.services.pdf_ocr import render_folio_preview
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
@@ -286,26 +285,17 @@ async def _preview_invoice_ocr(
         confidence=result.confidence,
     )
     payload["extraction_id"] = str(extraction.id)
-    folio_preview = None
-    if document_type.strip().lower() == "factura" and result.suggested_cfdi_uuid:
+    document_highlights = []
+    if content_type == "application/pdf":
         try:
-            rendered = await run_in_threadpool(
-                render_folio_preview,
-                ocr_content,
-                content_type=content_type,
-                folio=result.suggested_cfdi_uuid,
-                region=result.folio_region,
+            document_highlights = await run_in_threadpool(
+                build_document_highlights, ocr_content, result,
+                include_folio=document_type.strip().lower() == "factura",
             )
-            if rendered is not None:
-                png, page_number = rendered
-                folio_preview = InvoiceFolioPreview(
-                    uuid=result.suggested_cfdi_uuid,
-                    page=page_number,
-                    image_data_url="data:image/png;base64," + b64encode(png).decode("ascii"),
-                )
+            document_highlights = [InvoiceDocumentHighlight(**mark) for mark in document_highlights]
         except Exception:
-            # A visual aid must never change the validation outcome or signed OCR data.
-            logger.warning("Optional fiscal UUID preview unavailable for extraction %s", extraction.id, exc_info=True)
+            document_highlights = []
+            logger.warning("Optional document highlights unavailable for extraction %s", extraction.id, exc_info=True)
     return InvoiceOcrPreviewResult(
         suggested_cfdi_uuid=result.suggested_cfdi_uuid,
         extracted_total=result.extracted_total,
@@ -314,7 +304,7 @@ async def _preview_invoice_ocr(
         confidence=result.confidence,
         checksum_sha256=checksum,
         verification_token=sign_ocr_preview_payload(payload, settings.auth_token_secret),
-        folio_preview=folio_preview,
+        document_highlights=document_highlights,
     )
 
 

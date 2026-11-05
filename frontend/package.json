@@ -10,7 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "lucide-react": "1.69.0",
     "ogl": "^1.0.11",
+    "pdfjs-dist": "6.5.438",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"
