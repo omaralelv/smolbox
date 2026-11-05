@@ -401,6 +401,8 @@ def get_treasury_dashboard(
         store.id: {year: Decimal("0.00") for year in years}
         for store in stores
     }
+    normal_data_store_ids: set[UUID] = set()
+    archived_data_store_ids: set[UUID] = set()
 
     if store_ids:
         baseline_rows = db.execute(
@@ -415,6 +417,7 @@ def get_treasury_dashboard(
             )
         )
         for store_id, fiscal_year, historical_amount in baseline_rows:
+            normal_data_store_ids.add(store_id)
             values_by_store[store_id][int(fiscal_year)] += _money(historical_amount)
 
         expense_year = func.extract("year", Expense.spent_on)
@@ -435,6 +438,7 @@ def get_treasury_dashboard(
             .group_by(ReimbursementRequest.store_id, expense_year)
         )
         for store_id, fiscal_year, approved_amount in approved_rows:
+            normal_data_store_ids.add(store_id)
             values_by_store[store_id][int(fiscal_year)] += _money(approved_amount)
 
         archived_year = func.extract("year", HistoricalExpense.spent_on)
@@ -446,6 +450,7 @@ def get_treasury_dashboard(
             HistoricalRequest.store_id.in_(store_ids), archived_year.in_(years),
         ).group_by(HistoricalRequest.store_id, archived_year))
         for store_id, fiscal_year, archived_amount in archived_rows:
+            archived_data_store_ids.add(store_id)
             archived_values_by_store[store_id][int(fiscal_year)] += _money(archived_amount)
 
     return FrontendTreasuryDashboardRead(
@@ -473,6 +478,8 @@ def get_treasury_dashboard(
                 extemporaneous_values={
                     year: float(_money(archived_values_by_store[store.id][year])) for year in years
                 },
+                has_normal_data=store.id in normal_data_store_ids,
+                has_extemporaneous_data=store.id in archived_data_store_ids,
             )
             for store in stores
         ],

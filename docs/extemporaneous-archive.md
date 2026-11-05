@@ -63,6 +63,28 @@ Normales incluye los acumulados importados sin marca individual; Extemporaneas
 solo suma gastos del archivo extemporaneo registrado. La API conserva `values`
 con el total y agrega `normalValues` y `extemporaneousValues` por tienda/anio.
 
+La tabla solo muestra tiendas con registros compatibles con el tipo y la tienda
+seleccionados, dentro de los tres anios visibles. Todas combina ambas fuentes;
+una tienda sin registros no aparece, aunque siga disponible en el selector.
+La API incluye `hasNormalData` y `hasExtemporaneousData`, calculados con las
+mismas consultas de importes. Un gasto o acumulado valido de cero cuenta como
+dato: no se descarta una tienda por su importe. No cuentan borradores, gastos
+excluidos ni registros fuera de esos anios. Indicadores y grafica se calculan
+con las mismas filas filtradas de la tabla. Una seleccion sin coincidencias
+muestra el aviso de tabla vacia, importes cero y variacion N/A.
+
+Este ajuste no agrega columnas de base de datos ni migraciones. Es necesario
+actualizar backend y frontend. Si el backend anterior no envia esas marcas,
+el frontend conserva las filas y deshabilita el filtro de tipo para evitar
+deducir ausencia de registros a partir de ceros. El filtro de tienda sigue
+funcionando; no hay consultas extra al cambiar los filtros.
+
+La verificacion de este ajuste aprobo 98 pruebas de backend y 62 de frontend,
+ademas de compilacion y navegador de escritorio/movil. Se excluyo la prueba de
+CORS local ya documentada. Se probaron los siete roles, tiendas con una o ambas
+fuentes, registros validos de cero, ausencia de datos, anios fuera de rango y
+compatibilidad con respuestas anteriores. No se actualizo la VM desde aqui.
+
 Los acumulados historicos importados previamente son cantidades agregadas,
 sin folios individuales para conciliarlos. Si un comprobante ya estaba incluido
 en uno de esos acumulados, debe conciliarse antes de volver a sumarlo como

@@ -34,6 +34,8 @@ class FrontendTreasuryDashboardRowRead(BaseModel):
     values: dict[int, float]
     normal_values: dict[int, float] = Field(default_factory=dict, alias="normalValues")
     extemporaneous_values: dict[int, float] = Field(default_factory=dict, alias="extemporaneousValues")
+    has_normal_data: bool | None = Field(default=None, alias="hasNormalData")
+    has_extemporaneous_data: bool | None = Field(default=None, alias="hasExtemporaneousData")
 
 
 class FrontendTreasuryDashboardRead(BaseModel):

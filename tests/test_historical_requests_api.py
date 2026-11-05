@@ -350,6 +350,9 @@ def test_dashboard_counts_only_registered_nonremoved_expenses_by_document_year(
     assert last["values"]["2025"] - first["values"]["2025"] == 30
     assert last["normalValues"] == first["normalValues"]
     assert last["normalValues"]["2026"] == 150
+    assert first["hasNormalData"] is last["hasNormalData"] is True
+    assert first["hasExtemporaneousData"] is False
+    assert last["hasExtemporaneousData"] is True
     assert first["extemporaneousValues"]["2026"] == 0  # Drafts are never included.
     assert last["extemporaneousValues"]["2026"] == 20  # Removed expenses are excluded.
     assert last["extemporaneousValues"]["2025"] == 30
