@@ -42,6 +42,12 @@ class CfdiUuidAvailability(BaseModel):
     existing_validation_expense_id: UUID | None = None
 
 
+class InvoiceFolioPreview(BaseModel):
+    uuid: str
+    page: int = Field(ge=1, le=20)
+    image_data_url: str
+
+
 class InvoiceOcrPreviewResult(BaseModel):
     suggested_cfdi_uuid: str | None = None
     extracted_total: Decimal | None = None
@@ -50,6 +56,7 @@ class InvoiceOcrPreviewResult(BaseModel):
     confidence: Decimal | None = None
     checksum_sha256: str
     verification_token: str
+    folio_preview: InvoiceFolioPreview | None = None
 
 
 class CfdiValidationRead(BaseModel):

@@ -11,8 +11,14 @@ from io import BytesIO
 from typing import Any
 
 from app.core.config import Settings
+from app.services.ocr_folio import FolioRegion, locate_folio_region
 from app.services.ocr_receiver import assess_invoice_receiver
-from app.services.pdf_ocr import PdfOcrRenderError, render_invoice_header, render_pdf_pages
+from app.services.pdf_ocr import (
+    INVOICE_HEADER_HEIGHT_RATIO,
+    PdfOcrRenderError,
+    render_invoice_header,
+    render_pdf_pages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +102,7 @@ class TextractOcrResult:
     confidence: Decimal | None
     raw_response: dict[str, Any] | None
     receiver_validation: dict[str, Any] | None = None
+    folio_region: FolioRegion | None = None
 
 
 class TextractOcrService:
@@ -209,7 +216,7 @@ class TextractOcrService:
             return result
 
         result = _parse_analyze_expense_response(
-            response, store_raw_response=self.settings.textract_store_raw_response
+            response, store_raw_response=self.settings.textract_store_raw_response, page_number=page_number
         )
         if _ocr_result_is_sufficient(result, search_cfdi_uuid=search_cfdi_uuid):
             return result
@@ -247,7 +254,7 @@ class TextractOcrService:
             client, "detect_document_text", content, filename=filename, page_number=page_number
         )
         return _parse_detect_document_text_response(
-            response, store_raw_response=self.settings.textract_store_raw_response
+            response, store_raw_response=self.settings.textract_store_raw_response, page_number=page_number
         )
 
     def _recover_invoice_header_uuid(
@@ -272,8 +279,17 @@ class TextractOcrService:
         except TextractOcrError:
             return result
         # Cropped text is only evidence for the UUID, not a new invoice total or date.
+        region = detected.folio_region
+        if region is not None:
+            region = replace(
+                region,
+                page=page_number or (1 if is_pdf else region.page),
+                top=region.top * INVOICE_HEADER_HEIGHT_RATIO,
+                height=region.height * INVOICE_HEADER_HEIGHT_RATIO,
+            )
         detected = replace(
-            detected, extracted_total=None, extracted_date=None, extracted_supplier=None
+            detected, extracted_total=None, extracted_date=None,
+            extracted_supplier=None, folio_region=region,
         )
         return _merge_ocr_results(result, detected)
 
@@ -392,6 +408,7 @@ def _parse_analyze_expense_response(
     response: dict[str, Any],
     *,
     store_raw_response: bool,
+    page_number: int | None = None,
 ) -> TextractOcrResult:
     expense_documents = response.get("ExpenseDocuments") or []
     first_document = expense_documents[0] if expense_documents else {}
@@ -409,6 +426,13 @@ def _parse_analyze_expense_response(
     extracted_date = _date_from_summary_or_text(values_by_type, raw_text)
     suggested_cfdi_uuid = _cfdi_uuid_from_text(raw_text)
     confidence = _average_confidence(summary_fields)
+    blocks = []
+    for document in expense_documents:
+        blocks.extend(document.get("Blocks") or [])
+        for field in document.get("SummaryFields") or []:
+            value = field.get("ValueDetection") or {}
+            blocks.append({"BlockType": "LINE", "Text": value.get("Text"),
+                           "Geometry": value.get("Geometry"), "Page": field.get("PageNumber")})
 
     return TextractOcrResult(
         raw_text=raw_text,
@@ -418,11 +442,12 @@ def _parse_analyze_expense_response(
         suggested_cfdi_uuid=suggested_cfdi_uuid,
         confidence=confidence,
         raw_response=response if store_raw_response else None,
+        folio_region=locate_folio_region(blocks, suggested_cfdi_uuid, page_number=page_number),
     )
 
 
 def _parse_detect_document_text_response(
-    response: dict[str, Any], *, store_raw_response: bool
+    response: dict[str, Any], *, store_raw_response: bool, page_number: int | None = None
 ) -> TextractOcrResult:
     blocks = response.get("Blocks") or []
     lines = [block for block in blocks if block.get("BlockType") == "LINE"]
@@ -440,6 +465,7 @@ def _parse_detect_document_text_response(
         suggested_cfdi_uuid=_cfdi_uuid_from_text(raw_text),
         confidence=_average_confidence(confidences),
         raw_response=response if store_raw_response else None,
+        folio_region=locate_folio_region(blocks, _cfdi_uuid_from_text(raw_text), page_number=page_number),
     )
 
 
@@ -449,6 +475,9 @@ def _merge_ocr_results(
     raw_response = primary.raw_response or fallback.raw_response
     if primary.raw_response is not None and fallback.raw_response is not None:
         raw_response = {"sources": [primary.raw_response, fallback.raw_response]}
+    folio = primary.suggested_cfdi_uuid or fallback.suggested_cfdi_uuid
+    region = next((item.folio_region for item in (primary, fallback)
+                   if item.suggested_cfdi_uuid == folio and item.folio_region is not None), None)
     return replace(
         primary,
         raw_text=_join_ocr_text([primary, fallback]),
@@ -460,6 +489,7 @@ def _merge_ocr_results(
         suggested_cfdi_uuid=primary.suggested_cfdi_uuid or fallback.suggested_cfdi_uuid,
         confidence=primary.confidence if primary.confidence is not None else fallback.confidence,
         raw_response=raw_response,
+        folio_region=region,
     )
 
 
@@ -471,13 +501,16 @@ def _combine_page_results(results: list[TextractOcrResult]) -> TextractOcrResult
     uuids = [result.suggested_cfdi_uuid for result in results if result.suggested_cfdi_uuid]
     confidences = [result.confidence for result in results if result.confidence is not None]
     raw_responses = [result.raw_response for result in results if result.raw_response is not None]
+    folio = uuids[0] if uuids else _cfdi_uuid_from_text(raw_text)
     return TextractOcrResult(
         raw_text=raw_text,
         # Invoice totals repeated on multiple pages are not separate expenses to sum.
         extracted_total=totals[-1] if totals else _total_from_ocr_text(raw_text),
         extracted_date=dates[0] if dates else _date_from_summary_or_text({}, raw_text),
         extracted_supplier=suppliers[0] if suppliers else None,
-        suggested_cfdi_uuid=uuids[0] if uuids else _cfdi_uuid_from_text(raw_text),
+        suggested_cfdi_uuid=folio,
+        folio_region=next((item.folio_region for item in results
+                           if item.suggested_cfdi_uuid == folio and item.folio_region is not None), None),
         confidence=(sum(confidences) / Decimal(len(confidences))).quantize(Decimal("0.01"))
         if confidences
         else None,

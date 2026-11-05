@@ -24,6 +24,7 @@ import { createCaptureAudit } from '../../lib/captureAudit';
 import { categoryRequiresManualAuthorizationArea } from '../../lib/expenseAuthorization';
 import { requiresExpenseConfirmation } from '../../lib/expenseConfirmation';
 import ExpenseConfirmationDialog from '../../components/shared/ExpenseConfirmationDialog';
+import FolioPreview from '../../components/shared/FolioPreview';
 
 function AnadirGasto({ extemporaneo = false }) {
     const navigate = useNavigate();
@@ -139,6 +140,8 @@ function AnadirGasto({ extemporaneo = false }) {
 
 
     const [facturaFile, setFacturaFile] = useState(null);
+    const activeFacturaFile = useRef(null);
+    const [folioPreview, setFolioPreview] = useState(null);
     const [valeFile, setValeFile] = useState(null);
     const [reciboFile, setReciboFile] = useState(null);
     const [observaciones, setObservaciones] = useState('');
@@ -161,6 +164,10 @@ function AnadirGasto({ extemporaneo = false }) {
         setGastoValidado(false);
 
         //Limpiar archivos y OCR de los tipos no seleccionados
+        if (nuevoTipo !== 'factura') {
+            activeFacturaFile.current = null;
+            setFolioPreview(null);
+        }
         if (nuevoTipo === 'factura') {
             setValeFile(null);
             setReciboFile(null);
@@ -336,13 +343,15 @@ function AnadirGasto({ extemporaneo = false }) {
     const handleFacturaFileChange = async (file) => {
         auditFile('factura', file);
         setGastoValidado(false);
+        setFolioPreview(null);
 
         if (gastoHaSidoValidadoAlMenosUnaVez) {
             setEstadoValidacion('advertencia');
             setMensajeValidacion('TIPO DE ARCHIVO EDITADO, CARGA TU COMPROBANTE Y VUELVE A VALIDAR GASTO.');
         }
 
-        const ocrDelMismoArchivo = ocrCoincideConArchivoActual(ocrFactura, file);
+        const ocrDelMismoArchivo = activeFacturaFile.current === file && ocrCoincideConArchivoActual(ocrFactura, file);
+        activeFacturaFile.current = file || null;
         setFacturaFile(file || null);
         setEstadoValidacion(null);
         if (!ocrDelMismoArchivo) {
@@ -359,6 +368,7 @@ function AnadirGasto({ extemporaneo = false }) {
         if (!esXml(file) && !esPdf(file)) {
             auditValidation('validation_failed', 'La factura debe ser un archivo válido.');
             setFacturaFile(null);
+            activeFacturaFile.current = null;
             setFolio('');
             setFolioValidado(false);
             alert('La factura debe ser un archivo válido.');
@@ -551,6 +561,12 @@ function AnadirGasto({ extemporaneo = false }) {
             } else if (facturaEsPdf) {
                 await captureAudit.flush();
                 const ocrParsed = await leerFacturaPdfConOcr(facturaFile, ocrFactura, extemporaneo ? null : captureAudit.id);
+                if (activeFacturaFile.current !== facturaFile) return;
+                if (ocrParsed.folio_preview) {
+                    setFolioPreview({ file: facturaFile, data: ocrParsed.folio_preview });
+                } else if (!ocrParsed.fueReutilizado) {
+                    setFolioPreview(null);
+                }
                 const uuidOcr = normalizarUuidFiscalValido(ocrParsed.suggested_cfdi_uuid);
                 const folioActual = normalizarUuidFiscalValido(folio);
                 const folioParaGuardar = uuidOcr || folioActual;
@@ -575,6 +591,7 @@ function AnadirGasto({ extemporaneo = false }) {
                     monto,
                     folio: folioParaGuardar,
                 });
+                if (activeFacturaFile.current !== facturaFile) return;
                 setOcrFactura(ocrActualizado);
                 if (folioParaGuardar) {
                     validarSolicitudDespuesDeAnadir([
@@ -607,6 +624,7 @@ function AnadirGasto({ extemporaneo = false }) {
             }
         } 
         catch (error) {
+            if (facturaEsPdf && activeFacturaFile.current !== facturaFile) return;
             const mensaje = apiErrorMessage(error);
             auditValidation('validation_failed', mensaje);
             setEstadoValidacion(esErrorDeLecturaOcr(mensaje) ? 'legibilidad' : 'error');
@@ -985,6 +1003,9 @@ function AnadirGasto({ extemporaneo = false }) {
                                 </button>
                             )}
                         </div>
+                        {tipoDocumento === 'factura' && folioPreview?.file === facturaFile && (
+                            <FolioPreview preview={folioPreview.data} />
+                        )}
                     </div>
 
                     {/* SELECTOR DESPLEGABLE CON HABILITACIÓN CONDICIONAL */}
@@ -1980,8 +2001,10 @@ function esErrorDeLecturaOcr(mensaje) {
 }
 
 function datosOcrParaBorrador(parsed, file, validacion = {}) {
+    const ocrData = { ...parsed };
+    delete ocrData.folio_preview;
     return {
-        ...parsed,
+        ...ocrData,
         fileName: file?.name || '',
         fileSize: file?.size || 0,
         fileLastModified: file?.lastModified || 0,

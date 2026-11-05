@@ -1,3 +1,5 @@
+import logging
+from base64 import b64encode
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
@@ -24,6 +26,7 @@ from app.schemas.cfdi import (
     CfdiParseResult,
     CfdiUuidAvailability,
     CfdiValidationResult,
+    InvoiceFolioPreview,
     InvoiceOcrPreviewResult,
 )
 from app.services.cfdi_parser import CfdiParseError, parse_cfdi_xml
@@ -34,6 +37,7 @@ from app.services.fiscal_uuid_lock import lock_fiscal_uuid
 from app.services.ocr_preview import build_ocr_preview_payload, sign_ocr_preview_payload
 from app.services.ocr_receiver import assess_invoice_receiver
 from app.services.ocr_results import extraction_from_ocr_result
+from app.services.pdf_ocr import render_folio_preview
 from app.services.request_editability import is_request_editable
 from app.services.storage import (
     EmptyUpload,
@@ -50,6 +54,7 @@ from app.services.textract_ocr import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def _parse_upload(
@@ -281,6 +286,26 @@ async def _preview_invoice_ocr(
         confidence=result.confidence,
     )
     payload["extraction_id"] = str(extraction.id)
+    folio_preview = None
+    if document_type.strip().lower() == "factura" and result.suggested_cfdi_uuid:
+        try:
+            rendered = await run_in_threadpool(
+                render_folio_preview,
+                ocr_content,
+                content_type=content_type,
+                folio=result.suggested_cfdi_uuid,
+                region=result.folio_region,
+            )
+            if rendered is not None:
+                png, page_number = rendered
+                folio_preview = InvoiceFolioPreview(
+                    uuid=result.suggested_cfdi_uuid,
+                    page=page_number,
+                    image_data_url="data:image/png;base64," + b64encode(png).decode("ascii"),
+                )
+        except Exception:
+            # A visual aid must never change the validation outcome or signed OCR data.
+            logger.warning("Optional fiscal UUID preview unavailable for extraction %s", extraction.id, exc_info=True)
     return InvoiceOcrPreviewResult(
         suggested_cfdi_uuid=result.suggested_cfdi_uuid,
         extracted_total=result.extracted_total,
@@ -289,6 +314,7 @@ async def _preview_invoice_ocr(
         confidence=result.confidence,
         checksum_sha256=checksum,
         verification_token=sign_ocr_preview_payload(payload, settings.auth_token_secret),
+        folio_preview=folio_preview,
     )
 
 
