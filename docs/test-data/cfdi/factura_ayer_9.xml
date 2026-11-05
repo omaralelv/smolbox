@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-27T16:56:00"
+  Moneda="MXN"
+  Total="689.56"
+  MetodoPago="PUE">
+  <cfdi:Emisor Rfc="BBB090909EEE" Nombre="TECNOLOGIAS DE INFORMACION Y COMUNICACION"/>
+  <cfdi:Receptor Rfc="JJJ090909JJJ" Nombre="COMERCIALIZADORA MULTILATINA"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="82D68F67-4A58-4B25-9085-7B7E43E8596A"/>
+  </cfdi:Complemento></cfdi:Comprobante>

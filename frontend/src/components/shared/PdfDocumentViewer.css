@@ -1,0 +1,24 @@
+.pdf-document-viewer { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; overflow: hidden; border: 1px solid #d5d5d5; border-radius: 4px; color: #252525; background: #f0f1f2; }
+.pdf-document-title { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 6px 8px; background: #fff; border-bottom: 1px solid #ddd; }
+.pdf-document-title > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.pdf-document-viewer button { display: inline-flex; justify-content: center; align-items: center; flex: 0 0 32px; width: 32px; height: 32px; border: 0; border-radius: 4px; color: #333; background: transparent; cursor: pointer; }
+.pdf-document-viewer button:hover { background: #e8e9eb; }
+.pdf-document-viewer button:disabled { opacity: .35; cursor: default; }
+.pdf-document-viewer button:focus-visible, .pdf-document-scroll:focus-visible { outline: 2px solid #316a8f; outline-offset: -2px; }
+.pdf-document-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; padding: 4px 8px; background: #fafafa; border-bottom: 1px solid #d5d5d5; }
+.pdf-page-controls, .pdf-zoom-controls { display: flex; align-items: center; gap: 2px; font-size: 12px; }
+.pdf-page-controls input { box-sizing: border-box; width: 42px; height: 28px; padding: 2px; border: 1px solid #ccc; border-radius: 4px; color: #222; background: #fff; text-align: center; font: inherit; appearance: textfield; }
+.pdf-page-controls input::-webkit-inner-spin-button { appearance: none; }
+.pdf-page-controls > span { min-width: 24px; }
+.pdf-zoom-controls output { width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+.pdf-document-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.pdf-sheet-track { box-sizing: border-box; width: max-content; min-width: 100%; display: flex; justify-content: center; padding: 12px; }
+.pdf-document-sheet { position: relative; flex-shrink: 0; background: white; box-shadow: 0 1px 4px #0002; }
+.pdf-document-sheet canvas { display: block; width: 100%; height: 100%; }
+.pdf-field-highlight { position: absolute; box-sizing: border-box; min-height: 3px; background: rgb(255 221 0 / 35%); border-bottom: 2px solid #dfb000; pointer-events: none; }
+.pdf-field-highlight.is-active { outline: 2px solid #ad8100; outline-offset: 2px; }
+.pdf-document-status { padding: 24px; text-align: center; font-size: 13px; color: #555; }
+.pdf-native-fallback { flex: 1; width: 100%; min-height: 0; border: 0; }
+.pdf-document-backdrop { position: fixed; inset: 0; z-index: 10000; background: #0008; }
+.pdf-document-viewer.is-expanded { position: fixed; inset: 16px; height: auto; z-index: 10001; border-radius: 6px; }
+@media (max-width: 600px) { .pdf-document-viewer.is-expanded { inset: 8px; } }

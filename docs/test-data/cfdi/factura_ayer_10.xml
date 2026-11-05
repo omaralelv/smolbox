@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-27T17:03:00"
+  Moneda="MXN"
+  Total="217.77"
+  MetodoPago="PPD">
+  <cfdi:Emisor Rfc="CCC101010FFF" Nombre="COMERCIALIZADORA DE METALES Y SUMINISTROS"/>
+  <cfdi:Receptor Rfc="KKK101010KKK" Nombre="GLOBAL TRADING SOLUTIONS"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="37E40876-1C57-4170-9A70-12E1E53253D2"/>
+  </cfdi:Complemento></cfdi:Comprobante>
