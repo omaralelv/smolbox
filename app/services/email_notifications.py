@@ -128,6 +128,13 @@ def send_payment_registered_email(
     if settings.ses_configuration_set:
         send_kwargs["ConfigurationSetName"] = settings.ses_configuration_set
 
+    logger.info(
+        "SES send attempt payment_id=%s template=%r region=%s configuration_set=%r",
+        payment_id,
+        settings.ses_template_name,
+        settings.ses_region or settings.aws_region,
+        settings.ses_configuration_set,
+    )
     try:
         build_ses_client(settings).send_templated_email(**send_kwargs)
     except (ClientError, BotoCoreError):
