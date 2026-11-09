@@ -1205,23 +1205,24 @@ function AnadirGasto({ extemporaneo = false }) {
             <div className="expense-entry-divider" style={styles.divider}></div>
 
             {/* COLUMNA DERECHA: PANEL DE VALIDACIÓN AUTOMÁTICA */}
-            <div style={styles.validationColumn}>
-            <h3 style={styles.validationTitle}>VALIDACIÓN</h3>
-            
-            {cargandoValidacion && <p style={{textAlign: 'center', color: 'var(--text-revision)'}}>Procesando documentos ...</p>}
+            <div className="expense-validation-column" style={styles.validationColumn}>
+            {/* <div style={styles.validationColumn}>*/}
+                <h3 style={styles.validationTitle}>VALIDACIÓN</h3>
+                
+                {cargandoValidacion && <p style={{textAlign: 'center', color: 'var(--text-revision)'}}>Procesando documentos ...</p>}
 
-            {mensajeValidacion && (
-                <div style={{
-                    ...styles.validationMessage,
-                    ...(estadoValidacion === 'listo'
-                        ? styles.validationMessageOk
-                        : estadoValidacion === 'advertencia'
-                            ? styles.validationMessageWarning
-                        : styles.validationMessageError)
-                }}>
-                    {mensajeValidacion}
-                </div>
-            )}
+                {mensajeValidacion && (
+                    <div style={{
+                        ...styles.validationMessage,
+                        ...(estadoValidacion === 'listo'
+                            ? styles.validationMessageOk
+                            : estadoValidacion === 'advertencia'
+                                ? styles.validationMessageWarning
+                            : styles.validationMessageError)
+                    }}>
+                        {mensajeValidacion}
+                    </div>
+                )}
 
             </div>
 

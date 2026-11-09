@@ -8,7 +8,13 @@
 .expense-file-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .expense-entry-container input, .expense-entry-container select, .expense-entry-container textarea { box-sizing: border-box; min-width: 0; max-width: 100%; }
 .expense-entry-container .expense-form-grid input, .expense-entry-container .expense-form-grid select { width: 100%; }
-.has-document .expense-entry-main-grid { flex-direction: column; }
+
+/* Si hay documento, coloca la columna de validación arriba del formulario */
+.has-document .expense-validation-column {order: -1; margin-bottom: 20px; }
+/* .has-document .expense-entry-main-grid { flex-direction: column; } */
+.has-document .expense-entry-main-grid {display: flex; flex-direction: column; }
+.has-document .formColumn {order: 0; }
+
 .has-document .expense-entry-divider { display: none; }
 .has-document .expense-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .has-document .expense-area-field { grid-column: 2; grid-row: 2; }
