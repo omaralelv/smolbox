@@ -26,6 +26,8 @@ def _check(text):
 def test_receiver_exact_match_normalizes_without_consuming_tolerance(text):
     result = _check(text)
     assert result["accepted"]
+    assert result["match_rule"] == "any"
+    assert result["matched_fields"] == ["razon_social", "rfc"]
     assert result["missing_fields"] == []
     for field in result["fields"].values():
         assert field["match_type"] == "exact"
@@ -53,10 +55,11 @@ def test_receiver_exact_match_normalizes_without_consuming_tolerance(text):
     ("razon_social", "COMERXXXCIAL IAC", 3),
 ])
 def test_receiver_accepts_one_to_three_edits_in_each_field(field, detected, differences):
-    name = detected if field == "razon_social" else NAME
-    rfc = detected if field == "rfc" else RFC
+    name = detected if field == "razon_social" else "OTRA EMPRESA"
+    rfc = detected if field == "rfc" else "OTR010101AAA"
     result = _check(f"RECEPTOR\nNombre: {name}\nRFC: {rfc}")
     assert result["accepted"]
+    assert result["matched_fields"] == [field]
     match = result["fields"][field]
     assert match["match_type"] == "tolerated"
     assert match["edit_distance"] == differences
@@ -87,11 +90,12 @@ def test_unlabeled_name_can_contain_digit_confusions(name, differences):
     ("razon_social", "COMERCIA"),
     ("razon_social", "COMERXXXXCIAL IAC"),
 ])
-def test_receiver_rejects_four_differences(field, detected):
+def test_field_with_four_differences_does_not_match_but_other_field_can_pass(field, detected):
     name = detected if field == "razon_social" else NAME
     rfc = detected if field == "rfc" else RFC
     result = _check(f"RECEPTOR\nNombre: {name}\nRFC: {rfc}")
-    assert not result["accepted"]
+    assert result["accepted"]
+    assert not result["fields"][field]["accepted"]
     assert result["missing_fields"] == [field]
     assert result["fields"][field]["edit_distance"] is None
 
@@ -104,15 +108,15 @@ def test_receiver_rejects_four_differences(field, detected):
     ("RECEPTOR\nNombre:\nRFC: CIA090819PW4", ["razon_social"]),
     ("RECEPTOR\nNombre: COMERCIAL IAC\nRFC:\nTotal: 100.00", ["rfc"]),
 ])
-def test_absent_fields_do_not_pass_via_tolerance(text, missing):
+def test_absent_fields_stay_unmatched_without_blocking_the_other_field(text, missing):
     result = _check(text)
-    assert not result["accepted"]
+    assert result["accepted"] == (len(missing) == 1)
     assert result["missing_fields"] == missing
     for field in missing:
         assert result["fields"][field]["match_type"] == "missing"
     assert validate_expected_invoice_receiver(
         text, expected_name=NAME, expected_rfc=RFC,
-    ) == missing
+    ) == ([] if result["accepted"] else missing)
 
 
 @pytest.mark.parametrize("text", [
@@ -168,13 +172,29 @@ def test_global_search_does_not_depend_on_labels_order_or_invoice_body(text):
 @pytest.mark.parametrize("text", [
     "RECEPTOR Nombre: OTRA EMPRESA RFC: CIA090819PW4",
     "EMISOR Nombre: COMERCIAL IAC RFC: OTR010101AAA",
+])
+def test_global_search_accepts_a_match_for_either_field(text):
+    result = _check(text)
+    assert result["accepted"]
+    assert len(result["matched_fields"]) == 1
+    assert len(result["missing_fields"]) == 1
+
+
+@pytest.mark.parametrize("text", [
     "FOLIO FISCAL: DEMO\nFacturado a: OTRA EMPRESA\nRFC: OTR010101AAA",
     "TOTAL: $100.00\nSin datos fiscales",
+    "RECEPTOR Nombre: COMERCIA XXXX RFC: CIA09081XXXX",
+    "RECEPTOR Nombre: COMERCIA XXXX RFC:",
+    "RECEPTOR Nombre: RFC: CIA09081XXXX",
 ])
-def test_global_search_still_requires_a_match_for_both_fields(text):
+def test_global_search_rejects_when_neither_field_matches(text):
     result = _check(text)
     assert not result["accepted"]
-    assert result["missing_fields"]
+    assert result["matched_fields"] == []
+    assert result["missing_fields"] == ["razon_social", "rfc"]
+    assert validate_expected_invoice_receiver(
+        text, expected_name=NAME, expected_rfc=RFC,
+    ) == result["missing_fields"]
 
 
 def test_global_search_prefers_exact_match_over_an_earlier_tolerated_match():
@@ -204,6 +224,27 @@ def test_unset_expected_fields_are_not_required():
     result = assess_invoice_receiver(None, expected_name=None, expected_rfc=None)
     assert result["accepted"]
     assert all(field["match_type"] == "not_required" for field in result["fields"].values())
+    assert result["matched_fields"] == []
+
+
+@pytest.mark.parametrize("expected_name,expected_rfc,text,accepted,matched", [
+    (None, RFC, RFC, True, ["rfc"]),
+    (None, RFC, NAME, False, []),
+    (None, RFC, None, False, []),
+    (" ", RFC, "OTR010101AAA", False, []),
+    (NAME, None, NAME, True, ["razon_social"]),
+    (NAME, None, RFC, False, []),
+    (NAME, None, None, False, []),
+    (NAME, "", "OTRA EMPRESA", False, []),
+])
+def test_only_configured_fields_can_satisfy_the_or_rule(
+    expected_name, expected_rfc, text, accepted, matched,
+):
+    result = assess_invoice_receiver(
+        text, expected_name=expected_name, expected_rfc=expected_rfc,
+    )
+    assert result["accepted"] == accepted
+    assert result["matched_fields"] == matched
 
 
 def test_repeated_identical_unlabeled_fields_are_not_ambiguous():
@@ -266,11 +307,12 @@ def test_non_identity_receiver_fields_do_not_split_its_rfc_and_name(address_labe
 
 
 @pytest.mark.parametrize("name", ["OTRA EMPRESA", "COMERCIA XXXX"])
-def test_global_search_rejects_an_unmatched_name_next_to_an_address(name):
+def test_global_search_accepts_rfc_despite_an_unmatched_name_next_to_an_address(name):
     result = _check(
         f"RFC RECEPTOR: {RFC}\nNOMBRE RECEPTOR: {name}\nCALLE DE PRUEBA 22"
     )
-    assert not result["accepted"]
+    assert result["accepted"]
+    assert result["matched_fields"] == ["rfc"]
     assert result["missing_fields"] == ["razon_social"]
 
 
@@ -284,7 +326,8 @@ def test_rfc_address_boundary_does_not_change_the_three_character_limit():
     result = _check(
         "RFC RECEPTOR: CIA09081XXXX\nAV REFORMA 326\nNOMBRE RECEPTOR: COMERCIAL IAC"
     )
-    assert not result["accepted"]
+    assert result["accepted"]
+    assert result["matched_fields"] == ["razon_social"]
     assert result["missing_fields"] == ["rfc"]
 
 

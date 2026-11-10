@@ -554,7 +554,83 @@ def test_xml_invoice_keeps_exact_rfc_validation_and_global_uuid_protection(
     assert response.status_code == 409
 
 
-def test_ocr_receiver_and_file_validation_are_not_bypassed(client, scenario, monkeypatch):
+@pytest.mark.parametrize("reuse_preview", [False, True])
+@pytest.mark.parametrize("name,rfc,matched", [
+    ("COMERCIAL IAC", "CIA090819PW4", ["razon_social", "rfc"]),
+    ("COMERCIAL IAC", "OTR010101AAA", ["razon_social"]),
+    ("OTRA EMPRESA", "CIA090819PW4", ["rfc"]),
+    ("COMERCIAL IAC", "", ["razon_social"]),
+    ("", "CIA090819PW4", ["rfc"]),
+    ("COMERCIAL XXX", "OTR010101AAA", ["razon_social"]),
+    ("OTRA EMPRESA", "CIA090819XXX", ["rfc"]),
+])
+def test_historical_invoice_accepts_either_receiver_field_and_preserves_ocr(
+    client, scenario, monkeypatch, session_factory, reuse_preview, name, rfc, matched,
+):
+    request = draft(client, scenario)
+    request, _ = expense(
+        client, scenario, request["backendId"], document_type="factura", uuid=str(uuid4())
+    )
+    expense_id = request["gastos"][0]["backendId"]
+    original = _scanned_pdf()
+    raw_text = f"RECEPTOR\nNombre: {name}\nRFC: {rfc}\nTotal $20.00"
+    raw_response = {"Blocks": [{"BlockType": "LINE", "Text": raw_text}]}
+    result = TextractOcrResult(
+        raw_text=raw_text,
+        extracted_total=Decimal(20),
+        extracted_date=date(2026, 1, 15),
+        extracted_supplier=None,
+        suggested_cfdi_uuid=None,
+        confidence=None,
+        raw_response=raw_response,
+    )
+    monkeypatch.setattr(TextractOcrService, "is_enabled", property(lambda self: True))
+    monkeypatch.setattr(TextractOcrService, "extract_expense", lambda *args, **kwargs: result)
+    data = {}
+    if reuse_preview:
+        preview = client.post(
+            "/api/v1/cfdi/ocr-preview",
+            files={"file": ("invoice.pdf", original, "application/pdf")},
+        )
+        assert preview.status_code == 200, preview.text
+        data["ocr_preview_token"] = preview.json()["verification_token"]
+
+        def fail_if_called(*args, **kwargs):
+            pytest.fail("An existing preview must not invoke OCR again for an archive")
+
+        monkeypatch.setattr(TextractOcrService, "extract_expense", fail_if_called)
+
+    response = client.post(
+        f"{ROOT}/expenses/{expense_id}/attachments/me",
+        headers=scenario["headers"],
+        data=data,
+        files={"file": ("invoice.pdf", original, "application/pdf")},
+    )
+    assert response.status_code == 201, response.text
+    with session_factory() as db:
+        attachment = db.get(HistoricalAttachment, UUID(response.json()["id"]))
+        assert attachment.ocr_data["raw_text"] == raw_text
+        assert attachment.ocr_data["raw_response"] == raw_response
+        comparison = attachment.ocr_data["receiver_validation"]
+        assert comparison["accepted"]
+        assert comparison["match_rule"] == "any"
+        assert comparison["matched_fields"] == matched
+        assert comparison["missing_fields"] == [
+            field for field in ("razon_social", "rfc") if field not in matched
+        ]
+    downloaded = client.get(
+        f"{ROOT}/attachments/{response.json()['id']}/download/me", headers=scenario["headers"]
+    )
+    assert downloaded.content == original
+    final = register(client, scenario, request)
+    assert final["status"] == "Pagada" and final["esExtemporaneo"]
+    assert final["montoTotal"] == 20
+
+
+@pytest.mark.parametrize("reuse_preview", [False, True])
+def test_ocr_receiver_and_file_validation_are_not_bypassed(
+    client, scenario, monkeypatch, session_factory, reuse_preview,
+):
     request = draft(client, scenario)
     request, _ = expense(
         client, scenario, request["backendId"], document_type="factura", uuid=str(uuid4())
@@ -580,13 +656,26 @@ def test_ocr_receiver_and_file_validation_are_not_bypassed(client, scenario, mon
             raw_response=None,
         ),
     )
+    original = _scanned_pdf()
+    data = {}
+    if reuse_preview:
+        preview = client.post(
+            "/api/v1/cfdi/ocr-preview",
+            data={"document_type": "vale"},
+            files={"file": ("invoice.pdf", original, "application/pdf")},
+        )
+        assert preview.status_code == 200, preview.text
+        data["ocr_preview_token"] = preview.json()["verification_token"]
     response = client.post(
         f"{ROOT}/expenses/{expense_id}/attachments/me",
         headers=scenario["headers"],
-        files={"file": ("invoice.pdf", _scanned_pdf(), "application/pdf")},
+        data=data,
+        files={"file": ("invoice.pdf", original, "application/pdf")},
     )
     assert response.status_code == 409
     assert "receptor" in response.text
+    with session_factory() as db:
+        assert db.scalar(select(func.count()).select_from(HistoricalAttachment)) == 0
 
 
 def test_register_rejects_stale_expense_list_and_event_id_reuse(client, scenario):

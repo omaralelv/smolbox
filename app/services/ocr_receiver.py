@@ -19,11 +19,17 @@ def assess_invoice_receiver(
         "razon_social": _search_field(expected_name, text, compact_text, positions, tokens),
         "rfc": _search_field(expected_rfc, text, compact_text, positions, tokens),
     }
+    required_fields = [
+        field for field, result in fields.items() if result["match_type"] != "not_required"
+    ]
+    matched_fields = [field for field in required_fields if fields[field]["accepted"]]
     missing_fields = [field for field, result in fields.items() if not result["accepted"]]
     return {
         "max_differences": MAX_RECEIVER_DIFFERENCES,
         "scope": "global",
-        "accepted": not missing_fields,
+        "match_rule": "any",
+        "accepted": not required_fields or bool(matched_fields),
+        "matched_fields": matched_fields,
         "missing_fields": missing_fields,
         "fields": fields,
     }

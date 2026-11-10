@@ -89,7 +89,10 @@ si existen lecturas sin adjunto, evitando eliminarlas silenciosamente.
 Solo la razon social y el RFC del receptor de una factura leida por OCR admiten
 hasta tres cambios, caracteres adicionales o caracteres faltantes por campo.
 Primero se eliminan diferencias de mayusculas, acentos, espacios y signos; estas
-no consumen tolerancia. Ambos campos deben estar presentes y cumplir su limite.
+no consumen tolerancia. Basta con que el RFC o la razon social coincida dentro
+de su limite; el otro campo puede faltar o no coincidir. Si solo se configura
+uno de los valores esperados, ese campo debe coincidir: un campo sin configurar
+no cuenta como coincidencia.
 La fecha, monto, folio fiscal y validacion XML no usan esta tolerancia.
 
 La busqueda es global: se revisa todo el texto reconocido, sin separar emisor,
@@ -99,7 +102,7 @@ no aparece, se comparan fragmentos de palabras consecutivas en todo el documento
 con el limite de tres diferencias. Los fragmentos aproximados respetan palabras
 completas para no recortar un token incorrecto hasta hacerlo coincidir. Los dos
 campos se buscan por separado y no necesitan estar juntos ni llevar etiquetas.
-Si alguno no tiene coincidencia, se mantiene el rechazo y la alerta actual.
+Solo si ninguno de los campos configurados coincide se rechaza con la alerta actual.
 No se agregaron controles ni mensajes al formulario.
 
 Esta regla comprueba presencia, no pertenencia al receptor: puede aceptar datos
@@ -114,8 +117,11 @@ En `receiver_validation`, `fields.rfc` y `fields.razon_social` guardan `expected
 `match_type` indica `exact`, `tolerated`, `missing` o `not_required`; las lecturas
 anteriores tambien pueden contener `mismatch`. La distancia se guarda cuando
 esta entre 0 y 3; si no hay coincidencia, el valor detectado y la distancia quedan
-vacios, sin inventar una lectura. Tambien se guarda el limite, `scope=global` y
-los campos rechazados. Esta evidencia se copia al adjunto
+vacios, sin inventar una lectura. Tambien se guarda el limite, `scope=global`,
+`match_rule=any`, `matched_fields` con los campos que permitieron aceptar la
+validacion, y `missing_fields` con los campos sin coincidencia. Este ultimo puede
+contener un campo aunque `accepted=true`: la decision global usa la regla OR.
+Esta evidencia se copia al adjunto
 al reutilizar la validacion y se consulta en el mismo endpoint protegido de OCR.
 
 `raw_text` y `raw_response` no se corrigen ni sustituyen por los valores esperados.

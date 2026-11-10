@@ -262,7 +262,7 @@ async def _preview_invoice_ocr(
 
     if document_type.strip().lower() == "factura":
         missing_receiver_fields = extraction.receiver_validation["missing_fields"]
-        if missing_receiver_fields:
+        if not extraction.receiver_validation["accepted"]:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={

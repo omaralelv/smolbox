@@ -106,6 +106,7 @@ def test_wrong_receiver_does_not_discard_the_reading(
     client, saved_result, session_factory, test_settings,
 ):
     test_settings.invoice_ocr_receiver_name = "OTRA EMPRESA"
+    test_settings.invoice_ocr_receiver_rfc = "OTR010101AAA"
     response = _preview(client)
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "OCR_RECEIVER_MISMATCH"
@@ -372,10 +373,10 @@ def test_receiver_tolerance_keeps_original_reading_and_signed_preview_reuse(
 
 
 @pytest.mark.parametrize("name,rfc,missing", [
-    ("COMERCIAL IAC", "CIA09081XXXX", ["rfc"]),
-    ("COMERCIA XXXX", "CIA090819PW4", ["razon_social"]),
-    ("", "CIA090819PW4", ["razon_social"]),
-    ("COMERCIAL IAC", "", ["rfc"]),
+    ("COMERCIA XXXX", "CIA09081XXXX", ["razon_social", "rfc"]),
+    ("COMERCIA XXXX", "", ["razon_social", "rfc"]),
+    ("", "CIA09081XXXX", ["razon_social", "rfc"]),
+    ("", "", ["razon_social", "rfc"]),
 ])
 def test_rejected_receiver_keeps_same_alert_and_internal_comparison(
     client, saved_result, session_factory, monkeypatch, name, rfc, missing,
@@ -399,7 +400,54 @@ def test_rejected_receiver_keeps_same_alert_and_internal_comparison(
         assert row.raw_text == result.raw_text
         assert row.raw_response == RAW_RESPONSE
         assert not row.receiver_validation["accepted"]
+        assert row.receiver_validation["match_rule"] == "any"
+        assert row.receiver_validation["matched_fields"] == []
         assert row.receiver_validation["missing_fields"] == missing
+
+
+@pytest.mark.parametrize("name,rfc,matched", [
+    ("COMERCIAL IAC", "CIA090819PW4", ["razon_social", "rfc"]),
+    ("COMERCIAL IAC", "CIA09081XXXX", ["razon_social"]),
+    ("COMERCIA XXXX", "CIA090819PW4", ["rfc"]),
+    ("", "CIA090819PW4", ["rfc"]),
+    ("COMERCIAL IAC", "", ["razon_social"]),
+    ("COMERCIAL XXX", "CIA09081XXXX", ["razon_social"]),
+    ("COMERCIA XXXX", "CIA090819XXX", ["rfc"]),
+])
+def test_either_receiver_field_is_accepted_saved_and_reused_without_another_ocr(
+    client, base_records, saved_result, session_factory, monkeypatch, name, rfc, matched,
+):
+    result = replace(saved_result, raw_text=f"RECEPTOR\nNombre: {name}\nRFC: {rfc}")
+    monkeypatch.setattr(TextractOcrService, "extract_expense", lambda *args, **kwargs: result)
+    preview = _preview(client)
+    assert preview.status_code == 200, preview.text
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("An accepted receiver comparison must reuse the saved OCR")
+
+    monkeypatch.setattr(TextractOcrService, "extract_expense", fail_if_called)
+    uploaded = _upload(
+        client, create_expense(client, base_records), token=preview.json()["verification_token"],
+    )
+    with session_factory() as session:
+        rows = session.scalars(select(OcrExtraction)).all()
+        assert len(rows) == 2
+        assert rows[0].receiver_validation == rows[1].receiver_validation
+        for row in rows:
+            _assert_reading(row, result)
+            comparison = row.receiver_validation
+            assert comparison["accepted"]
+            assert comparison["match_rule"] == "any"
+            assert comparison["matched_fields"] == matched
+            assert comparison["missing_fields"] == [
+                field for field in ("razon_social", "rfc") if field not in matched
+            ]
+    detail = client.get(
+        f"/api/v1/attachments/{uploaded['id']}/ocr/me", headers=authenticated_audit_headers(client),
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["receiver_validation"]["matched_fields"] == matched
+    assert detail.json()["raw_text"] == result.raw_text
 
 
 def test_receiver_address_is_not_part_of_name_and_original_ocr_is_preserved(

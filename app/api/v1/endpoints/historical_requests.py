@@ -386,7 +386,7 @@ async def upload_document(
                 expected_rfc=settings.invoice_ocr_receiver_rfc,
             )
             ocr_data["receiver_validation"] = receiver
-            if receiver["missing_fields"]:
+            if not receiver["accepted"]:
                 raise HTTPException(
                     409,
                     expected_invoice_receiver_message(

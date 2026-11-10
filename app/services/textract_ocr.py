@@ -376,9 +376,10 @@ def validate_expected_invoice_receiver(
     expected_name: str | None,
     expected_rfc: str | None,
 ) -> list[str]:
-    return assess_invoice_receiver(
+    result = assess_invoice_receiver(
         raw_text, expected_name=expected_name, expected_rfc=expected_rfc,
-    )["missing_fields"]
+    )
+    return [] if result["accepted"] else result["missing_fields"]
 
 
 def expected_invoice_receiver_message(
