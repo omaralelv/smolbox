@@ -1,0 +1,42 @@
+# ==========================================
+# 1. ENTORNO Y SECRETOS (¡NUNCA SUBIR!)
+# ==========================================
+.env
+.env.local
+.env.*.local
+
+# ==========================================
+# 2. DEPENDENCIAS Y COMPILADOS (JavaScript/Node)
+# ==========================================
+node_modules/
+/dist
+/build
+.vite/
+
+# ==========================================
+# 3. DEPENDENCIAS Y COMPILADOS (Python)
+# ==========================================
+.venv/
+venv/
+ENV/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.py[cod]
+*.egg-info/
+
+# ==========================================
+# 4. ARCHIVOS GENERADOS / CARGAS
+# ==========================================
+uploads/
+
+# ==========================================
+# 5. ARCHIVOS DEL SISTEMA Y EDITORES
+# ==========================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

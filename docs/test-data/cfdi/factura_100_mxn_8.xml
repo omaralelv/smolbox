@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-28T15:31:00"
+  Moneda="MXN"
+  Total="100.00"
+  MetodoPago="PPD">
+  <cfdi:Emisor Rfc="AAA080808DDD" Nombre="CORPORATIVO INTERNACIONAL DE MEXICO"/>
+  <cfdi:Receptor Rfc="III080808III" Nombre="INDUSTRIAS UNIDAS DE MEXICO"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="54ED1CE2-B203-4331-BDEC-36AC07E2BEF3"/>
+  </cfdi:Complemento></cfdi:Comprobante>

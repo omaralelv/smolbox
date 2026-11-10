@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante
+  xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0"
+  Fecha="2026-08-30T12:00:00"
+  Moneda="MXN"
+  Total="512.75"
+  MetodoPago="PUE">
+  <cfdi:Emisor Rfc="LMN030303456" Nombre="DISTRIBUIDORA INDUSTRIAL DE MEXICO SA"/>
+  <cfdi:Receptor Rfc="DDD030303DDD" Nombre="CORPORATIVO GLOBAL S DE RL"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital UUID="5FA24550-BF2F-41BF-A3D2-C7692B53939B"/>
+  </cfdi:Complemento></cfdi:Comprobante>
